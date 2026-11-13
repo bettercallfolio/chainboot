@@ -4,6 +4,7 @@ import { Keypair } from "../solana/keys.ts";
 import { UsageError, allow, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { RPC_HELP, cmdNetwork, cmdRpc } from "./cmd-rpc.ts";
+import { RUN_HELP, cmdEngine, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStop } from "./cmd-run.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
 
 export const VERSION = "0.1.0";
@@ -15,8 +16,16 @@ ${bold("Start here")}
   chainboot list                 Show the systems you can run
   chainboot run solbuntu         Download, verify and start Solbuntu (Ubuntu 26.04 LTS)
 
+${bold("Machines")}
+  run <image> [-- command]       Open a shell (or run a command) in a machine
+  machines                       List your machines
+  stop <machine>                 Stop a running machine
+  rm <machine>                   Delete a machine and its changes
+
 ${bold("Images")}
   pull <image>                   Download an image without starting it
+  images                         List downloaded images
+  rmi <image>                    Delete a downloaded image
   publish <archive> ...          Put your own Linux system on chain
   unlist <image>                 Remove an image from your catalog
 
@@ -30,6 +39,12 @@ Run "chainboot <command> --help" for details.`;
 interface Command { run: (a: Args) => Promise<void> | void; help: string; options: string[]; booleans?: string[] }
 
 const COMMANDS: Record<string, Command> = {
+  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch"] },
+  machines: { run: cmdMachines, help: RUN_HELP, options: [] },
+  stop: { run: cmdStop, help: RUN_HELP, options: [] },
+  rm: { run: cmdRm, help: RUN_HELP, options: ["yes"], booleans: ["yes"] },
+  images: { run: cmdImages, help: RUN_HELP, options: [] },
+  rmi: { run: cmdRmi, help: RUN_HELP, options: [] },
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
@@ -56,6 +71,7 @@ async function main(): Promise<void> {
   const [name, ...rest] = process.argv.slice(2);
   if (!name || name === "help" || name === "--help" || name === "-h") { out(HELP); return; }
   if (name === "--version" || name === "version") { out(VERSION); return; }
+  if (name === "_engine") { cmdEngine(rest); return; }
   const cmd = COMMANDS[name];
   if (!cmd) throw new UsageError(`unknown command "${name}". Run "chainboot help" to see what is available.`);
   const args = parseArgs(rest, cmd.booleans);
