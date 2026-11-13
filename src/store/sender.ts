@@ -11,16 +11,21 @@ import { b58decodeFixed } from "../util/base58.ts";
 import { sha256, sleep, toHex } from "../util/bytes.ts";
 import type { Keypair } from "../solana/keys.ts";
 import { RpcError, type RpcPool } from "../solana/rpc.ts";
-import { buildTransaction, type Instruction } from "../solana/tx.ts";
+import { buildNoopTransaction, type TxVersion } from "../solana/tx.ts";
 
 export type Commitment = "confirmed" | "finalized";
 
 export interface SendItem {
-  /** Instructions of the transaction (the payer is added automatically). */
-  instructions: Instruction[];
+  /** Data of the transaction's Noop instruction. */
+  data: Uint8Array;
+  /** Read-only accounts to reference (used for tag addresses). */
+  readonlyAccounts?: Uint8Array[];
   /** Stable identity of the content, used by the journal to skip work on resume. */
   key: string;
 }
+
+/** Where a transaction ended up. */
+export interface Landed { signature: string; slot: number }
 
 export interface SenderProgress { total: number; done: number; pending: number; resent: number; feeLamports: number }
 
@@ -36,6 +41,10 @@ export interface SenderOptions {
   resendAfterMs?: number;
   /** How often to ask the network about transactions in flight (default 500 ms). */
   pollMs?: number;
+  /** Wire format of the transactions (default: v1, 4096 bytes). */
+  txVersion?: TxVersion;
+  /** Extra fee per transaction in lamports, to get ahead on a busy network (default 0). */
+  priorityFeeLamports?: number;
 }
 
 interface Pending {
@@ -109,15 +118,16 @@ export class TxSender {
   }
 
   /**
-   * Lands every item and returns the signatures in the same order.
+   * Lands every item and returns signature and slot of each, in the same order.
    * Throws only for problems the user must fix (no funds, aborted, endpoints all dead).
    */
-  async sendAll(items: SendItem[], opts: SenderOptions = {}): Promise<string[]> {
+  async sendAll(items: SendItem[], opts: SenderOptions = {}): Promise<Landed[]> {
     const commitment = opts.commitment ?? "finalized";
     const maxPending = opts.maxPending ?? 4000;
     const resendAfter = opts.resendAfterMs ?? 5000, pollMs = opts.pollMs ?? 500;
     const journal = opts.journal ? new Journal(opts.journal) : null;
-    const result: (string | null)[] = new Array(items.length).fill(null);
+    const result: (Landed | null)[] = new Array(items.length).fill(null);
+    const feePerTx = LAMPORTS_PER_SIGNATURE + Math.max(0, opts.priorityFeeLamports ?? 0);
     const todo: number[] = [];
     const recheck: Pending[] = [];
     for (let i = 0; i < items.length; i++) {
@@ -134,16 +144,16 @@ export class TxSender {
       const st = await this.#statuses(batch.map((p) => p.signature), true);
       batch.forEach((p, i) => {
         const s = st[i];
-        if (s && !s.err && (s.confirmationStatus === "finalized" || (commitment === "confirmed" && s.confirmationStatus === "confirmed"))) { result[p.index] = p.signature; done++; }
+        if (s && !s.err && (s.confirmationStatus === "finalized" || (commitment === "confirmed" && s.confirmationStatus === "confirmed"))) { result[p.index] = { signature: p.signature, slot: s.slot }; done++; }
         else { journal?.forget(p.item.key); todo.push(p.index); }
       });
     }
     todo.sort((a, b) => a - b);
     const pending = new Map<number, Pending>();
     report();
-    if (!todo.length) { journal?.close(); return result as string[]; }
+    if (!todo.length) { journal?.close(); return result as Landed[]; }
 
-    const need = todo.length * LAMPORTS_PER_SIGNATURE;
+    const need = todo.length * feePerTx;
     const have = await this.balance();
     if (have < need) {
       journal?.close();
@@ -170,7 +180,7 @@ export class TxSender {
     const requeue: number[] = [];
     const launch = (index: number) => {
       const bh = this.#blockhash!;
-      const tx = buildTransaction(this.#payer, items[index]!.instructions, bh.hash);
+      const tx = buildNoopTransaction(this.#payer, items[index]!.data, bh.hash, { version: opts.txVersion, readonlyAccounts: items[index]!.readonlyAccounts, priorityFeeLamports: opts.priorityFeeLamports });
       const p: Pending = { item: items[index]!, index, signature: tx.signature, raw: tx.raw.toString("base64"), lastValidBlockHeight: bh.lastValidBlockHeight, sentAt: Date.now(), lastSendAt: Date.now(), lastCheckAt: Date.now() - pollMs / 2, sends: 1, confirmedAt: 0 };
       pending.set(index, p);
       this.#send(p).catch((e: Error) => {
@@ -208,7 +218,7 @@ export class TxSender {
             if (s && s.err) { pending.delete(p.index); requeue.push(p.index); resent++; return; }
             const level = s?.confirmationStatus;
             if (level === "finalized" || (level === "confirmed" && commitment === "confirmed")) {
-              pending.delete(p.index); result[p.index] = p.signature; done++; fee += LAMPORTS_PER_SIGNATURE;
+              pending.delete(p.index); result[p.index] = { signature: p.signature, slot: s!.slot }; done++; fee += feePerTx;
               journal?.set(p.item.key, p.signature);
               return;
             }
@@ -236,7 +246,7 @@ export class TxSender {
       journal?.close();
     }
     report();
-    return result as string[];
+    return result as Landed[];
   }
 
   #send(p: Pending): Promise<unknown> {
@@ -251,4 +261,4 @@ export class TxSender {
   }
 }
 
-interface SigStatus { err: unknown; confirmationStatus?: "processed" | "confirmed" | "finalized" }
+interface SigStatus { slot: number; err: unknown; confirmationStatus?: "processed" | "confirmed" | "finalized" }

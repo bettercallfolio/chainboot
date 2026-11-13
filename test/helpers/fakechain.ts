@@ -13,10 +13,19 @@ export interface Faults {
   corrupt?: number;
   /** Probability that an accepted transaction is silently dropped (never lands). */
   drop?: number;
-  /** Requests per second this endpoint tolerates before it answers 429. */
+  /** Calls per second this endpoint tolerates before it answers 429. */
   rps?: number;
+  /** Every answer takes this long (a slow or stuck endpoint). */
+  delayMs?: number;
+  /** The endpoint does not offer getBlock. */
+  noBlocks?: boolean;
+  /** The endpoint refuses JSON-RPC batches. */
+  noBatch?: boolean;
+  /** Probability that one call inside a batch is answered with a 429 error object. */
+  itemLimit?: number;
 }
 
+interface Req { id: number; method: string; params: any[] }
 interface Stored { raw: string; slot: number; accounts: string[] }
 
 export class FakeChain {
@@ -24,10 +33,17 @@ export class FakeChain {
   readonly byAccount = new Map<string, string[]>();
   readonly faults = new Map<string, Faults>();
   genesis = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-  slot = 1000;
+  /** Slots advance with time (one every `slotMs`), so transactions sent together share a block like on a real chain. */
+  slotMs = 20;
+  readonly #t0 = Date.now();
+  get slot(): number { return 1000 + Math.floor((Date.now() - this.#t0) / this.slotMs); }
+  blockCalls = 0;
   balance = 10_000_000_000;
   requests = 0;
+  calls = 0;
+  batches = 0;
   readonly perUrl = new Map<string, number>();
+  readonly perUrlCalls = new Map<string, number>();
   readonly #window = new Map<string, number[]>();
 
   urls(n: number): string[] { return Array.from({ length: n }, (_, i) => `http://rpc${i}.test/`); }
@@ -37,21 +53,41 @@ export class FakeChain {
     const f = this.faults.get(url) ?? {};
     this.requests++;
     this.perUrl.set(url, (this.perUrl.get(url) ?? 0) + 1);
-    await new Promise((r) => setTimeout(r, 1));
+    await new Promise((r) => setTimeout(r, f.delayMs ?? 1));
+    const parsed = JSON.parse(String(init?.body)) as Req | Req[];
+    const reqs = Array.isArray(parsed) ? parsed : [parsed];
+    if (Array.isArray(parsed)) {
+      this.batches++;
+      if (f.noBatch) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Batch requests are not allowed" } }), { status: 400 });
+    }
     if (f.rps) {
       const now = Date.now(), w = (this.#window.get(url) ?? []).filter((t) => now - t < 1000);
-      w.push(now); this.#window.set(url, w);
+      for (const _ of reqs) w.push(now);
+      this.#window.set(url, w);
       if (w.length > f.rps) return new Response("slow down", { status: 429 });
     }
     if (f.rateLimit && Math.random() < f.rateLimit) return new Response("slow down", { status: 429 });
     if (f.network && Math.random() < f.network) throw new TypeError("fetch failed");
-    const req = JSON.parse(String(init?.body)) as { id: number; method: string; params: any[] };
-    const result = this.#handle(req.method, req.params ?? [], f);
-    return new Response(JSON.stringify("error" in result ? { jsonrpc: "2.0", id: req.id, error: result.error } : { jsonrpc: "2.0", id: req.id, result: result.result }), { status: 200 });
+    this.perUrlCalls.set(url, (this.perUrlCalls.get(url) ?? 0) + reqs.length);
+    const answers = reqs.map((req) => {
+      this.calls++;
+      if (f.itemLimit && Math.random() < f.itemLimit) return { jsonrpc: "2.0", id: req.id, error: { code: 429, message: "Too many requests for a specific RPC call" } };
+      const result = this.#handle(req.method, req.params ?? [], f);
+      return "error" in result ? { jsonrpc: "2.0", id: req.id, error: result.error } : { jsonrpc: "2.0", id: req.id, result: result.result };
+    });
+    return new Response(JSON.stringify(Array.isArray(parsed) ? answers : answers[0]), { status: 200 });
   };
 
+  /** A lying node: keeps the signature and payer of a transaction but swaps in another transaction's body. */
+  #forge(raw: string, all: Stored[]): string {
+    const a = Buffer.from(raw, "base64"), b = Buffer.from(all[Math.floor(Math.random() * all.length)]!.raw, "base64");
+    if (a.length !== b.length || a[0] !== 0x81 || b[0] !== 0x81) return raw;
+    const out = Buffer.from(b);
+    a.copy(out, out.length - 64, a.length - 64); // the original signature
+    return out.toString("base64");
+  }
+
   #handle(method: string, params: any[], f: Faults): { result: unknown } | { error: { code: number; message: string } } {
-    this.slot++;
     switch (method) {
       case "getGenesisHash": return { result: this.genesis };
       case "getBalance": return { result: { value: this.balance } };
@@ -73,12 +109,22 @@ export class FakeChain {
         return { result: sig };
       }
       case "getSignatureStatuses":
-        return { result: { value: (params[0] as string[]).map((s) => (this.txs.has(s) ? { err: null, confirmationStatus: "finalized" } : null)) } };
+        return { result: { value: (params[0] as string[]).map((s) => (this.txs.has(s) ? { slot: this.txs.get(s)!.slot, err: null, confirmationStatus: "finalized" } : null)) } };
+      case "getBlock": {
+        this.blockCalls++;
+        if (f.noBlocks) return { error: { code: -32601, message: "Method not found" } };
+        const slot = params[0] as number;
+        let list = [...this.txs.values()].filter((t) => t.slot === slot);
+        if (f.missing && Math.random() < f.missing) list = list.slice(0, Math.floor(list.length / 2));
+        const all = [...this.txs.values()];
+        return { result: { blockhash: "x", transactions: list.map((t) => ({ transaction: [f.corrupt && Math.random() < f.corrupt ? this.#forge(t.raw, all) : t.raw, "base64"], meta: { err: null } })) } };
+      }
       case "getTransaction": {
         let t = this.txs.get(params[0]);
         if (!t || (f.missing && Math.random() < f.missing)) return { result: null };
-        if (f.corrupt && Math.random() < f.corrupt) t = [...this.txs.values()][Math.floor(Math.random() * this.txs.size)]!;
-        return { result: { slot: t.slot, blockTime: 1_700_000_000 + t.slot, transaction: [t.raw, "base64"], meta: { err: null } } };
+        let raw = t.raw;
+        if (f.corrupt && Math.random() < f.corrupt) raw = Math.random() < 0.5 ? [...this.txs.values()][Math.floor(Math.random() * this.txs.size)]!.raw : this.#forge(t.raw, [...this.txs.values()]);
+        return { result: { slot: t.slot, blockTime: 1_700_000_000 + t.slot, transaction: [raw, "base64"], meta: { err: null } } };
       }
       case "getSignaturesForAddress": {
         const list = this.byAccount.get(params[0]) ?? [];

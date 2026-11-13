@@ -8,8 +8,8 @@ import { b58decode, b58encode } from "../src/util/base58.ts";
 import { decodeShortU16, encodeShortU16 } from "../src/util/bytes.ts";
 import { Keypair, verifySignature } from "../src/solana/keys.ts";
 import { RpcPool, maskRpcUrl } from "../src/solana/rpc.ts";
-import { MAX_TX_SIZE, buildTransaction, noopInstruction, noopOverhead, parseTransaction, transferInstruction, verifyPayerSignature, computeBudgetInstructions } from "../src/solana/tx.ts";
-import { ChainStore, capacity, tagAddress } from "../src/store/store.ts";
+import { MAX_TX_SIZE_LEGACY, MAX_TX_SIZE_V1, buildNoopTransaction, buildTransaction, noopCapacity, noopInstruction, parseTransaction, transferInstruction, verifyPayerSignature } from "../src/solana/tx.ts";
+import { ChainStore, capacity, decodeSlots, encodeSlots, tagAddress } from "../src/store/store.ts";
 import { FakeChain } from "./helpers/fakechain.ts";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "cb-test-"));
@@ -42,26 +42,42 @@ test("keys: known test vector and signature checks", () => {
   assert.deepEqual(Keypair.fromSecretKey(kp.secretKey()).publicKey, kp.publicKey);
 });
 
-test("transactions: build, parse, verify, size accounting", () => {
+test("transactions: both wire formats build, parse, verify and fill the size limit exactly", () => {
   const payer = Keypair.generate(), other = Keypair.generate();
   const bh = crypto.randomBytes(32);
-  for (const [fee, ro] of [[false, 0], [true, 0], [false, 1], [true, 1]] as const) {
-    const cap = capacity({ priorityFee: fee, readonlyAccounts: ro });
+  for (const version of [1, "legacy"] as const) for (const fee of [0, 700]) for (const ro of [0, 1]) {
+    const limit = version === 1 ? MAX_TX_SIZE_V1 : MAX_TX_SIZE_LEGACY;
+    const cap = noopCapacity({ version, priorityFee: fee > 0, readonlyAccounts: ro });
     const data = crypto.randomBytes(cap);
-    const ix = [...(fee ? computeBudgetInstructions(1000, 5) : []), noopInstruction(data, ro ? [other.publicKey] : [])];
-    const tx = buildTransaction(payer, ix, bh);
-    assert.equal(tx.raw.length, MAX_TX_SIZE, `fee=${fee} ro=${ro} must fill the transaction exactly`);
-    assert.equal(noopOverhead({ priorityFee: fee, readonlyAccounts: ro, dataLen: cap }) + cap, MAX_TX_SIZE);
+    const o = { version, priorityFeeLamports: fee, readonlyAccounts: ro ? [other.publicKey] : [] };
+    const tx = buildNoopTransaction(payer, data, bh, o);
+    assert.equal(tx.raw.length, limit, `version=${version} fee=${fee} ro=${ro} must fill the transaction exactly`);
     const parsed = parseTransaction(tx.raw);
+    assert.equal(parsed.version, version);
     assert.ok(verifyPayerSignature(parsed));
     assert.deepEqual(parsed.accountKeys[0], payer.publicKey);
+    assert.deepEqual(parsed.recentBlockhash, bh);
     assert.deepEqual(parsed.instructions.at(-1)!.data, data);
-    assert.throws(() => buildTransaction(payer, [noopInstruction(crypto.randomBytes(cap + 1), ro ? [other.publicKey] : [])].concat(fee ? computeBudgetInstructions(1, 1) : []), bh), /limit is 1232/);
+    if (ro) assert.deepEqual(parsed.instructions.at(-1)!.accounts, [other.publicKey]);
+    assert.throws(() => buildNoopTransaction(payer, crypto.randomBytes(cap + 1), bh, o), /the limit is/);
+    const bad = Buffer.from(tx.raw); bad[bad.length - 70] = bad[bad.length - 70]! ^ 1;
+    try { assert.ok(!verifyPayerSignature(parseTransaction(bad))); } catch (e) { if ((e as Error).name === "AssertionError") throw e; }
   }
-  const t = parseTransaction(buildTransaction(payer, [transferInstruction(payer.publicKey, other.publicKey, 12345n)], bh).raw);
-  assert.equal(t.header.numSigners, 1);
-  assert.equal(t.instructions[0]!.data.readBigUInt64LE(4), 12345n);
-  assert.throws(() => parseTransaction(Buffer.concat([buildTransaction(payer, [noopInstruction(Buffer.from("x"))], bh).raw, Buffer.from([0])])), /trailing/);
+  assert.equal(noopCapacity(), 3914);
+  assert.equal(noopCapacity({ version: "legacy" }), 1062);
+  for (const version of [1, "legacy"] as const) {
+    const t = parseTransaction(buildTransaction(payer, [transferInstruction(payer.publicKey, other.publicKey, 12345n)], bh, { version }).raw);
+    assert.equal(t.header.numSigners, 1);
+    assert.equal(t.instructions[0]!.data.readBigUInt64LE(4), 12345n);
+    assert.deepEqual(t.instructions[0]!.accounts, [payer.publicKey, other.publicKey]);
+    const raw = buildTransaction(payer, [noopInstruction(Buffer.from("x"))], bh, { version }).raw;
+    assert.throws(() => parseTransaction(Buffer.concat([raw, Buffer.from([0])])), /trailing|signature count/);
+    assert.throws(() => parseTransaction(raw.subarray(0, raw.length - 3)), /truncated|signature count|trailing/);
+  }
+  // two signers: both signatures present and in account order
+  const two = parseTransaction(buildTransaction(payer, [transferInstruction(other.publicKey, payer.publicKey, 1)], bh, { extraSigners: [other] }).raw);
+  assert.equal(two.signatures.length, 2);
+  assert.throws(() => buildTransaction(payer, [transferInstruction(other.publicKey, payer.publicKey, 1)], bh), /missing signer/);
 });
 
 test("rpc urls are masked", () => {
@@ -89,6 +105,18 @@ test("pool: spreads load, survives rate limits and dead endpoints", async () => 
   await assert.rejects(healthy.call("sendTransaction", ["AAAA"]), /invalid transaction/);
 });
 
+test("pool: a stuck endpoint does not hold up the others (hedging)", async () => {
+  const chain = new FakeChain(), urls = chain.urls(3);
+  const pool = new RpcPool(urls, { fetch: chain.fetch, initialRate: 200, hedgeMinMs: 60 });
+  await Promise.all(Array.from({ length: 30 }, () => pool.call("getGenesisHash"))); // learn the usual speed
+  chain.faults.set(urls[1]!, { delayMs: 5000 });
+  const t = Date.now();
+  const results = await Promise.all(Array.from({ length: 200 }, () => pool.call<string>("getGenesisHash")));
+  assert.ok(results.every((r) => r === chain.genesis));
+  assert.ok(Date.now() - t < 2500, `200 calls took ${Date.now() - t} ms although one endpoint needs 5 s per answer`);
+  assert.ok(pool.stats()[1]!.hedged > 0);
+});
+
 test("pool: probe drops endpoints of another network", async () => {
   const chain = new FakeChain(), other = new FakeChain();
   other.genesis = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -102,22 +130,60 @@ test("pool: probe drops endpoints of another network", async () => {
   assert.equal(other.requests, 1, "the foreign endpoint is never used again");
 });
 
-test("store: objects of every size round-trip and are verified", async () => {
+test("store: objects of every size round-trip and are verified, in both transaction formats", async () => {
   const chain = new FakeChain();
   const pool = new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 });
   const store = new ChainStore(pool), payer = Keypair.generate();
-  const cap = capacity();
-  for (const size of [0, 1, cap - 3, cap - 2, 1060, 1061, 1060 * 15, 1060 * 15 + 1, 1060 * 16 * 15 + 7, 300_000]) {
-    const data = crypto.randomBytes(size);
-    const plan = ChainStore.plan(size);
-    const before = chain.txs.size;
-    const ref = await store.put(payer, data, { pollMs: 20 });
-    assert.equal(chain.txs.size - before, plan.transactions, `plan for ${size} bytes`);
-    assert.deepEqual(await store.get(ref, { signers: [payer.publicKey] }), data);
-    assert.deepEqual(await store.get(ref.sig), data);
-    await assert.rejects(store.get(ref, { signers: [Keypair.generate().publicKey] }), /not published by a trusted key/);
-    if (size > 0) await assert.rejects(store.get({ ...ref, sha256: "00".repeat(32) }), /sha256 differs/);
+  for (const txVersion of [1, "legacy"] as const) {
+    const cap = capacity({ txVersion }), leaf = cap - 2, headFan = Math.floor((cap - 110) / 64), fan = Math.floor(leaf / 64);
+    for (const size of [0, 1, cap - 3, cap - 2, leaf, leaf + 1, leaf * headFan, leaf * headFan + 1, leaf * fan * 2 + 7, 300_000]) {
+      const data = crypto.randomBytes(size);
+      const plan = ChainStore.plan(size, { txVersion });
+      const before = chain.txs.size;
+      const ref = await store.put(payer, data, { pollMs: 20, txVersion });
+      assert.equal(chain.txs.size - before, plan.transactions, `plan for ${size} bytes (${txVersion})`);
+      assert.deepEqual(await store.get(ref, { signers: [payer.publicKey] }), data);
+      assert.deepEqual(await store.get(ref.sig, { mode: "transactions" }), data);
+      await assert.rejects(store.get(ref, { signers: [Keypair.generate().publicKey] }), /not published by a trusted key/);
+      if (size > 0) await assert.rejects(store.get({ ...ref, sha256: "00".repeat(32) }), /sha256 differs/);
+    }
   }
+});
+
+test("slot hints round-trip", () => {
+  for (const slots of [[], [5], [1, 2, 3], [521943562, 521943482, 521943522, 521943522], [0, 2 ** 40, 2 ** 45]]) {
+    assert.deepEqual(decodeSlots(encodeSlots(slots)), [...new Set(slots)].sort((a, b) => a - b));
+  }
+  assert.throws(() => decodeSlots(Buffer.from([2, 1])), /malformed/);
+  assert.throws(() => decodeSlots(Buffer.from([1, 1, 1])), /malformed/);
+});
+
+test("store: block mode needs few requests, and falls back when blocks are missing or unavailable", async () => {
+  const chain = new FakeChain(), urls = chain.urls(3);
+  const pool = new RpcPool(urls, { fetch: chain.fetch, initialRate: 500 });
+  const store = new ChainStore(pool), payer = Keypair.generate();
+  const data = crypto.randomBytes(1_500_000);
+  const ref = await store.put(payer, data, { pollMs: 20 });
+  const plan = ChainStore.plan(data.length).transactions;
+
+  let calls = chain.calls;
+  assert.deepEqual(await store.get(ref, { signers: [payer.publicKey] }), data);
+  const blockModeCalls = chain.calls - calls;
+  assert.ok(chain.blockCalls > 0 && blockModeCalls < plan / 3, `block mode used ${blockModeCalls} calls for ${plan} transactions`);
+
+  calls = chain.calls;
+  assert.deepEqual(await store.get(ref, { mode: "transactions" }), data);
+  assert.ok(chain.calls - calls >= plan - 5, "transaction mode fetches every node");
+
+  // blocks that return only half of their transactions, an endpoint without getBlock, a lying endpoint
+  chain.faults.set(urls[0]!, { missing: 0.5 });
+  chain.faults.set(urls[1]!, { noBlocks: true });
+  chain.faults.set(urls[2]!, { corrupt: 0.2 });
+  for (let round = 0; round < 3; round++) assert.deepEqual(await store.get(ref, { signers: [payer.publicKey] }), data);
+
+  // no endpoint offers getBlock at all
+  for (const u of urls) chain.faults.set(u, { noBlocks: true });
+  assert.deepEqual(await store.get(ref, { signers: [payer.publicKey] }), data);
 });
 
 test("store: download survives missing, corrupt and rate-limited answers, and resumes from cache", async () => {
@@ -125,7 +191,7 @@ test("store: download survives missing, corrupt and rate-limited answers, and re
   const pool = new RpcPool(urls, { fetch: chain.fetch, initialRate: 500 });
   const store = new ChainStore(pool), payer = Keypair.generate();
   const data = crypto.randomBytes(200_000);
-  const ref = await store.put(payer, data, { pollMs: 20 });
+  const ref = await store.put(payer, data, { pollMs: 20, txVersion: "legacy" });
   chain.faults.set(urls[0]!, { missing: 0.5 });
   chain.faults.set(urls[1]!, { corrupt: 0.3 });
   chain.faults.set(urls[2]!, { rateLimit: 0.3, network: 0.1 });
@@ -139,15 +205,15 @@ test("store: download survives missing, corrupt and rate-limited answers, and re
   // interrupted download: abort part-way, then finish with far fewer requests
   const dir2 = tmp(), ac = new AbortController();
   let seen = 0;
-  await assert.rejects(store.get(ref, { cacheDir: dir2, signal: ac.signal, onProgress: (p) => { seen = p.done; if (p.done >= 64) ac.abort(); } }), /aborted/);
+  await assert.rejects(store.get(ref, { cacheDir: dir2, signal: ac.signal, mode: "transactions", onProgress: (p) => { seen = p.done; if (p.done >= 64) ac.abort(); } }), /aborted/);
   await pool.idle();
   assert.ok(seen >= 64);
   for (const u of urls) chain.faults.delete(u);
-  const before = chain.requests;
+  const callsMark = chain.calls;
   let resumedFrom = -1;
-  assert.deepEqual(await store.get(ref, { cacheDir: dir2, onProgress: (p) => { if (resumedFrom < 0) resumedFrom = p.done; } }), data);
+  assert.deepEqual(await store.get(ref, { cacheDir: dir2, mode: "transactions", onProgress: (p) => { if (resumedFrom < 0) resumedFrom = p.done; } }), data);
   assert.ok(resumedFrom >= 64, `resumed with ${resumedFrom} leaves already present`);
-  assert.ok(chain.requests - before < ChainStore.plan(data.length).transactions, "resume fetched fewer transactions than a full download");
+  assert.ok(chain.calls - callsMark < ChainStore.plan(data.length, { txVersion: "legacy" }).transactions - 50, "resume fetched fewer transactions than a full download");
 });
 
 test("store: upload survives dropped transactions and resumes from its journal without paying twice", async () => {
@@ -157,15 +223,33 @@ test("store: upload survives dropped transactions and resumes from its journal w
   const store = new ChainStore(pool), payer = Keypair.generate();
   const data = crypto.randomBytes(60_000), dir = tmp();
   const ac = new AbortController();
-  await assert.rejects(store.put(payer, data, { journalDir: dir, signal: ac.signal, pollMs: 20, resendAfterMs: 150, onProgress: (p) => { if (p.phase === "data" && p.done >= 20) ac.abort(); } }), /aborted/);
+  await assert.rejects(store.put(payer, data, { journalDir: dir, signal: ac.signal, pollMs: 20, resendAfterMs: 150, txVersion: "legacy", onProgress: (p) => { if (p.phase === "data" && p.done >= 20) ac.abort(); } }), /aborted/);
   await pool.idle();
   const landedBefore = chain.txs.size;
   assert.ok(landedBefore >= 20);
-  const ref = await store.put(payer, data, { journalDir: dir, pollMs: 20, resendAfterMs: 150 });
+  const ref = await store.put(payer, data, { journalDir: dir, pollMs: 20, resendAfterMs: 150, txVersion: "legacy" });
   assert.deepEqual(await store.get(ref), data);
-  const plan = ChainStore.plan(data.length).transactions;
+  const plan = ChainStore.plan(data.length, { txVersion: "legacy" }).transactions;
   assert.ok(chain.txs.size <= plan + 40, `at most a few duplicates: ${chain.txs.size} transactions for a plan of ${plan}`);
   assert.equal(fs.readdirSync(dir).length, 0, "journal is removed after success");
+});
+
+test("pool: batches calls where the endpoint allows it and falls back where it does not", async () => {
+  const chain = new FakeChain(), urls = chain.urls(3);
+  chain.faults.set(urls[0]!, { noBatch: true });
+  chain.faults.set(urls[1]!, { itemLimit: 0.1 });
+  const pool = new RpcPool(urls, { fetch: chain.fetch, initialRate: 400 });
+  const store = new ChainStore(pool), payer = Keypair.generate();
+  const data = crypto.randomBytes(400_000);
+  const ref = await store.put(payer, data, { pollMs: 20, txVersion: "legacy" });
+  chain.perUrl.clear(); chain.perUrlCalls.clear();
+  assert.deepEqual(await store.get(ref, { signers: [payer.publicKey], mode: "transactions" }), data);
+  assert.ok(chain.batches > 5, "batches were used");
+  const perRequest = (u: string) => chain.perUrlCalls.get(u)! / chain.perUrl.get(u)!;
+  assert.ok(perRequest(urls[2]!) >= 3, `the batching endpoint carried ${perRequest(urls[2]!).toFixed(1)} calls per request`);
+  if (chain.perUrl.get(urls[1]!)) assert.ok(perRequest(urls[1]!) >= 1.5, `the endpoint with per-call limits still batched (${perRequest(urls[1]!).toFixed(1)} calls per request)`);
+  assert.ok(perRequest(urls[0]!) < 1.2, "the endpoint without batch support got single calls");
+  assert.ok(pool.stats().every((s) => s.ok > 0), "the endpoint without batch support still did its share");
 });
 
 test("store: not enough funds is reported clearly", async () => {
