@@ -311,7 +311,7 @@ export class RpcPool {
       const need = job.opts.batch && !e.batchOff ? Math.max(1, Math.min(e.batch, backlog, Math.floor(e.rate / 4))) : 1;
       if (e.tokens < need) continue;
       // spare capacity first (an endpoint that had to be slowed down counts as busier), then latency
-      const load = (e.inflight + 1) / Math.max(1, e.rate) + e.latency / 1e6;
+      const load = (e.inflight + 1) / Math.max(1, e.rate) + (e.latency || 400) / 1e6; // an endpoint not measured yet counts as average
       if (load < bestLoad) { bestLoad = load; best = e; }
     }
     if (best) return best;
@@ -393,7 +393,10 @@ export class RpcPool {
         (job.opts.urgent ? this.#urgent : this.#queue).unshift(job);
         any = true;
       }
-      if (any) { ep.hedged++; this.#kick(); }
+      // an endpoint that stalls gets no new work for a while (its pending answer is still welcome)
+      ep.hedged++;
+      ep.coolUntil = Math.max(ep.coolUntil, now + 10_000);
+      if (any) this.#kick();
     }, Math.min(timeout / 2, Math.max(this.#o.hedgeMinMs, usual * 3)));
     const work = jobs.length === 1
       ? this.#single(ep, method, jobs[0]!.params, timeout).then((r) => [r] as (unknown | RpcError)[])

@@ -154,12 +154,18 @@ async function main(): Promise<void> {
   await cmd.run(args);
 }
 
+// Leave as soon as the work is done: a request that is still waiting on a slow endpoint must not keep the program open.
+function leave(code: number): void {
+  process.exitCode = code;
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 main().then(
-  () => { process.exitCode ??= 0; },
+  () => leave(Number(process.exitCode ?? 0)),
   (e: Error) => {
     fail(e.message);
     if (e instanceof UsageError) info(dim('Run "chainboot help" for usage.'));
     else if (process.env.CHAINBOOT_DEBUG) info(e.stack ?? "");
-    process.exitCode = e instanceof UsageError ? 2 : 1;
+    leave(e instanceof UsageError ? 2 : 1);
   },
 );
