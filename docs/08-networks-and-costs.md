@@ -24,7 +24,7 @@ mixing networks would silently break uploads.
 
 ## What is where today
 
-- **Devnet:** the official catalog with Solbuntu and Alpine. This is where chainboot was
+- **Devnet:** the official catalog with Solinux and Alpine. This is where chainboot was
   built and measured.
 - **Mainnet:** no official catalog yet, and chainboot has not been exercised there. The
   4096-byte transaction format chainboot writes has been active on mainnet since September
@@ -50,8 +50,8 @@ Real examples from devnet (rounded):
 | What | Stored size | Transactions | Fee |
 |---|---|---|---|
 | Alpine Linux 3.24 | 2.9 MB | 760 | 0.0038 SOL |
-| Solbuntu minimal (Ubuntu base) | 21.6 MB | 5,683 | 0.028 SOL |
-| Solbuntu (adds 91 MB to minimal) | 91 MB | 23,946 | 0.12 SOL |
+| Solinux minimal (Ubuntu base) | 21.6 MB | 5,683 | 0.028 SOL |
+| Solinux (adds 91 MB to minimal) | 91 MB | 23,946 | 0.12 SOL |
 | A save after installing two small packages | 0.5 MB | 135 | 0.0007 SOL |
 | A save after editing a few files | under 4 kB | 9 | 0.000045 SOL |
 
@@ -69,7 +69,7 @@ chainboot re-sends transactions that did not land, but they can take longer.
 
 ## How fast is it
 
-Downloading depends mostly on your RPC endpoints. Measured with Solbuntu minimal (21.6 MB):
+Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):
 
 | Endpoints | Time to download and verify |
 |---|---|
@@ -81,7 +81,7 @@ The public endpoints are meant for light use and limit requests strictly. A free
 any provider is the single biggest speed-up.
 
 Uploading runs at several hundred transactions per second with a handful of endpoints:
-Solbuntu minimal takes about 20 seconds, plus 40 seconds to compress it.
+Solinux minimal takes about 20 seconds, plus 40 seconds to compress it.
 
 ## How long does data stay
 

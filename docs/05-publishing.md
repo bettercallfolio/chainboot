@@ -54,10 +54,10 @@ chainboot publish alpine-minirootfs-3.24.4-x86_64.tar.gz --name alpine --version
 **From a machine you set up by hand.** This is the easiest way to make something of your own:
 
 ```sh
-chainboot run solbuntu-minimal --name mybox --no-autosave
+chainboot run solinux-minimal --name mybox --no-autosave
 #   ... install and configure what you need, then exit ...
 chainboot export mybox mybox.tar
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solbuntu-minimal --keypair me.json
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json
 ```
 
 **From Debian's `debootstrap`:**
@@ -123,9 +123,9 @@ chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch a
 
 ## Reusing what is already on chain
 
-`--reuse solbuntu-minimal` tells chainboot to look at that image first. Every file of your
+`--reuse solinux-minimal` tells chainboot to look at that image first. Every file of your
 system that is byte-for-byte identical to a file in it is referenced instead of uploaded.
-A system built on top of Solbuntu minimal that adds 30 MB of software costs 30 MB, not 120 MB.
+A system built on top of Solinux minimal that adds 30 MB of software costs 30 MB, not 120 MB.
 
 The reused image can belong to any publisher. Readers check its packs by hash, so they do
 not have to trust that publisher.

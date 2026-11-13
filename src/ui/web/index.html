@@ -58,10 +58,10 @@
   <section id="sec-publish">
     <h2><span class="n">5</span> Publish your own system</h2>
     <p class="hint">Any Linux distribution can live on chain. Build a machine the way you like it, then publish it for everyone (or just for yourself).</p>
-    <pre class="code" id="publish-help">chainboot run solbuntu-minimal --name mybox       # install and configure what you need
+    <pre class="code" id="publish-help">chainboot run solinux-minimal --name mybox       # install and configure what you need
 chainboot export mybox mybox.tar                  # turn the machine into an archive
 chainboot keygen me.json                          # your publisher key (fund it with a little SOL)
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solbuntu-minimal --keypair me.json</pre>
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json</pre>
     <p class="hint">Others run it with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive from any distribution works too.</p>
   </section>
 

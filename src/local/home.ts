@@ -6,7 +6,7 @@ import { GENESIS, RpcPool, maskRpcUrl, type Cluster, type ProbeCache } from "../
 import { addressToBytes } from "../solana/keys.ts";
 import { ChainStore } from "../store/store.ts";
 
-/** Publisher of the example images (Solbuntu). Unprefixed image names resolve to this key. */
+/** Publisher of the example images (Solinux). Unprefixed image names resolve to this key. */
 export const OFFICIAL_PUBLISHER: Record<Cluster, string | null> = {
   devnet: "HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu",
   testnet: null,

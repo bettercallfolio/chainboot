@@ -99,19 +99,19 @@ chainboot list
 ```
 image             tag      arch   download  on disk  description
 alpine            latest   amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
-solbuntu          latest   amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system: SSH, sudo, git, editors and the standard tools
-solbuntu-minimal  latest   amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS, minimal base system
+solinux          latest   amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system: SSH, sudo, git, editors and the standard tools
+solinux-minimal  latest   amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS, minimal base system
 ```
 
 This list is itself read from the chain. Now run one:
 
 ```sh
-chainboot run solbuntu
+chainboot run solinux
 ```
 
 What happens:
 
-1. chainboot finds the newest `solbuntu` in the publisher's catalog on chain.
+1. chainboot finds the newest `solinux` in the publisher's catalog on chain.
 2. It downloads the system and checks every file against its SHA-256.
 3. It unpacks the system once and creates a **machine**: the system plus a place for
    everything you will change.
@@ -123,8 +123,8 @@ Type `exit` to leave. Run the same command again and you are back in the same ma
 everything you did, in a fraction of a second.
 
 ```sh
-chainboot run solbuntu -- apt-get update     # run one command and return
-chainboot run solbuntu --name test           # a second, separate machine from the same image
+chainboot run solinux -- apt-get update     # run one command and return
+chainboot run solinux --name test           # a second, separate machine from the same image
 chainboot machines                           # list your machines
 chainboot rm test                            # delete one
 ```

@@ -124,7 +124,7 @@ try {
   Write-Host ""
   Write-Host "Next steps"
   Write-Host "  chainboot rpc add <your RPC endpoint URL>     # free from Helius, QuickNode, Alchemy, ..."
-  Write-Host "  chainboot run solbuntu                        # Ubuntu 26.04 LTS, straight from Solana"
+  Write-Host "  chainboot run solinux                        # Ubuntu 26.04 LTS, straight from Solana"
   Write-Host "  chainboot ui                                  # or use the point-and-click interface"
 } finally {
   if (Test-Path $Tmp) { Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue }

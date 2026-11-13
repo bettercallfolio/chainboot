@@ -37,9 +37,9 @@ data you fetch.)
 
 ## The publisher key
 
-`chainboot run solbuntu` means "the image named solbuntu in the catalog of the official
+`chainboot run solinux` means "the image named solinux in the catalog of the official
 publisher address". That address is written into chainboot. `chainboot run <address>/<image>`
-names the publisher explicitly. Anyone can publish an image called `solbuntu` under their own
+names the publisher explicitly. Anyone can publish an image called `solinux` under their own
 address, but it will never be confused with another publisher's, because the address is part
 of the name.
 

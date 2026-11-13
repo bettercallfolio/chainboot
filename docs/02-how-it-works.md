@@ -89,12 +89,12 @@ The manifest has a **digest**: a hash over all those lines. It depends only on t
 not on how they were packed. Anyone who packages the same system gets the same digest, and
 anyone can recompute it from an unpacked system.
 
-A second image can reuse the packs of the first. The Solbuntu server image refers to the
-pack of Solbuntu minimal and adds only what is new.
+A second image can reuse the packs of the first. The Solinux server image refers to the
+pack of Solinux minimal and adds only what is new.
 
 ### The catalog
 
-How does `chainboot run solbuntu` find the right signature? Every publisher has a
+How does `chainboot run solinux` find the right signature? Every publisher has a
 **catalog**: a small file on chain that lists their images, versions and processor
 architectures. A **pointer transaction** always names the newest catalog.
 
@@ -104,7 +104,7 @@ publisher's pointer  ->  catalog  ->  manifest  ->  packs
 ```
 
 Only the publisher can move their pointer, because readers ignore pointer transactions that
-were not signed by the publisher's key. The name `solbuntu` without a publisher means "from
+were not signed by the publisher's key. The name `solinux` without a publisher means "from
 the official chainboot publisher". For anybody else you write `<their-address>/<image>`.
 
 ## Part 3: running it
@@ -147,7 +147,7 @@ How the key is made, and why your wallet is asked only once, is explained in
 ```
  publish                                         run
  ───────                                         ───
- root file system                                chainboot run solbuntu
+ root file system                                chainboot run solinux
       │ pack + compress                               │ read pointer, catalog, manifest
       ▼                                               ▼
  packs + manifest ── transactions ──▶ Solana ──▶ fetch blocks, verify signatures and hashes

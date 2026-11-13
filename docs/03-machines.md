@@ -5,9 +5,9 @@ A **machine** is an image plus everything you changed in it. This page covers da
 ## Create and open
 
 ```sh
-chainboot run solbuntu                  # first time: download, create, open. Later: just open.
-chainboot run solbuntu -- uname -a      # run one command instead of a shell
-chainboot run solbuntu --name web       # another machine from the same image
+chainboot run solinux                  # first time: download, create, open. Later: just open.
+chainboot run solinux -- uname -a      # run one command instead of a shell
+chainboot run solinux --name web       # another machine from the same image
 chainboot run web                       # open a machine by its name
 ```
 
@@ -90,7 +90,7 @@ On Linux you can also run an image built for a different processor if QEMU user 
 installed (`sudo apt install qemu-user-static binfmt-support` on Debian and Ubuntu):
 
 ```sh
-chainboot run solbuntu-minimal --arch arm64 --name armbox
+chainboot run solinux-minimal --arch arm64 --name armbox
 ```
 
 This is emulation, so it is much slower. It is useful for building and testing.
@@ -113,7 +113,7 @@ When a machine is set up the way you like it, you can make it an image and publi
 
 ```sh
 chainboot export web web.tar
-chainboot publish web.tar --name web --version 1.0 --reuse solbuntu --keypair me.json
+chainboot publish web.tar --name web --version 1.0 --reuse solinux --keypair me.json
 ```
 
 `export` writes the machine's complete file system as a tar archive. It leaves out what

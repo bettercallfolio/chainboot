@@ -161,5 +161,5 @@ esac
 say ""
 say "${B}Next steps${N}"
 say "  chainboot rpc add <your RPC endpoint URL>     ${D}# free from Helius, QuickNode, Alchemy, ...${N}"
-say "  chainboot run solbuntu                        ${D}# Ubuntu 26.04 LTS, straight from Solana${N}"
+say "  chainboot run solinux                        ${D}# Ubuntu 26.04 LTS, straight from Solana${N}"
 say "  chainboot ui                                  ${D}# or use the point-and-click interface${N}"

@@ -4,7 +4,7 @@
 
 **Is the operating system really on the blockchain?**
 Yes. Every byte of every file is inside Solana transactions. There is no link to a file
-server, no IPFS, no cloud bucket. You can check: `chainboot pull solbuntu` talks only to the
+server, no IPFS, no cloud bucket. You can check: `chainboot pull solinux` talks only to the
 RPC endpoints you configured.
 
 **Then what do I download when I install chainboot?**
@@ -28,7 +28,7 @@ Running and reading: nothing. Publishing or saving: 0.000005 SOL per transaction
 You can remove it from your catalog or stop pointing at it. You cannot erase it from the
 ledger. Saves are encrypted; images are public.
 
-**Is Solbuntu an official Ubuntu?**
+**Is Solinux an official Ubuntu?**
 No. It is Canonical's official Ubuntu base archive, unchanged, plus for the larger edition
 packages installed from Ubuntu's own repositories. The packaging on chain is this project's
 and is not affiliated with Canonical.

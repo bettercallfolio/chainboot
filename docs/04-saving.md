@@ -62,7 +62,7 @@ background what changed and saves it. A machine that stays up for a long time is
 every 10 minutes while it runs (a save with nothing new sends nothing and costs nothing).
 
 ```
-root@solbuntu:~# exit
+root@solinux:~# exit
 Changes are saved to Solana in the background. Check with: chainboot status
 ```
 
@@ -72,7 +72,7 @@ chainboot status
 
 ```
 machine   state    saved to chain  autosave  last save
-solbuntu  stopped  saved (#12)     on        2026-11-13 21:26 UTC
+solinux  stopped  saved (#12)     on        2026-11-13 21:26 UTC
 ```
 
 Rules of automatic saving:
@@ -87,8 +87,8 @@ Rules of automatic saving:
 Save by hand at any time:
 
 ```sh
-chainboot save solbuntu
-chainboot save solbuntu --note "before the upgrade"
+chainboot save solinux
+chainboot save solinux --note "before the upgrade"
 ```
 
 ## What is saved, and what is not
@@ -115,15 +115,15 @@ the main example).
 ```sh
 chainboot rpc add <endpoint>
 chainboot login
-chainboot run solbuntu
+chainboot run solinux
 ```
 
-chainboot notices that you have a saved machine named `solbuntu`, downloads the image and
+chainboot notices that you have a saved machine named `solinux`, downloads the image and
 your latest save, and opens it. To see everything you have saved:
 
 ```sh
 chainboot restore                         # list saved machines
-chainboot restore solbuntu                # bring one back without opening it
+chainboot restore solinux                # bring one back without opening it
 ```
 
 When you go back to the first computer and run the machine there, chainboot sees that the
@@ -134,8 +134,8 @@ chain holds a newer save and updates the machine before opening it.
 Every save is kept. List them and return to any one:
 
 ```sh
-chainboot history solbuntu
-chainboot restore solbuntu --snapshot 7
+chainboot history solinux
+chainboot restore solinux --snapshot 7
 ```
 
 ## When two computers disagree
@@ -145,7 +145,7 @@ there are two different versions. chainboot never picks one silently:
 
 ```
 ! A newer save of this machine is on chain, but this copy also has changes that were not saved.
-  Take the newer one with "chainboot restore solbuntu", or keep this copy with "chainboot save solbuntu --force".
+  Take the newer one with "chainboot restore solinux", or keep this copy with "chainboot save solinux --force".
 ```
 
 ## Privacy

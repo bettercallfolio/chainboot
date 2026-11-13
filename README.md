@@ -7,16 +7,16 @@ computer, in your own terminal, at full native speed. There is no server in betw
 program reads the chain through the RPC endpoints you give it, checks every byte against its
 hash, and starts the system.
 
-The example system is **Solbuntu**: Ubuntu 26.04 LTS, stored on Solana. But chainboot is not
+The example system is **Solinux**: Ubuntu 26.04 LTS, stored on Solana. But chainboot is not
 about one system. Any Linux distribution, and in fact any file, can be published the same
 way, by anyone.
 
 ```
-$ chainboot run solbuntu
-✔ solbuntu:latest is ready (114 MB verified)
-✔ created machine solbuntu from solbuntu:latest
-root@solbuntu:~# apt install nginx        # a normal Ubuntu, with the internet of your computer
-root@solbuntu:~# exit
+$ chainboot run solinux
+✔ solinux:latest is ready (114 MB verified)
+✔ created machine solinux from solinux:latest
+root@solinux:~# apt install nginx        # a normal Ubuntu, with the internet of your computer
+root@solinux:~# exit
 Changes are saved to Solana in the background.
 ```
 
@@ -81,7 +81,7 @@ chainboot rpc add https://your-endpoint.example/your-key
 
 ```sh
 chainboot list                 # what is on chain
-chainboot run solbuntu         # Ubuntu 26.04 LTS: SSH, sudo, git, editors, the standard tools
+chainboot run solinux         # Ubuntu 26.04 LTS: SSH, sudo, git, editors, the standard tools
 chainboot run alpine           # Alpine Linux, 3 MB
 ```
 
@@ -98,19 +98,19 @@ From now on your changes are saved after every session. On another computer:
 
 ```sh
 chainboot login
-chainboot run solbuntu         # brings your machine back and opens it
+chainboot run solinux         # brings your machine back and opens it
 ```
 
 ## What is on chain right now (devnet)
 
 | Image | What it is | Download | On disk | Cost to publish |
 |---|---|---|---|---|
-| `solbuntu` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64, arm64) | 114 MB | 504 MB | 0.12 SOL |
-| `solbuntu-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
+| `solinux` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64, arm64) | 114 MB | 504 MB | 0.12 SOL |
+| `solinux-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
 | `alpine` | Alpine Linux 3.24 (amd64, arm64) | 3 MB | 8 MB | 0.004 SOL |
 
 Measured on a cloud machine with 13 RPC endpoints, from an empty cache to a shell prompt:
-Alpine 5 s, Solbuntu minimal 7 s, Solbuntu 16 s. Every later start takes 0.2 s.
+Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 
 ## What works today
 
@@ -159,6 +159,7 @@ Node.js and TypeScript. The full list is in [docs/12-thanks.md](docs/12-thanks.m
 
 MIT, see [LICENSE](LICENSE).
 
-Solbuntu is an unofficial packaging of Ubuntu made for this project. It is not affiliated
-with or endorsed by Canonical. Ubuntu is a registered trademark of Canonical Ltd. Alpine
-Linux, Solana and all other names belong to their owners.
+Solinux is this project's name for its packaging of Ubuntu on Solana. It is built only from Canonical's Ubuntu
+26.04 LTS base archive and packages, and is not affiliated with or endorsed by Canonical. Ubuntu is a
+registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds.
+Alpine Linux, Solana and all other names belong to their owners.

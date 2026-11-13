@@ -121,7 +121,7 @@ The catalog is a JSON document (compressed as its reference says):
 {
   "chainboot": 1, "kind": "catalog", "publisher": "<base58 address>", "updated": 1794604669,
   "images": {
-    "solbuntu": {
+    "solinux": {
       "description": "…",
       "tags": { "latest": { "amd64": { "sig": "…", "sha256": "…", "size": 201740, "codec": "xz", "rawSize": 887238,
                                         "digest": "…", "version": "26.04.1", "created": 1790000000,

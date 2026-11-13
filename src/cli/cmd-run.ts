@@ -47,11 +47,11 @@ Downloads the image if needed (verified against the chain), creates a machine fr
 first time, and opens a shell in it. Running it again opens the same machine with all your
 changes. Several terminals can be inside one machine at once; it stops when the last one leaves.
 
-  chainboot run solbuntu                      Open a shell
-  chainboot run solbuntu -- apt-get update    Run one command and return
-  chainboot run solbuntu --name test          A second, separate machine from the same image
-  chainboot run solbuntu --no-autosave        Create the machine with automatic saving turned off
-  chainboot run solbuntu --fresh              Do not bring back a saved machine of the same name
+  chainboot run solinux                      Open a shell
+  chainboot run solinux -- apt-get update    Run one command and return
+  chainboot run solinux --name test          A second, separate machine from the same image
+  chainboot run solinux --no-autosave        Create the machine with automatic saving turned off
+  chainboot run solinux --fresh              Do not bring back a saved machine of the same name
 
 Keeping a machine up (for services such as a web server):
   chainboot start <machine>     Start it and keep it running without an open terminal
@@ -67,7 +67,7 @@ Related:
 export async function cmdRun(a: Args): Promise<void> {
   requireLinux();
   const text = a._[0];
-  if (!text) throw new UsageError("say what to run: chainboot run solbuntu");
+  if (!text) throw new UsageError("say what to run: chainboot run solinux");
   const command = a._.slice(1);
   const home = engineHome();
   const wanted = parseImageName(text);
@@ -111,7 +111,7 @@ export async function cmdRun(a: Args): Promise<void> {
 
 export function cmdMachines(): void {
   const list = listMachines(engineHome());
-  if (!list.length) { info("No machines yet. Create one with: chainboot run solbuntu"); return; }
+  if (!list.length) { info("No machines yet. Create one with: chainboot run solinux"); return; }
   out(table(list.map((m) => [bold(m.name), `${m.image.name}:${m.image.tag}`, m.image.arch, m.running ? green("running") : "stopped", new Date(m.created * 1000).toISOString().slice(0, 10)]),
     ["machine", "image", "arch", "state", "created"]));
 }
@@ -163,9 +163,9 @@ export const EXPORT_HELP = `Usage:
 Writes a machine's whole file system (image plus your changes) as a tar archive. Use it to
 publish a system you built by hand:
 
-  chainboot run solbuntu-minimal --name mybox       # install and configure what you need
+  chainboot run solinux-minimal --name mybox       # install and configure what you need
   chainboot export mybox mybox.tar
-  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solbuntu-minimal --keypair me.json`;
+  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json`;
 
 export function cmdExport(a: Args): void {
   requireLinux();
@@ -182,7 +182,7 @@ export function cmdExport(a: Args): void {
 
 export function cmdImages(): void {
   const list = localImages(engineHome());
-  if (!list.length) { info("No images downloaded yet. Try: chainboot pull solbuntu"); return; }
+  if (!list.length) { info("No images downloaded yet. Try: chainboot pull solinux"); return; }
   out(table(list.map((i) => [bold(i.name), i.version, i.arch, fmtBytes(i.size), i.digest.slice(0, 12), i.usedBy.join(", ") || dim("-")]), ["image", "version", "arch", "on disk", "digest", "machines"]));
 }
 

@@ -155,7 +155,7 @@ export const PULL_HELP = `Usage:
   chainboot pull <image> [--arch <arch>]    Download an image and verify it (resumes if interrupted)`;
 
 export async function cmdPull(a: Args): Promise<void> {
-  if (!a._[0]) throw new UsageError("say which image: chainboot pull solbuntu");
+  if (!a._[0]) throw new UsageError("say which image: chainboot pull solinux");
   const c = loadConfig();
   const store = await openStore(c, note);
   const found = await resolveImage(store, c, a._[0], flag(a, "arch") ?? hostArch());
