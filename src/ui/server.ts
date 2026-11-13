@@ -297,7 +297,8 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
   const port = await new Promise<number>((resolve, reject) => {
     const tryListen = (p: number) => {
       server.once("error", (e: NodeJS.ErrnoException) => { if (e.code === "EADDRINUSE" && p !== 0) tryListen(0); else reject(e); });
-      server.listen(p, "127.0.0.1", () => resolve((server.address() as { port: number }).port));
+      // inside the engine container on macOS the port is published to the host's loopback only
+      server.listen(p, process.env.CHAINBOOT_UI_BIND === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1", () => resolve((server.address() as { port: number }).port));
     };
     tryListen(opts.port ?? 7717);
   });

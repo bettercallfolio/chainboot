@@ -19,7 +19,9 @@ import type { MachineInfo } from "../src/engine/linux.ts";
 import { FakeChain } from "./helpers/fakechain.ts";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "cb-state-"));
-const uid = process.getuid!(), gid = process.getgid!();
+const uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0;
+// symlinks, owners and modes are Linux/macOS concepts; machines never run directly on Windows
+const posix = process.platform !== "win32";
 const T = 1_700_000_000;
 const f = (p: string, data: string | Buffer, mode = 0o644): Entry => ({ path: p, type: "f", mode, uid, gid, mtime: T, data: Buffer.from(data) });
 const d = (p: string, mode = 0o755): Entry => ({ path: p, type: "d", mode, uid, gid, mtime: T });
@@ -56,7 +58,7 @@ test("vault: one signature gives the same keys everywhere; encryption is authent
   assert.throws(() => open(a.encKey, bad, "pack"), /could not decrypt/);
 });
 
-test("images: tar -> image -> disk -> tar keeps every file, link and attribute", () => {
+test("images: tar -> image -> disk -> tar keeps every file, link and attribute", { skip: !posix && "needs a POSIX file system" }, () => {
   const entries: Entry[] = [
     d("etc"), f("etc/hostname", "box\n"), f("etc/empty", ""), d("usr"), d("usr/bin"),
     f("usr/bin/tool", crypto.randomBytes(70_000), 0o755), { path: "usr/bin/alias", type: "h", mode: 0o755, uid, gid, mtime: T, link: "usr/bin/tool" },
@@ -85,7 +87,7 @@ test("images: tar -> image -> disk -> tar keeps every file, link and attribute",
   }
 });
 
-test("save and restore: changes, deletions and history survive the round trip through the chain", async () => {
+test("save and restore: changes, deletions and history survive the round trip through the chain", { skip: !posix && "needs a POSIX file system" }, async () => {
   const chain = new FakeChain();
   const store = new ChainStore(new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 }));
   const vault = vaultFromKeypair(Keypair.generate(), "devnet");

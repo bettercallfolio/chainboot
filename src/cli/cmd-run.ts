@@ -8,7 +8,9 @@ import {
 } from "../engine/linux.ts";
 import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
-import { homeDir, hostArch, loadConfig, openStore } from "../local/home.ts";
+import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
+import { readIndex } from "../state/snapshot.ts";
+import { loadVault } from "../state/vault.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { fmtBytes } from "../util/bytes.ts";
 import { UsageError, flag, has, type Args } from "./args.ts";
@@ -49,6 +51,7 @@ changes. Several terminals can be inside one machine at once; it stops when the 
   chainboot run solbuntu -- apt-get update    Run one command and return
   chainboot run solbuntu --name test          A second, separate machine from the same image
   chainboot run solbuntu --no-autosave        Create the machine with automatic saving turned off
+  chainboot run solbuntu --fresh              Do not bring back a saved machine of the same name
 
 Keeping a machine up (for services such as a web server):
   chainboot start <machine>     Start it and keep it running without an open terminal
@@ -77,6 +80,19 @@ export async function cmdRun(a: Args): Promise<void> {
   if (!machine) {
     const c = loadConfig();
     const store = await openStore(c, (t) => info(dim(t)));
+    // signed in, and a machine with this name was saved before (on any computer): continue it instead of starting over
+    const vault = has(a, "fresh") ? null : loadVault(paths.vault(), c.cluster);
+    const saved = vault ? (await readIndex(store, vault).catch(() => null))?.machines[name] : undefined;
+    if (saved) {
+      info(`You have a saved machine named ${bold(name)} on chain. Bringing it back instead of starting from scratch.`);
+      info(dim(`(To start a new, empty one, use another name: chainboot run ${text} --name <name>)`));
+      if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, { ...saved.image.manifest, digest: saved.image.digest }, `${saved.image.name}:${saved.image.tag}`);
+      fs.mkdirSync(machineDir(home, name), { recursive: true });
+      fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created }, null, 2) + "\n");
+      if (asRoot(["restore", name, "latest"]) !== 0) throw new Error(`could not restore "${name}". Remove the half-made machine with "chainboot rm ${name}" and try again.`);
+      process.exitCode = asRoot(["enter", name, "--", ...command]);
+      return;
+    }
     const found = await resolveImage(store, c, text, flag(a, "arch") ?? hostArch());
     let digest = found.ref.digest;
     if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, found.ref, `${found.name}:${found.tag}`)).manifest.digest;
