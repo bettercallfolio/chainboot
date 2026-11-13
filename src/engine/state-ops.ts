@@ -64,9 +64,14 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
   const info = readMachine(home, name);
   if (!info) throw new Error(`there is no machine named "${name}"`);
   const lock = path.join(dir, "save.lock");
-  try { fs.mkdirSync(lock); } catch {
-    if (Date.now() - fs.statSync(lock).mtimeMs < 30 * 60_000) { say(`a save of "${name}" is already running`); return 0; }
-    // a stale lock from a crashed save
+  for (let waited = 0; ; waited++) {
+    try { fs.mkdirSync(lock); break; } catch { /* another save holds the lock */ }
+    let age = Infinity;
+    try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { continue; } // it was just released: try again
+    if (age > 30 * 60_000) { try { fs.rmdirSync(lock); } catch { /* raced */ } continue; } // left behind by a save that crashed
+    if (flags.auto) return 0; // an automatic save is not needed while another save is running
+    if (waited === 0) say(`a save of "${name}" is already running in the background; waiting for it to finish`);
+    await new Promise((r) => setTimeout(r, 500));
   }
   const local = readSaveStatus(dir);
   const keep = { seq: local?.seq, fingerprint: local?.fingerprint, time: local?.time };

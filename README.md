@@ -105,7 +105,7 @@ chainboot run solbuntu         # brings your machine back and opens it
 
 | Image | What it is | Download | On disk | Cost to publish |
 |---|---|---|---|---|
-| `solbuntu` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64) | 114 MB | 504 MB | 0.12 SOL |
+| `solbuntu` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64, arm64) | 114 MB | 504 MB | 0.12 SOL |
 | `solbuntu-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
 | `alpine` | Alpine Linux 3.24 (amd64, arm64) | 3 MB | 8 MB | 0.004 SOL |
 
