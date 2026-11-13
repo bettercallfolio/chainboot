@@ -24,6 +24,7 @@ main { flex: 1; padding-top: 20px; padding-bottom: 40px; display: flex; flex-dir
 section { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 16px 18px; }
 .head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--gap); min-height: var(--h); }
 .head + * { margin-top: 12px; }
+.tools { display: flex; align-items: center; gap: 8px; }
 h2 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text); }
 .sub { color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint { color: var(--dim); margin: 0 0 12px; max-width: 86ch; }

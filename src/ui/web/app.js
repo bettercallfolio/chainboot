@@ -204,6 +204,10 @@ async function refresh() {
 
 async function loadCatalog(publisher = catalogPublisher) {
   catalogPublisher = publisher; catalog = null; renderCatalog();
+  const mine = publisher === "me";
+  $("private-show").textContent = mine ? "Public systems" : "My private systems";
+  $("private-show").classList.toggle("on", mine);
+  $("catalog-summary").textContent = mine ? "your private systems: encrypted, readable by your wallet only" : "stored on Solana, verified on download";
   if (!state.endpoints.length) return;
   try { catalog = await api("POST", "/api/catalog", { publisher }); } catch (e) { catalog = { error: e.message }; }
   renderCatalog();
@@ -319,9 +323,10 @@ $("publisher-toggle").addEventListener("click", () => { const f = $("publisher-f
 $("publish-toggle").addEventListener("click", () => { const b = $("publish-body"); toggle($("publish-toggle"), b, b.classList.contains("hidden")); });
 $("network").addEventListener("change", guard(async (e) => { tests.clear(); balances = null; applyState(await api("POST", "/api/network", { cluster: e.target.value })); await loadCatalog(""); }));
 $("publisher-form").addEventListener("submit", guard(async (e) => { e.preventDefault(); await loadCatalog($("publisher").value.trim()); }));
-$("private-show").addEventListener("click", guard(() => loadCatalog("me")));
+// one button switches between the public catalog and the signed-in wallet's private systems
+$("private-show").addEventListener("click", guard(() => loadCatalog(catalogPublisher === "me" ? "" : "me")));
 $("wallet-chip").addEventListener("click", () => $("sec-wallet").scrollIntoView({ behavior: "smooth" }));
-$("signout").addEventListener("click", guard(async () => { balances = null; applyState(await api("POST", "/api/logout")); }));
+$("signout").addEventListener("click", guard(async () => { balances = null; applyState(await api("POST", "/api/logout")); if (catalogPublisher === "me") await loadCatalog(""); }));
 $("activity-close").addEventListener("click", () => $("sec-activity").classList.add("hidden"));
 
 (async () => {
