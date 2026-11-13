@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machines · chainboot docs</title>
+<meta name="description" content="Running, several terminals, keeping one up, services, exporting.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li class="here"><a href="03-machines.html" aria-current="page"><span class="num">03</span>Machines</a><ul><li><a href="#create-and-open">Create and open</a></li><li><a href="#several-terminals-one-machine">Several terminals, one machine</a></li><li><a href="#keep-a-machine-running">Keep a machine running</a></li><li><a href="#what-a-machine-is-exactly">What a machine is, exactly</a></li><li><a href="#other-processor-types">Other processor types</a></li><li><a href="#housekeeping">Housekeeping</a></li><li><a href="#turning-a-machine-into-an-image">Turning a machine into an image</a></li></ul></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 03</p>
+<h1>Machines</h1>
+<p>A <strong>machine</strong> is an image plus everything you changed in it. This page covers daily use.</p>
+<h2 id="create-and-open"><a class="anchor" href="#create-and-open" aria-hidden="true" tabindex="-1">#</a>Create and open</h2>
+<div class="code-wrap"><pre><code>chainboot run solinux                  <span class="c"># first time: download, create, open. Later: just open.</span>
+chainboot run solinux -- uname -a      <span class="c"># run one command instead of a shell</span>
+chainboot run solinux --name web       <span class="c"># another machine from the same image</span>
+chainboot run web                       <span class="c"># open a machine by its name</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The machine is named after the image unless you choose a name. Inside, you are <code>root</code>. The shell starts in <code>/root</code>, like a fresh SSH session.</p>
+<p>Options of <code>run</code>:</p>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--name &lt;machine&gt;</code></td><td>name of the machine to create or open</td></tr><tr><td><code>--arch &lt;arch&gt;</code></td><td>take the image for another processor type (see &quot;Other processor types&quot;)</td></tr><tr><td><code>--no-autosave</code></td><td>create the machine with automatic saving turned off</td></tr><tr><td><code>--fresh</code></td><td>when signed in: do not bring back a saved machine with this name</td></tr><tr><td><code>-- &lt;command&gt;</code></td><td>run this command instead of a shell; its exit status becomes chainboot's</td></tr></tbody></table></div>
+<h2 id="several-terminals-one-machine"><a class="anchor" href="#several-terminals-one-machine" aria-hidden="true" tabindex="-1">#</a>Several terminals, one machine</h2>
+<p>Open a second terminal and run the same command: you are in the same machine, and both terminals see the same files and processes. The machine stops by itself a moment after the last terminal leaves.</p>
+<h2 id="keep-a-machine-running"><a class="anchor" href="#keep-a-machine-running" aria-hidden="true" tabindex="-1">#</a>Keep a machine running</h2>
+<p>For something that should stay up without an open terminal, such as a web server:</p>
+<div class="code-wrap"><pre><code>chainboot start web        <span class="c"># stays up until you stop it</span>
+chainboot run web -- service nginx start
+chainboot stop web</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h3 id="starting-services-automatically"><a class="anchor" href="#starting-services-automatically" aria-hidden="true" tabindex="-1">#</a>Starting services automatically</h3>
+<p>A machine does not boot the way a physical computer does: there is no systemd running as the first process. If a machine contains an executable file <code>/etc/chainboot/start</code>, chainboot runs it every time the machine starts. Put your service starts there:</p>
+<div class="code-wrap"><pre><code>cat &gt; /etc/chainboot/start &lt;&lt;'SH'
+#!/bin/sh
+service nginx start
+cd /srv/app &amp;&amp; nohup ./my-server --port 8080 &gt;/var/log/my-server.log 2&gt;&amp;1 &amp;
+SH
+chmod +x /etc/chainboot/start</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Its output goes to <code>~/.chainboot/machines/&lt;name&gt;/start.log</code> on your computer.</p>
+<h2 id="what-a-machine-is-exactly"><a class="anchor" href="#what-a-machine-is-exactly" aria-hidden="true" tabindex="-1">#</a>What a machine is, exactly</h2>
+<ul><li><strong>Your processor, your kernel.</strong> Programs run natively. There is no emulation and no virtual hardware, so speed is that of your computer.</li><li><strong>Its own file system.</strong> The image is mounted read-only with your changes on top.</li><li><strong>Its own process list and hostname.</strong> <code>ps</code> shows only the machine's processes.</li><li><strong>Your network.</strong> The machine shares your computer's network connection. A server that listens on port 8080 inside the machine is reachable on port 8080 of your computer. The other side of this: a port that your computer already uses is taken. If your computer runs its own SSH server on port 22, an SSH server inside the machine must use another port (set <code>Port 2222</code> in <code>/etc/ssh/sshd_config</code>). On macOS with a container engine, the machine's ports are reachable inside the engine only.</li><li><strong>Fresh <code>/tmp</code> and <code>/run</code> at every start</strong>, like after a reboot.</li><li><strong>Its own SSH host keys and machine ID</strong>, created at first start (images do not carry them).</li></ul>
+<p>What a machine is <strong>not</strong>:</p>
+<ul><li><strong>Not a security sandbox.</strong> Root inside a machine is root on your computer (on Windows and macOS: root inside the chainboot engine). Run only images you trust, like you would only install software you trust.</li><li><strong>Not a virtual machine.</strong> It cannot load kernel modules or run a different kernel.</li><li><strong>Not booted by systemd.</strong> <code>systemctl</code> cannot start services; use <code>service &lt;name&gt; start</code> or call the program directly.</li></ul>
+<h2 id="other-processor-types"><a class="anchor" href="#other-processor-types" aria-hidden="true" tabindex="-1">#</a>Other processor types</h2>
+<p>Images are published per processor type (<code>amd64</code> for Intel/AMD, <code>arm64</code> for ARM such as Apple silicon or Raspberry Pi). chainboot picks the one that fits your computer.</p>
+<p>On Linux you can also run an image built for a different processor if QEMU user emulation is installed (<code>sudo apt install qemu-user-static binfmt-support</code> on Debian and Ubuntu):</p>
+<div class="code-wrap"><pre><code>chainboot run solinux-minimal --arch arm64 --name armbox</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>This is emulation, so it is much slower. It is useful for building and testing.</p>
+<h2 id="housekeeping"><a class="anchor" href="#housekeeping" aria-hidden="true" tabindex="-1">#</a>Housekeeping</h2>
+<div class="code-wrap"><pre><code>chainboot machines              <span class="c"># all machines and whether they run</span>
+chainboot stop &lt;machine&gt;        <span class="c"># stop a running machine (open terminals in it are closed)</span>
+chainboot rm &lt;machine&gt;          <span class="c"># delete a machine and all its changes on this computer</span>
+chainboot images                <span class="c"># downloaded images and which machines use them</span>
+chainboot rmi &lt;image&gt;           <span class="c"># delete a downloaded image</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Deleting a machine here does not touch its saves on chain.</p>
+<h2 id="turning-a-machine-into-an-image"><a class="anchor" href="#turning-a-machine-into-an-image" aria-hidden="true" tabindex="-1">#</a>Turning a machine into an image</h2>
+<p>When a machine is set up the way you like it, you can make it an image and publish it:</p>
+<div class="code-wrap"><pre><code>chainboot export web web.tar
+chainboot publish web.tar --name web --version 1.0 --reuse solinux --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>export</code> writes the machine's complete file system as a tar archive. It leaves out what must not be shared or is rebuilt anyway: SSH host keys, <code>~/.ssh</code>, shell history, logs, the machine ID, temporary files and package caches. Details are in <a href="05-publishing.html">Publishing your own system</a>.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="02-how-it-works.html"><span>previous</span>How it works</a><a class="next" href="04-saving.html"><span>next</span>Saving to chain</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/03-machines.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

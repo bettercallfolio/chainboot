@@ -29,7 +29,8 @@
     "check": "tsc --noEmit",
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
     "dev": "node src/cli/main.ts",
-    "release": "node scripts/build.mjs --archive"
+    "release": "node scripts/build.mjs --archive",
+    "site": "node scripts/build-site.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

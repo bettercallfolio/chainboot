@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security · chainboot docs</title>
+<meta name="description" content="What you trust, what you do not have to, and where the limits are.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li class="here"><a href="09-security.html" aria-current="page"><span class="num">09</span>Security</a><ul><li><a href="#what-you-trust">What you trust</a></li><li><a href="#what-you-do-not-have-to-trust">What you do not have to trust</a></li><li><a href="#the-publisher-key">The publisher key</a></li><li><a href="#machines-are-not-sandboxes">Machines are not sandboxes</a></li><li><a href="#your-saves">Your saves</a></li><li><a href="#the-web-interface">The web interface</a></li><li><a href="#the-installers">The installers</a></li><li><a href="#reporting-a-problem">Reporting a problem</a></li></ul></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 09</p>
+<h1>Security</h1>
+<p>This page says plainly what chainboot protects you from, what it does not, and what you have to trust.</p>
+<h2 id="what-you-trust"><a class="anchor" href="#what-you-trust" aria-hidden="true" tabindex="-1">#</a>What you trust</h2>
+<div class="table-wrap"><table><thead><tr><th>You trust</th><th>For what</th></tr></thead><tbody><tr><td>The <strong>publisher</strong> of an image</td><td>that the system does what it claims. You run their software as root. This is the same trust as installing any operating system.</td></tr><tr><td><strong>chainboot itself</strong> and Node.js</td><td>that the program does what this documentation says. The source is open and small.</td></tr><tr><td>Your own computer</td><td>your login (encryption key and vault key) is stored on it.</td></tr><tr><td>Solana's cryptography (Ed25519, SHA-256)</td><td>signatures and hashes cannot be forged.</td></tr></tbody></table></div>
+<h2 id="what-you-do-not-have-to-trust"><a class="anchor" href="#what-you-do-not-have-to-trust" aria-hidden="true" tabindex="-1">#</a>What you do not have to trust</h2>
+<p><strong>RPC endpoints.</strong> They are the only servers involved, and chainboot treats them as untrusted couriers:</p>
+<ul><li>Catalogs, manifests, pointers and the structure of every file are accepted only with a valid signature of the publisher's key (for your saves: your vault's key).</li><li>File contents must match a SHA-256 that comes from signed data.</li><li>Unpacked images are checked file by file against the manifest before use.</li></ul>
+<p>An endpoint can be slow, refuse to answer, or return garbage. chainboot then asks another one. An endpoint cannot make you run different software.</p>
+<p>One thing an endpoint can do: <strong>show you an old state</strong>. If it hides the newest transactions, you see an older catalog or an older save of your machine, both of which were once valid. Today chainboot asks one endpoint for the newest pointer; asking several and taking the newest answer is on the roadmap. If freshness matters to you, use endpoints you have reason to trust.</p>
+<p><strong>The network path.</strong> Because of the above, it does not matter who can see or change the traffic between you and an endpoint, as far as integrity goes. (They can still see which data you fetch.)</p>
+<h2 id="the-publisher-key"><a class="anchor" href="#the-publisher-key" aria-hidden="true" tabindex="-1">#</a>The publisher key</h2>
+<p><code>chainboot run solinux</code> means &quot;the image named solinux in the catalog of the official publisher address&quot;. That address is written into chainboot. <code>chainboot run &lt;address&gt;/&lt;image&gt;</code> names the publisher explicitly. Anyone can publish an image called <code>solinux</code> under their own address, but it will never be confused with another publisher's, because the address is part of the name.</p>
+<p>When you run an image of a publisher you do not know, you are trusting a stranger with root on your computer. chainboot shows the publisher address in <code>chainboot list &lt;address&gt;</code>; check it.</p>
+<h2 id="machines-are-not-sandboxes"><a class="anchor" href="#machines-are-not-sandboxes" aria-hidden="true" tabindex="-1">#</a>Machines are not sandboxes</h2>
+<p>A machine separates processes and files for convenience, not for defence. Root inside a machine can reach your computer's network, and with some effort its files. Treat an image like any software you install.</p>
+<p>On Windows and macOS, machines run inside the chainboot engine (a WSL distribution, a privileged container, or a Lima virtual machine). That adds a layer between a machine and your own files, but chainboot does not promise isolation there either.</p>
+<h2 id="your-saves"><a class="anchor" href="#your-saves" aria-hidden="true" tabindex="-1">#</a>Your saves</h2>
+<ul><li>Encrypted on your computer with AES-256-GCM before upload: contents, file names, the list of your machines and the pointers. Each kind of data is bound to its purpose, so a pack cannot be passed off as a snapshot.</li><li>The key is derived from your wallet's signature of the login message. <strong>Whoever gets that signature gets your saves.</strong> That is why the message warns you, and why you must never sign it on a website.</li><li>The login is stored in <code>~/.chainboot/vault/</code> with permissions for your user only. Someone who can read your home directory can read your saves and spend the vault's balance (never your wallet's). Keep only a small balance in the vault.</li><li>Encrypted saves stay on the ledger forever. If the key leaks later, old saves become readable. Do not save things that must stay secret for decades.</li><li>Published images are <strong>private by default</strong>: encrypted with the same key as your saves, listed only in your encrypted private catalog, and readable by your wallet alone. An image becomes public only when you publish it with <code>--public</code>. The same warnings apply: it cannot be erased, and it is as safe as your wallet's signature of the login message. Never publish a system that contains secrets as a public image.</li></ul>
+<h2 id="the-web-interface"><a class="anchor" href="#the-web-interface" aria-hidden="true" tabindex="-1">#</a>The web interface</h2>
+<p><code>chainboot ui</code> starts a web server that:</p>
+<ul><li>listens on <code>127.0.0.1</code> only, so other computers cannot reach it;</li><li>requires a random token on every request. The token is in the link chainboot prints, and is sent in a custom header, so other websites open in your browser cannot call it;</li><li>checks the <code>Host</code> header, which blocks DNS-rebinding tricks;</li><li>sends a strict Content-Security-Policy and loads no outside scripts;</li><li>never sends RPC URLs or keys to the page, only masked names;</li><li>only accepts a wallet's signed transaction if it is exactly the transfer from your wallet to your vault that the page prepared.</li></ul>
+<p>Text that comes from the chain (image names and descriptions) is inserted into the page as text, never as HTML.</p>
+<h2 id="the-installers"><a class="anchor" href="#the-installers" aria-hidden="true" tabindex="-1">#</a>The installers</h2>
+<p><code>install.sh</code> and <code>install.ps1</code> run without administrator rights and write only into your home directory. The Node.js they may download is checked against SHA-256 values written into the installer. The chainboot archive is checked against the checksum published next to it, which protects against a broken download; its authenticity rests on GitHub and HTTPS. If you want more, build from source: <code>git clone</code>, <code>npm ci</code>, <code>npm run build</code>.</p>
+<h2 id="reporting-a-problem"><a class="anchor" href="#reporting-a-problem" aria-hidden="true" tabindex="-1">#</a>Reporting a problem</h2>
+<p>If you find a security problem, please open a private security advisory on the GitHub repository instead of a public issue.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="08-networks-and-costs.html"><span>previous</span>Networks and costs</a><a class="next" href="10-ideas-and-roadmap.html"><span>next</span>Ideas and roadmap</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/09-security.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

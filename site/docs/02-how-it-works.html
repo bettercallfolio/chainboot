@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works · chainboot docs</title>
+<meta name="description" content="The whole idea in plain words: files as transactions, images, machines.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li class="here"><a href="02-how-it-works.html" aria-current="page"><span class="num">02</span>How it works</a><ul><li><a href="#the-short-version">The short version</a></li><li><a href="#part-1-a-file-on-a-blockchain">Part 1: a file on a blockchain</a></li><li><a href="#part-2-an-operating-system-as-files">Part 2: an operating system as files</a></li><li><a href="#part-3-running-it">Part 3: running it</a></li><li><a href="#the-whole-picture">The whole picture</a></li></ul></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 02</p>
+<h1>How it works</h1>
+<p>This page explains the whole idea in plain words. No blockchain knowledge is needed.</p>
+<h2 id="the-short-version"><a class="anchor" href="#the-short-version" aria-hidden="true" tabindex="-1">#</a>The short version</h2>
+<ol><li>A blockchain is a list of transactions that thousands of computers keep and agree on.</li><li>A Solana transaction can carry a few kilobytes of free data.</li><li>Cut a file into small pieces, put every piece into a transaction, and the file is on chain.</li><li>To read it back, fetch the transactions and glue the pieces together.</li><li>An operating system is just a set of files. Do this with all of them and the operating system is on chain.</li></ol>
+<p>Everything else in chainboot is there to make this <strong>safe</strong> (you get exactly the bytes that were published), <strong>fast</strong> (seconds, not hours) and <strong>pleasant</strong> (one command).</p>
+<h2 id="part-1-a-file-on-a-blockchain"><a class="anchor" href="#part-1-a-file-on-a-blockchain" aria-hidden="true" tabindex="-1">#</a>Part 1: a file on a blockchain</h2>
+<h3 id="transactions-carry-data"><a class="anchor" href="#transactions-carry-data" aria-hidden="true" tabindex="-1">#</a>Transactions carry data</h3>
+<p>A Solana transaction is a small signed message, at most 4096 bytes long. It says who pays, which programs to call, and what data to give them. Solana has a tiny program called <strong>Noop</strong> (&quot;no operation&quot;) that accepts any data and does nothing with it. The data is still recorded in the ledger forever, because every transaction is.</p>
+<p>chainboot fills each transaction with as much file data as fits: <strong>3912 bytes</strong>. The fee for a transaction is fixed (0.000005 SOL), no matter how much data is inside.</p>
+<blockquote><p>Until 2026 a Solana transaction could only be 1232 bytes. The new &quot;v1&quot; transaction format raised this to 4096 bytes. chainboot uses v1, so it needs almost four times fewer transactions than would have been possible before.</p></blockquote>
+<h3 id="one-address-for-a-whole-file"><a class="anchor" href="#one-address-for-a-whole-file" aria-hidden="true" tabindex="-1">#</a>One address for a whole file</h3>
+<p>A 22 MB file becomes about 5,600 transactions. How do you find them again? Every transaction has a unique name: its <strong>signature</strong>. chainboot stores lists of signatures the same way it stores data, and builds a small tree:</p>
+<div class="code-wrap"><pre><code>                    head                 &lt;- its signature is the address of the file
+                 /    |    \
+           branch  branch  branch        &lt;- each lists up to 61 signatures
+           /  |  \
+        leaf leaf leaf ...               &lt;- each carries 3912 bytes of the file</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The <strong>head</strong> also records the size of the file and its SHA-256 hash. So one signature, 88 characters long, is enough to find and check a file of any size.</p>
+<h3 id="reading-fast-whole-blocks-instead-of-single-transactions"><a class="anchor" href="#reading-fast-whole-blocks-instead-of-single-transactions" aria-hidden="true" tabindex="-1">#</a>Reading fast: whole blocks instead of single transactions</h3>
+<p>Asking an RPC endpoint for 5,600 transactions one by one is slow, and free endpoints only allow a few requests per second. But Solana groups transactions into <strong>blocks</strong>, and one request can return a whole block. When chainboot uploads a file, hundreds of its transactions land in the same block. So the head also points to a short <strong>hint</strong>: the list of blocks that contain the file.</p>
+<p>A reader then needs a few dozen requests instead of 5,600. That is why even a single free endpoint downloads Ubuntu minimal in a second or two. If a block cannot be fetched, chainboot falls back to fetching the missing transactions one by one. The hint only makes things faster; it is never needed for correctness.</p>
+<h3 id="why-you-can-trust-what-you-get"><a class="anchor" href="#why-you-can-trust-what-you-get" aria-hidden="true" tabindex="-1">#</a>Why you can trust what you get</h3>
+<p>RPC endpoints are run by companies you may not know. chainboot does not trust them:</p>
+<ul><li>The head and the branches are checked with the publisher's <strong>signature</strong>. An endpoint cannot invent them, because it does not have the publisher's private key.</li><li>The assembled file must match the <strong>SHA-256</strong> recorded in the head. If any piece is wrong, chainboot finds the bad pieces by their signatures and fetches them again elsewhere.</li></ul>
+<p>A dishonest endpoint can refuse to answer, or answer slowly. It cannot make you run something else.</p>
+<h2 id="part-2-an-operating-system-as-files"><a class="anchor" href="#part-2-an-operating-system-as-files" aria-hidden="true" tabindex="-1">#</a>Part 2: an operating system as files</h2>
+<h3 id="images"><a class="anchor" href="#images" aria-hidden="true" tabindex="-1">#</a>Images</h3>
+<p>An <strong>image</strong> is a complete root file system: every program, library and configuration file of a Linux system. chainboot stores an image as two kinds of objects:</p>
+<ul><li><strong>Packs.</strong> The contents of all files, glued together and compressed into one stream. Solid compression of similar files is very effective: Ubuntu's 90 MB become 21.6 MB with xz. Identical files are stored once.</li><li><strong>A manifest.</strong> A list with one line per file, directory and link: its path, owner, permissions, time, hash, and where its content sits inside the packs.</li></ul>
+<p>The manifest has a <strong>digest</strong>: a hash over all those lines. It depends only on the files, not on how they were packed. Anyone who packages the same system gets the same digest, and anyone can recompute it from an unpacked system.</p>
+<p>A second image can reuse the packs of the first. The Solinux server image refers to the pack of Solinux minimal and adds only what is new.</p>
+<h3 id="the-catalog"><a class="anchor" href="#the-catalog" aria-hidden="true" tabindex="-1">#</a>The catalog</h3>
+<p>How does <code>chainboot run solinux</code> find the right signature? Every publisher has a <strong>catalog</strong>: a small file on chain that lists their images, versions and processor architectures. A <strong>pointer transaction</strong> always names the newest catalog.</p>
+<div class="code-wrap"><pre><code>publisher's pointer  -&gt;  catalog  -&gt;  manifest  -&gt;  packs
+     (signed)            (signed)     (signed)      (hash from the manifest)</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Only the publisher can move their pointer, because readers ignore pointer transactions that were not signed by the publisher's key. The name <code>solinux</code> without a publisher means &quot;from the official chainboot publisher&quot;. For anybody else you write <code>&lt;their-address&gt;/&lt;image&gt;</code>.</p>
+<h2 id="part-3-running-it"><a class="anchor" href="#part-3-running-it" aria-hidden="true" tabindex="-1">#</a>Part 3: running it</h2>
+<h3 id="machines"><a class="anchor" href="#machines" aria-hidden="true" tabindex="-1">#</a>Machines</h3>
+<p>Downloading gives you an image. Running needs more: a place for your changes. chainboot uses a feature of the Linux kernel called <strong>overlayfs</strong>:</p>
+<div class="code-wrap"><pre><code>   what you see inside the machine
+   ───────────────────────────────
+   your changes   (new files, changed files, notes about deleted files)
+   ───────────────────────────────
+   the image      (read-only, shared by all machines made from it)</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The image is never modified. Two machines made from the same image share it and only store their own differences.</p>
+<p>To make the machine feel like a separate computer, chainboot starts it in its own <strong>namespaces</strong>: its own process list, hostname and mounts. The network is shared with your computer, so the internet simply works. No emulation is involved; programs run directly on your processor. (On Windows and macOS there is one thin layer in between, the WSL or container environment that provides a Linux kernel.)</p>
+<h3 id="saving-your-changes-back-to-the-chain"><a class="anchor" href="#saving-your-changes-back-to-the-chain" aria-hidden="true" tabindex="-1">#</a>Saving your changes back to the chain</h3>
+<p>The &quot;your changes&quot; layer is exactly what needs saving. When you are signed in, chainboot looks at that layer after each session, packs only the content that is not on chain yet, encrypts it with a key derived from your wallet, and stores it like any other file. A pointer transaction names your newest save. On another computer, chainboot reads the pointer, downloads the image and your save, and puts the layer back.</p>
+<p>How the key is made, and why your wallet is asked only once, is explained in <a href="04-saving.html">Saving to chain</a>.</p>
+<h2 id="the-whole-picture"><a class="anchor" href="#the-whole-picture" aria-hidden="true" tabindex="-1">#</a>The whole picture</h2>
+<div class="code-wrap"><pre><code> publish                                         run
+ ───────                                         ───
+ root file system                                chainboot run solinux
+      │ pack + compress                               │ read pointer, catalog, manifest
+      ▼                                               ▼
+ packs + manifest ── transactions ──▶ Solana ──▶ fetch blocks, verify signatures and hashes
+      │                               ledger          │ unpack once
+      ▼                                               ▼
+ catalog + pointer                               image + your layer = machine  ◀─▶ encrypted saves</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<nav class="pager" aria-label="More guides"><a class="prev" href="01-getting-started.html"><span>previous</span>Getting started</a><a class="next" href="03-machines.html"><span>next</span>Machines</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/02-how-it-works.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

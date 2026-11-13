@@ -1,7 +1,10 @@
 # chainboot website
 
-A static page: `index.html`, `style.css`, `app.js`, `favicon.svg`. No build step, no
-dependencies, no outside requests. Open `index.html` in a browser, or serve this folder with
+Static pages with no dependencies and no outside requests: the landing page (`index.html`,
+`style.css`, `app.js`, `favicon.svg`) and the documentation in `docs/`.
+
+The documentation pages are generated from the Markdown guides in the repository's `docs/`
+folder. After changing a guide, run `npm run site` and commit the result (CI checks this). Open `index.html` in a browser, or serve this folder with
 any web server:
 
 ```sh

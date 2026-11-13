@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideas and roadmap · chainboot docs</title>
+<meta name="description" content="What else can be built with these parts, and what comes next.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li class="here"><a href="10-ideas-and-roadmap.html" aria-current="page"><span class="num">10</span>Ideas and roadmap</a><ul><li><a href="#what-chainboot-really-gives-you">What chainboot really gives you</a></li><li><a href="#things-you-could-build">Things you could build</a></li><li><a href="#what-solana-in-particular-makes-possible">What Solana in particular makes possible</a></li><li><a href="#beyond-solana">Beyond Solana</a></li><li><a href="#roadmap">Roadmap</a></li></ul></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 10</p>
+<h1>Ideas and roadmap</h1>
+<p>chainboot stores operating systems because that is a demanding, concrete test: hundreds of megabytes, tens of thousands of files, and it has to boot. But the parts it is made of are general. This page is an invitation: here is what else you can build with them, on Solana and on other networks.</p>
+<h2 id="what-chainboot-really-gives-you"><a class="anchor" href="#what-chainboot-really-gives-you" aria-hidden="true" tabindex="-1">#</a>What chainboot really gives you</h2>
+<p>Four building blocks, each usable alone through the <a href="06-sdk.html">SDK</a>:</p>
+<ol><li><strong>Files of any size on a ledger, addressed by one signature</strong>, verified on read, fast to fetch (<code>ChainStore.put</code> / <code>get</code>).</li><li><strong>Names that only their owner can move</strong> (<code>putPointer</code> / <code>getPointer</code>).</li><li><strong>A pool that makes many RPC endpoints behave like one fast, reliable one</strong> (<code>RpcPool</code>).</li><li><strong>Encrypted private state unlocked by a wallet signature</strong>, with no account and no server (<code>deriveVault</code>, <code>seal</code>, <code>open</code>).</li></ol>
+<h2 id="things-you-could-build"><a class="anchor" href="#things-you-could-build" aria-hidden="true" tabindex="-1">#</a>Things you could build</h2>
+<p><strong>Software that cannot be taken down or quietly changed</strong></p>
+<ul><li>A package repository on chain: <code>apt</code>, <code>npm</code> or <code>pip</code> packages whose bytes are verifiable by anyone and available as long as the ledger is. A package manager plugin could install straight from signatures.</li><li>Release archives for open-source projects, with the publisher's key as the only authority. &quot;Is this the binary the author published?&quot; becomes a question with a mathematical answer.</li><li>Firmware and update channels for devices: the device knows one public key and one tag, and follows the pointer.</li><li>Reproducible-build registries: several independent builders publish the digest they got; agreement is visible on chain.</li></ul>
+<p><strong>Whole environments, shared with one line</strong></p>
+<ul><li>Development environments: &quot;run <code>chainboot run &lt;address&gt;/project-dev</code>&quot; instead of a setup guide. Everyone gets the identical system.</li><li>Teaching and workshops: every student starts from the same machine and keeps their own encrypted progress in their own wallet.</li><li>Research artifacts: publish the exact system a paper's results were computed with.</li><li>Capture-the-flag and puzzle machines.</li></ul>
+<p><strong>Personal data that follows your wallet</strong></p>
+<ul><li>Encrypted settings, dotfiles, notes or password vaults that appear on any computer after one signature.</li><li>Game saves and user-generated content owned by the player, not by the game's server.</li><li>Application state for wallet-based apps without running a backend.</li></ul>
+<p><strong>Websites and media</strong></p>
+<ul><li>Static websites whose every file is on chain and whose &quot;current version&quot; is a pointer owned by the author. A small gateway, or a browser extension, can serve them verified.</li><li>Art, music and documents stored completely on chain, not as a link to somewhere else.</li><li>Datasets and model weights with a verifiable origin.</li></ul>
+<p><strong>Infrastructure</strong></p>
+<ul><li>Configuration and key registries: a tag per service, readable by anyone, writable by one key.</li><li>Append-only logs and attestations, with pointers as the index.</li><li>Machine images for clusters: nodes boot the image a pointer names; updating the fleet means moving the pointer.</li></ul>
+<h2 id="what-solana-in-particular-makes-possible"><a class="anchor" href="#what-solana-in-particular-makes-possible" aria-hidden="true" tabindex="-1">#</a>What Solana in particular makes possible</h2>
+<p>If you are new to Solana, this project touches several of its interesting properties:</p>
+<ul><li><strong>Fixed, tiny fees per transaction</strong>, independent of the data inside. Storing a megabyte costs about 0.0013 SOL. That is what makes &quot;the ledger as storage&quot; practical for small and medium data.</li><li><strong>Large transactions.</strong> The v1 format (4096 bytes) arrived in 2026 and made this almost four times cheaper and faster than before.</li><li><strong>High throughput.</strong> chainboot lands several hundred transactions per second from one laptop through free endpoints.</li><li><strong>Fast finality.</strong> A save is final a few seconds after it is sent.</li><li><strong>Addresses without keys.</strong> Any 32 bytes can be referenced by a transaction. chainboot uses hashes as &quot;tag addresses&quot; to find things, with no program of its own on chain.</li><li><strong>No custom program needed.</strong> Everything here uses the existing Noop program. There is nothing to deploy, audit or upgrade.</li></ul>
+<p>Things worth exploring that chainboot does not use yet:</p>
+<ul><li><strong>Accounts as storage.</strong> Solana accounts can hold up to 10 MB each and are readable in a single request, forever, from every node. They cost a refundable deposit (about 7 SOL per MB) instead of a fee. Good for small data that must be instantly readable.</li><li><strong>Your own program</strong> for rules that signatures cannot express: shared catalogs, paid downloads, votes on what is &quot;official&quot;.</li><li><strong>Compressed state and proofs</strong> for very large collections.</li></ul>
+<h2 id="beyond-solana"><a class="anchor" href="#beyond-solana" aria-hidden="true" tabindex="-1">#</a>Beyond Solana</h2>
+<p>Nothing in the design is tied to one chain. The on-chain format needs three things from a network: transactions that can carry free data, a way to fetch a transaction by its ID, and a way to fetch a block. Almost every chain has them; what differs is price and speed. The image format, the verification and the encryption do not know which chain is below. A port to another network is a new implementation of one file, the store.</p>
+<h2 id="roadmap"><a class="anchor" href="#roadmap" aria-hidden="true" tabindex="-1">#</a>Roadmap</h2>
+<p>Honest status first: chainboot today is a working first version, built and tested on devnet and on Linux. The list below is in rough order of importance.</p>
+<p><strong>Next</strong></p>
+<ul><li>Try and fix everything on real Windows and macOS computers and with real browser wallets.</li><li>An official catalog on mainnet.</li><li>Run machines without administrator rights on Linux (user namespaces).</li><li>Start systemd as the first process of a machine, with the machine's own network, so that services behave exactly as on a server.</li><li>Ask several endpoints for the newest pointer and take the newest answer.</li></ul>
+<p><strong>Soon</strong></p>
+<ul><li>Fetch only the files a program actually opens (lazy loading), so even very large systems start in a second.</li><li>Priority fees in the command-line tool for busy times on mainnet.</li><li>Share saved machines and private images with other wallets (encrypt for several keys).</li><li>Signed &quot;official&quot; lists that several publishers maintain together.</li><li>Extended attributes in saves.</li></ul>
+<p><strong>Later</strong></p>
+<ul><li>A browser reader for the format (verify and download in a web page).</li><li>Accounts as a second storage backend for small, instantly readable data.</li><li>Other chains.</li><li>Bootable images for real hardware and virtual machines, including the kernel.</li></ul>
+<p>If one of these matters to you, open an issue or send a pull request. The code is small on purpose.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="09-security.html"><span>previous</span>Security</a><a class="next" href="11-faq.html"><span>next</span>Questions and problems</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/10-ideas-and-roadmap.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

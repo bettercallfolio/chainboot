@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started · chainboot docs</title>
+<meta name="description" content="Install, add an endpoint, run your first system, notes for each platform.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li class="here"><a href="01-getting-started.html" aria-current="page"><span class="num">01</span>Getting started</a><ul><li><a href="#what-you-need">What you need</a></li><li><a href="#install">Install</a></li><li><a href="#add-an-rpc-endpoint">Add an RPC endpoint</a></li><li><a href="#run-your-first-system">Run your first system</a></li><li><a href="#prefer-a-window">Prefer a window?</a></li><li><a href="#platform-notes">Platform notes</a></li><li><a href="#where-things-are">Where things are</a></li></ul></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 01</p>
+<h1>Getting started</h1>
+<p>This page takes you from nothing to a running system. It should take about five minutes.</p>
+<h2 id="what-you-need"><a class="anchor" href="#what-you-need" aria-hidden="true" tabindex="-1">#</a>What you need</h2>
+<div class="table-wrap"><table><thead><tr><th>Your computer</th><th>What chainboot needs</th><th>Notes</th></tr></thead><tbody><tr><td>Linux (x86-64 or ARM64)</td><td><code>sudo</code>, and the tools <code>unshare</code>, <code>nsenter</code>, <code>mount</code>, <code>chroot</code>, <code>flock</code></td><td>These are part of the <code>util-linux</code> and <code>coreutils</code> packages that every mainstream distribution installs by default.</td></tr><tr><td>Windows 10 or 11</td><td>WSL 2</td><td>If it is not enabled yet, run <code>wsl --install --no-distribution</code> once in an administrator PowerShell and restart.</td></tr><tr><td>macOS (Intel or Apple silicon)</td><td>One Linux engine: OrbStack, Docker Desktop, Podman, or Lima</td><td>macOS cannot run Linux programs by itself. Any one of these is enough.</td></tr></tbody></table></div>
+<p>You also need an <strong>RPC endpoint</strong> for Solana. More about that below.</p>
+<p>Optional: the <code>xz</code> tool. With it, large systems unpack several times faster.</p>
+<h2 id="install"><a class="anchor" href="#install" aria-hidden="true" tabindex="-1">#</a>Install</h2>
+<p>Linux, macOS and WSL:</p>
+<div class="code-wrap"><pre><code>curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Windows, in PowerShell:</p>
+<div class="code-wrap"><pre><code>irm https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.ps1 | iex</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>What the installer does:</p>
+<ol><li>It looks for Node.js 22.15 or newer. If you do not have it, it downloads the official Node.js build from nodejs.org, checks its SHA-256 against a value written into the installer, and keeps it in a private folder. Your system is not changed.</li><li>It downloads chainboot (one program file of about 250 kB and a small web page) and checks its SHA-256.</li><li>It creates the <code>chainboot</code> command in <code>~/.local/bin</code> (on Windows: in <code>%LOCALAPPDATA%\chainboot\bin</code>, added to your PATH).</li></ol>
+<p>Nothing needs administrator rights. Run the installer again to update. To remove chainboot:</p>
+<div class="code-wrap"><pre><code>sh install.sh --uninstall            <span class="c"># keep machines and settings</span>
+sh install.sh --uninstall --purge    <span class="c"># delete everything</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>If the installer says <code>~/.local/bin is not on your PATH</code>, add the line it prints to your shell profile and open a new terminal.</p>
+<h2 id="add-an-rpc-endpoint"><a class="anchor" href="#add-an-rpc-endpoint" aria-hidden="true" tabindex="-1">#</a>Add an RPC endpoint</h2>
+<p>Solana is a network of computers. Programs do not talk to &quot;the network&quot; directly; they talk to one computer of the network that answers questions over the internet. That computer is called an <strong>RPC endpoint</strong>, and its address looks like a web address.</p>
+<p>chainboot does not come with an endpoint. You bring your own, for two reasons: nobody can switch off &quot;the chainboot server&quot;, because there is none, and you decide whom you ask.</p>
+<p>Where to get one (all have a free plan):</p>
+<ul><li>Helius: <a href="https://www.helius.dev" rel="noopener">https://www.helius.dev</a></li><li>QuickNode: <a href="https://www.quicknode.com" rel="noopener">https://www.quicknode.com</a></li><li>Alchemy: <a href="https://www.alchemy.com" rel="noopener">https://www.alchemy.com</a></li><li>Triton: <a href="https://triton.one" rel="noopener">https://triton.one</a></li><li>Ankr: <a href="https://www.ankr.com" rel="noopener">https://www.ankr.com</a></li></ul>
+<p>Create an account, create an endpoint for <strong>Solana devnet</strong>, copy its URL, and add it:</p>
+<div class="code-wrap"><pre><code>chainboot rpc add https://devnet.helius-rpc.com/?api-key=YOUR-KEY</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>chainboot checks that the endpoint answers and that it really is a devnet endpoint.</p>
+<p>There is also a public endpoint that needs no account: <code>https://api.devnet.solana.com</code>. It works, but it is strictly rate-limited. Downloading Ubuntu through it alone takes minutes instead of seconds.</p>
+<p><strong>Add several endpoints if you can.</strong> chainboot spreads its requests over all of them, learns how fast each one may be used, moves work away from one that is slow or failing, and asks a second endpoint when the first takes too long. One endpoint is enough; three make it smooth.</p>
+<div class="code-wrap"><pre><code>chainboot rpc list        <span class="c"># API keys are never shown</span>
+chainboot rpc test        <span class="c"># which ones answer</span>
+chainboot rpc remove 2    <span class="c"># remove number 2 of the list</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The endpoints are stored in <code>~/.chainboot/config.json</code>, readable only by you. Instead of saving them you can set the environment variable <code>CHAINBOOT_RPC</code> to a comma-separated list.</p>
+<h2 id="run-your-first-system"><a class="anchor" href="#run-your-first-system" aria-hidden="true" tabindex="-1">#</a>Run your first system</h2>
+<div class="code-wrap"><pre><code>chainboot list</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>image             tag      arch   download  on disk  description
+alpine            latest   amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
+solinux          latest   amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system: SSH, sudo, git, editors and the standard tools
+solinux-minimal  latest   amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS, minimal base system</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>This list is itself read from the chain. Now run one:</p>
+<div class="code-wrap"><pre><code>chainboot run solinux</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>What happens:</p>
+<ol><li>chainboot finds the newest <code>solinux</code> in the publisher's catalog on chain.</li><li>It downloads the system and checks every file against its SHA-256.</li><li>It unpacks the system once and creates a <strong>machine</strong>: the system plus a place for everything you will change.</li><li>It opens a shell inside the machine. On Linux this step asks for your password (<code>sudo</code>), because mounting a file system is something only the administrator may do.</li></ol>
+<p>You are now root in a real Ubuntu. <code>apt update</code>, <code>apt install</code>, edit files, use the network. Type <code>exit</code> to leave. Run the same command again and you are back in the same machine, with everything you did, in a fraction of a second.</p>
+<div class="code-wrap"><pre><code>chainboot run solinux -- apt-get update     <span class="c"># run one command and return</span>
+chainboot run solinux --name test           <span class="c"># a second, separate machine from the same image</span>
+chainboot machines                           <span class="c"># list your machines</span>
+chainboot rm test                            <span class="c"># delete one</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="prefer-a-window"><a class="anchor" href="#prefer-a-window" aria-hidden="true" tabindex="-1">#</a>Prefer a window?</h2>
+<div class="code-wrap"><pre><code>chainboot ui</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>A page opens in your browser: add endpoints, pick a system, open your machines, connect your wallet. The page is served by chainboot on your own computer (<code>127.0.0.1</code>) and can only be reached from it.</p>
+<h2 id="platform-notes"><a class="anchor" href="#platform-notes" aria-hidden="true" tabindex="-1">#</a>Platform notes</h2>
+<p><strong>Linux.</strong> Machines run directly on your kernel. This is the fastest and simplest case.</p>
+<p><strong>Windows.</strong> chainboot creates a small WSL 2 distribution named <code>chainboot</code> and runs your machines inside it. The first run downloads the Ubuntu base archive from Canonical (35 MB) and Node.js for Linux (about 50 MB), both checked against pinned SHA-256 values. After that, commands are passed through automatically; you keep typing <code>chainboot ...</code> in PowerShell or Windows Terminal.</p>
+<p><strong>macOS.</strong> The same idea with a container: chainboot creates one named <code>chainboot</code> in OrbStack, Docker Desktop or Podman, or a Lima virtual machine if you use Lima. Your machines live inside it.</p>
+<p>On Windows and macOS, <code>chainboot engine</code> shows where machines run, and <code>chainboot engine reset</code> removes that environment with all machines in it (saves on chain are not affected).</p>
+<h2 id="where-things-are"><a class="anchor" href="#where-things-are" aria-hidden="true" tabindex="-1">#</a>Where things are</h2>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>What</th></tr></thead><tbody><tr><td><code>~/.chainboot/config.json</code></td><td>network and RPC endpoints</td></tr><tr><td><code>~/.chainboot/cache/</code></td><td>downloaded data (safe to delete; it is fetched again)</td></tr><tr><td><code>~/.chainboot/images/</code></td><td>unpacked systems</td></tr><tr><td><code>~/.chainboot/machines/</code></td><td>your machines and their changes</td></tr><tr><td><code>~/.chainboot/vault/</code></td><td>your login (encryption key and vault key); keep it private</td></tr></tbody></table></div>
+<nav class="pager" aria-label="More guides"><span></span><a class="next" href="02-how-it-works.html"><span>next</span>How it works</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/01-getting-started.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

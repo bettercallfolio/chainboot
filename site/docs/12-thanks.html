@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thank you · chainboot docs</title>
+<meta name="description" content="The people and projects chainboot stands on.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li class="here"><a href="12-thanks.html" aria-current="page"><span class="num">12</span>Thank you</a><ul><li><a href="#solana">Solana</a></li><li><a href="#rpc-providers">RPC providers</a></li><li><a href="#operating-systems">Operating systems</a></li><li><a href="#compression-and-cryptography">Compression and cryptography</a></li><li><a href="#tools">Tools</a></li><li><a href="#and-you">And you</a></li></ul></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 12</p>
+<h1>Thank you</h1>
+<p>chainboot is a small program standing on an enormous amount of other people's work. This page is for them.</p>
+<h2 id="solana"><a class="anchor" href="#solana" aria-hidden="true" tabindex="-1">#</a>Solana</h2>
+<ul><li><strong>Anatoly Yakovenko, Raj Gokal</strong> and everyone who has built Solana since: at Solana Labs, Anza, the Solana Foundation, Jump's Firedancer team, Jito, and in the validator community. A network that is fast and cheap enough to hold an operating system is your work.</li><li><strong>The authors of SIMD-0385, &quot;Transaction V1 Format&quot;</strong> (jacobcreech and apfitzge on GitHub), and everyone who reviewed and implemented it. Raising the transaction size from 1232 to 4096 bytes made this project almost four times cheaper and faster overnight.</li><li><strong>The authors of the SPL Noop program.</strong> A program that does nothing turned out to be exactly what was needed.</li><li><strong>Every validator operator.</strong> You keep the ledger this data lives in.</li></ul>
+<h2 id="rpc-providers"><a class="anchor" href="#rpc-providers" aria-hidden="true" tabindex="-1">#</a>RPC providers</h2>
+<p>Helius, QuickNode, Alchemy, Triton, Ankr, Sonic, and the team behind the public Solana endpoints: thank you for free plans and for serving ledger history. Reading the chain without running a validator is only possible because of you.</p>
+<h2 id="operating-systems"><a class="anchor" href="#operating-systems" aria-hidden="true" tabindex="-1">#</a>Operating systems</h2>
+<ul><li><strong>Canonical and the Ubuntu community</strong> for Ubuntu and for publishing a clean base archive that anyone may build on. <strong>The Debian project</strong>, on whose shoulders Ubuntu stands.</li><li><strong>The Alpine Linux developers</strong>, for a complete Linux system in three megabytes.</li><li><strong>Linus Torvalds and the thousands of Linux kernel developers.</strong> Namespaces and overlayfs are the reason a machine can start in a fifth of a second.</li><li><strong>The util-linux maintainers</strong> for <code>unshare</code>, <code>nsenter</code>, <code>mount</code> and <code>flock</code>.</li></ul>
+<h2 id="compression-and-cryptography"><a class="anchor" href="#compression-and-cryptography" aria-hidden="true" tabindex="-1">#</a>Compression and cryptography</h2>
+<ul><li><strong>Igor Pavlov</strong> for LZMA and <strong>Lasse Collin</strong> for xz. The best compression ratio decided how many transactions an operating system needs.</li><li><strong>Yann Collet</strong> for Zstandard.</li><li><strong>Daniel J. Bernstein and co-authors</strong> for Ed25519, and everyone behind SHA-2, AES-GCM and HKDF.</li></ul>
+<h2 id="tools"><a class="anchor" href="#tools" aria-hidden="true" tabindex="-1">#</a>Tools</h2>
+<ul><li><strong>The Node.js project</strong>, whose built-in crypto and compression allowed a tool with no dependencies. <strong>The TypeScript and esbuild teams.</strong></li><li><strong>The Wallet Standard authors</strong> and the wallet teams (Phantom, Solflare, Backpack and others) for a common way to talk to wallets.</li><li><strong>Microsoft's WSL team, Docker, OrbStack, Podman and Lima</strong>, who make a Linux kernel available on every desktop.</li><li><strong>The v86 authors and contributors.</strong> An earlier attempt of this project ran Linux in the browser on v86; it taught us what should run natively instead.</li></ul>
+<h2 id="and-you"><a class="anchor" href="#and-you" aria-hidden="true" tabindex="-1">#</a>And you</h2>
+<p>Thank you for reading this far. If chainboot is useful to you, build something with it, and tell the people above that their work mattered.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="11-faq.html"><span>previous</span>Questions and problems</a><span></span></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/12-thanks.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

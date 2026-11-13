@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Networks and costs · chainboot docs</title>
+<meta name="description" content="Devnet, testnet, mainnet; what storing data costs; how long it stays.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li class="here"><a href="08-networks-and-costs.html" aria-current="page"><span class="num">08</span>Networks and costs</a><ul><li><a href="#devnet-testnet-mainnet">Devnet, testnet, mainnet</a></li><li><a href="#what-is-where-today">What is where today</a></li><li><a href="#what-storing-data-costs">What storing data costs</a></li><li><a href="#how-fast-is-it">How fast is it</a></li><li><a href="#how-long-does-data-stay">How long does data stay</a></li><li><a href="#moving-from-devnet-to-mainnet">Moving from devnet to mainnet</a></li></ul></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 08</p>
+<h1>Networks and costs</h1>
+<h2 id="devnet-testnet-mainnet"><a class="anchor" href="#devnet-testnet-mainnet" aria-hidden="true" tabindex="-1">#</a>Devnet, testnet, mainnet</h2>
+<p>Solana runs several separate networks. They use the same software but have different data and different SOL.</p>
+<div class="table-wrap"><table><thead><tr><th>Network</th><th>What it is for</th><th>SOL</th><th>Data</th></tr></thead><tbody><tr><td><strong>devnet</strong></td><td>trying things out</td><td>free from a faucet, worth nothing</td><td>can be reset; old data may disappear</td></tr><tr><td><strong>testnet</strong></td><td>testing the network software itself</td><td>free, worth nothing</td><td>reset from time to time</td></tr><tr><td><strong>mainnet-beta</strong></td><td>the real network</td><td>real money</td><td>permanent</td></tr></tbody></table></div>
+<p>chainboot starts on devnet. Switch with:</p>
+<div class="code-wrap"><pre><code>chainboot network                  <span class="c"># show the current network</span>
+chainboot network mainnet-beta     <span class="c"># switch (also: devnet, testnet)</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Each network has its own list of RPC endpoints, its own login and its own vault. chainboot checks every endpoint you add and refuses one that belongs to a different network, because mixing networks would silently break uploads.</p>
+<h2 id="what-is-where-today"><a class="anchor" href="#what-is-where-today" aria-hidden="true" tabindex="-1">#</a>What is where today</h2>
+<ul><li><strong>Devnet:</strong> the official catalog with Solinux and Alpine. This is where chainboot was built and measured.</li><li><strong>Mainnet:</strong> no official catalog yet, and chainboot has not been exercised there. The 4096-byte transaction format chainboot writes has been active on mainnet since September 2026 according to Solana's upgrade notes. Everything works the same way with your own images: publish with your own key, and run with <code>chainboot run &lt;your-address&gt;/&lt;image&gt;</code>.</li></ul>
+<h2 id="what-storing-data-costs"><a class="anchor" href="#what-storing-data-costs" aria-hidden="true" tabindex="-1">#</a>What storing data costs</h2>
+<p>Solana charges a fixed fee per transaction: <strong>5,000 lamports = 0.000005 SOL</strong>. It does not matter how much data the transaction carries. chainboot fills each transaction with 3,912 bytes, so:</p>
+<div class="table-wrap"><table><thead><tr><th>Amount of (compressed) data</th><th>Transactions</th><th>Fee</th></tr></thead><tbody><tr><td>1 kB (a note, a pointer)</td><td>1</td><td>0.000005 SOL</td></tr><tr><td>100 kB</td><td>27</td><td>0.00014 SOL</td></tr><tr><td>1 MB</td><td>261</td><td>0.0013 SOL</td></tr><tr><td>100 MB</td><td>26,100</td><td>0.13 SOL</td></tr><tr><td>1 GB</td><td>267,000</td><td>1.34 SOL</td></tr></tbody></table></div>
+<p>Real examples from devnet (rounded):</p>
+<div class="table-wrap"><table><thead><tr><th>What</th><th>Stored size</th><th>Transactions</th><th>Fee</th></tr></thead><tbody><tr><td>Alpine Linux 3.24</td><td>2.9 MB</td><td>760</td><td>0.0038 SOL</td></tr><tr><td>Solinux minimal (Ubuntu base)</td><td>21.6 MB</td><td>5,683</td><td>0.028 SOL</td></tr><tr><td>Solinux (adds 91 MB to minimal)</td><td>91 MB</td><td>23,946</td><td>0.12 SOL</td></tr><tr><td>A save after installing two small packages</td><td>0.5 MB</td><td>135</td><td>0.0007 SOL</td></tr><tr><td>A save after editing a few files</td><td>under 4 kB</td><td>9</td><td>0.000045 SOL</td></tr></tbody></table></div>
+<p>Reading is free of fees. You only need an RPC endpoint.</p>
+<p>chainboot always shows the number of transactions and the fee before it sends anything (<code>chainboot publish --dry-run</code>, <code>chainboot save</code>).</p>
+<h3 id="on-a-busy-mainnet"><a class="anchor" href="#on-a-busy-mainnet" aria-hidden="true" tabindex="-1">#</a>On a busy mainnet</h3>
+<p>When many people use the network, transactions with a small extra tip (a &quot;priority fee&quot;) are included first. The SDK supports this (<code>priorityFeeLamports</code> per transaction); the command-line tool sends without a tip. Without a tip, uploads still complete, because chainboot re-sends transactions that did not land, but they can take longer.</p>
+<h2 id="how-fast-is-it"><a class="anchor" href="#how-fast-is-it" aria-hidden="true" tabindex="-1">#</a>How fast is it</h2>
+<p>Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):</p>
+<div class="table-wrap"><table><thead><tr><th>Endpoints</th><th>Time to download and verify</th></tr></thead><tbody><tr><td>13 endpoints of several providers</td><td>about 1 second</td></tr><tr><td>one endpoint of a provider with an API key (two were tried)</td><td>0.7 to 1.5 seconds</td></tr><tr><td>only the public <code>api.devnet.solana.com</code></td><td>about 100 seconds</td></tr></tbody></table></div>
+<p>The public endpoints are meant for light use and limit requests strictly. A free account at any provider is the single biggest speed-up.</p>
+<p>Uploading runs at several hundred transactions per second with a handful of endpoints: Solinux minimal takes about 20 seconds, plus 40 seconds to compress it.</p>
+<h2 id="how-long-does-data-stay"><a class="anchor" href="#how-long-does-data-stay" aria-hidden="true" tabindex="-1">#</a>How long does data stay</h2>
+<p>This is the honest part.</p>
+<ul><li>The <strong>ledger</strong> is permanent in the sense that the network agreed on it and it cannot be changed. chainboot data is part of the ledger.</li><li>But a validator does not need old transactions to do its work, and most keep only recent ones. Reading old transactions depends on <strong>RPC providers that keep the full history</strong> (&quot;archive&quot; nodes). On mainnet the large providers do. On devnet history is kept less carefully and the whole network can be reset.</li><li>chainboot can only read what your endpoints can serve. If an endpoint has no history, chainboot notices (&quot;no data&quot;) and uses your other endpoints.</li></ul>
+<p>For anything you care about: use mainnet, use providers with archive access, and keep in mind that you rely on at least one of them continuing to serve history. Your own archive is <code>~/.chainboot/cache</code>: everything you downloaded is there, verified, and you could publish it again.</p>
+<h2 id="moving-from-devnet-to-mainnet"><a class="anchor" href="#moving-from-devnet-to-mainnet" aria-hidden="true" tabindex="-1">#</a>Moving from devnet to mainnet</h2>
+<ol><li><code>chainboot network mainnet-beta</code></li><li><code>chainboot rpc add &lt;a mainnet endpoint&gt;</code></li><li>Publish your images again with a funded mainnet keypair. Images do not move between networks by themselves, but the same archive gives the same digest, so anyone can check that the mainnet image is the one from devnet.</li><li>Sign in again (<code>chainboot login</code>). Your mainnet vault is a different account than your devnet vault; fund it with real SOL.</li></ol>
+<nav class="pager" aria-label="More guides"><a class="prev" href="07-format.html"><span>previous</span>The on-chain format</a><a class="next" href="09-security.html"><span>next</span>Security</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/08-networks-and-costs.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

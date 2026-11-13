@@ -166,3 +166,79 @@ footer { margin-top: 96px; border-top: 1px solid var(--line); padding: 28px 0 36
   .cursor { animation: none; }
   .reveal { opacity: 1; transform: none; transition: none; }
 }
+
+/* ---------------------------------------------------------------- documentation pages */
+.docs { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 56px; padding-top: 40px; align-items: start; }
+.side { position: sticky; top: 84px; max-height: calc(100vh - 100px); overflow-y: auto; font-size: 13.5px; padding-right: 4px; scrollbar-width: thin; }
+.side-toggle { display: none; }
+.side ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.side ol > li > a { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 6px; padding: 6px 10px; border-radius: 6px; color: var(--dim); line-height: 1.4; }
+.side ol > li > a:hover { color: var(--text); text-decoration: none; background: var(--panel); }
+.side .num { color: var(--line-strong); }
+.side li.here > a { color: var(--accent); background: var(--panel); }
+.side li.here > a .num { color: var(--accent); }
+.side ul { list-style: none; margin: 4px 0 8px 42px; padding: 0 0 0 12px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+.side ul a { color: var(--dim); font-size: 12.5px; line-height: 1.4; display: block; }
+.side ul a:hover { color: var(--text); text-decoration: none; }
+
+.prose { min-width: 0; max-width: 78ch; padding-bottom: 24px; }
+.prose h1 { font-size: clamp(26px, 3vw, 34px); margin: 0 0 20px; text-wrap: balance; }
+.prose h2 { font-size: 21px; margin: 44px 0 14px; max-width: none; padding-top: 18px; border-top: 1px solid var(--line); }
+.prose h3 { font-size: 16px; margin: 30px 0 10px; }
+.prose h4 { font-size: 15px; margin: 24px 0 8px; color: var(--dim); }
+.prose p { margin: 0 0 16px; color: #bcc2c8; }
+.prose li { color: #bcc2c8; }
+.prose strong { color: var(--text); }
+.prose ul, .prose ol { margin: 0 0 16px; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; }
+.prose ul { list-style: none; padding-left: 0; }
+.prose ul > li { position: relative; padding-left: 22px; }
+.prose ul > li::before { content: "-"; position: absolute; left: 4px; color: var(--accent); }
+.prose ol > li::marker { color: var(--accent); }
+.prose a { text-decoration: underline; text-decoration-color: rgba(134, 199, 164, 0.4); text-underline-offset: 3px; }
+.prose a:hover { text-decoration-color: var(--accent); }
+.prose :is(h2, h3, h4) { position: relative; scroll-margin-top: 84px; }
+.prose .anchor { position: absolute; left: -22px; color: var(--line-strong); text-decoration: none; opacity: 0; }
+.prose :is(h2, h3, h4):hover .anchor { opacity: 1; }
+.prose code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 0.93em; overflow-wrap: anywhere; white-space: normal; }
+.code-wrap { position: relative; margin: 0 0 18px; }
+.code-wrap pre { margin: 0; background: var(--inset); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; font: 13px/1.65 var(--mono); }
+.code-wrap pre code { background: none; border: 0; padding: 0; color: var(--text); white-space: pre; font-size: inherit; overflow-wrap: normal; }
+.code-wrap .copy { position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--dim); font: 12px var(--mono); cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.code-wrap:hover .copy, .code-wrap .copy:focus-visible { opacity: 1; }
+.code-wrap .copy:hover { color: var(--text); }
+.table-wrap { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: var(--radius); }
+.prose table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.prose th { text-align: left; color: var(--dim); font-weight: 400; background: var(--panel); }
+.prose th, .prose td { padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+.prose thead th { border-top: 0; }
+.prose td { color: #bcc2c8; }
+.prose blockquote { margin: 0 0 18px; padding: 14px 18px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--panel); }
+.prose blockquote p:last-child { margin-bottom: 0; }
+.prose hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 48px; }
+.pager a { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; color: var(--text); text-decoration: none; display: grid; gap: 2px; background: var(--panel); }
+.pager a:hover { border-color: var(--line-strong); }
+.pager a span { color: var(--dim); font-size: 12.5px; }
+.pager .next { text-align: right; }
+.source { margin-top: 18px; font-size: 13px; }
+.source a { color: var(--dim); text-decoration: none; }
+.doc-list { list-style: none; padding: 0; margin: 24px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.prose .doc-list { padding-left: 0; }
+.doc-list a { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; background: var(--panel); text-decoration: none; color: var(--text); }
+.doc-list a:hover { border-color: var(--line-strong); }
+.doc-list .num { color: var(--accent); }
+.doc-list a > span:last-child { display: grid; gap: 2px; }
+.doc-list a > span:last-child > span { color: var(--dim); font-size: 14px; }
+.docs-page footer { margin-top: 64px; }
+.nav nav a[aria-current="page"] { color: var(--text); }
+
+@media (max-width: 920px) {
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-top: 20px; }
+  .side { position: static; max-height: none; overflow: visible; }
+  .side-toggle { display: inline-flex; }
+  .side ol { display: none; margin-top: 10px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; background: var(--panel); }
+  .side.open ol { display: flex; }
+  .prose .anchor { display: none; }
+  .code-wrap .copy { opacity: 1; }
+}
+.prose td:first-child code, .prose th:first-child { white-space: nowrap; overflow-wrap: normal; }

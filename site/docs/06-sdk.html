@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The SDK · chainboot docs</title>
+<meta name="description" content="Store files, move pointers, pool endpoints, encrypt for a wallet: with examples.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li class="here"><a href="06-sdk.html" aria-current="page"><span class="num">06</span>The SDK</a><ul><li><a href="#1-store-a-file-read-it-back">1. Store a file, read it back</a></li><li><a href="#2-a-name-that-always-points-to-the-newest-version">2. A name that always points to the newest version</a></li><li><a href="#3-many-endpoints-one-pool">3. Many endpoints, one pool</a></li><li><a href="#4-transactions-by-hand">4. Transactions by hand</a></li><li><a href="#5-images">5. Images</a></li><li><a href="#6-encrypted-state-for-a-wallet">6. Encrypted state for a wallet</a></li><li><a href="#7-compression">7. Compression</a></li><li><a href="#reference-at-a-glance">Reference at a glance</a></li></ul></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 06</p>
+<h1>The SDK</h1>
+<p>Everything the <code>chainboot</code> command does is built from a small TypeScript library with no dependencies. You can use the same building blocks for your own ideas: store files, publish data that others can verify, keep encrypted state for your users.</p>
+<div class="code-wrap"><pre><code>npm install chainboot        <span class="c"># Node.js 22.15 or newer</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>import { RpcPool, ChainStore, Keypair } from &quot;chainboot&quot;;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>All examples below are complete programs. They use devnet; get test SOL for your keypair at <a href="https://faucet.solana.com" rel="noopener">https://faucet.solana.com</a>.</p>
+<h2 id="1-store-a-file-read-it-back"><a class="anchor" href="#1-store-a-file-read-it-back" aria-hidden="true" tabindex="-1">#</a>1. Store a file, read it back</h2>
+<div class="code-wrap"><pre><code>import { RpcPool, ChainStore, Keypair, GENESIS } from &quot;chainboot&quot;;
+import fs from &quot;node:fs&quot;;
+
+const pool = new RpcPool([&quot;https://your-devnet-endpoint.example/key&quot;]);
+await pool.probe(GENESIS.devnet);            <span class="c">// drop endpoints that are dead or on another network</span>
+const store = new ChainStore(pool);
+const me = Keypair.fromFile(&quot;me.json&quot;);
+
+<span class="c">// write: any size, resumable, returns the address of the file</span>
+const ref = await store.put(me, fs.readFileSync(&quot;photo.jpg&quot;), {
+  journalDir: &quot;./journal&quot;,                   <span class="c">// lets an interrupted upload continue</span>
+  onProgress: (p) =&gt; console.log(p.phase, p.done, &quot;/&quot;, p.total),
+});
+console.log(ref);    <span class="c">// { sig: &quot;5Hk…&quot;, size: 482113, sha256: &quot;9f2c…&quot; }</span>
+
+<span class="c">// read: verified against the SHA-256 in `ref`; only accept data published by `me`</span>
+const data = await store.get(ref, { signers: [me.publicKey], cacheDir: &quot;./cache&quot; });
+fs.writeFileSync(&quot;copy.jpg&quot;, data);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>ref.sig</code> alone is enough to fetch the file: <code>await store.get(&quot;5Hk…&quot;)</code>. Passing the whole <code>ref</code>, or the option <code>sha256</code>, additionally pins the content you expect.</p>
+<p>How much will it cost? Ask before sending:</p>
+<div class="code-wrap"><pre><code>ChainStore.plan(482113);   <span class="c">// { transactions: 129, feeLamports: 645000, leafSize: 3912, depth: 2 }</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="2-a-name-that-always-points-to-the-newest-version"><a class="anchor" href="#2-a-name-that-always-points-to-the-newest-version" aria-hidden="true" tabindex="-1">#</a>2. A name that always points to the newest version</h2>
+<p>A file's address never changes, so &quot;the newest version of my thing&quot; needs a pointer. A pointer is a small record under a <strong>tag</strong> that only your key can move.</p>
+<div class="code-wrap"><pre><code>import { tagAddress } from &quot;chainboot&quot;;
+
+const tag = tagAddress(&quot;my-app&quot;, me.publicKey, &quot;settings&quot;);
+
+await store.putPointer(me, tag, Buffer.from(JSON.stringify({ file: ref.sig, version: 3 })));
+
+<span class="c">// anyone can read it; records written by other keys under the same tag are ignored</span>
+const latest = await store.getPointer(tag, [me.publicKey]);
+console.log(JSON.parse(latest.payload.toString()), latest.slot, latest.blockTime);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>A pointer holds up to about 3.8 kB. For more, store a file and point at it.</p>
+<h2 id="3-many-endpoints-one-pool"><a class="anchor" href="#3-many-endpoints-one-pool" aria-hidden="true" tabindex="-1">#</a>3. Many endpoints, one pool</h2>
+<div class="code-wrap"><pre><code>const pool = new RpcPool([url1, url2, url3], { onNote: console.log });
+await pool.probe(GENESIS[&quot;mainnet-beta&quot;]);
+
+const slot = await pool.call(&quot;getSlot&quot;);                                     <span class="c">// any JSON-RPC method</span>
+const balance = await pool.call(&quot;getBalance&quot;, [me.address, { commitment: &quot;confirmed&quot; }]);
+
+console.table(pool.stats());   <span class="c">// per endpoint: learned rate, successes, rate limits, latency</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>What the pool does for you:</p>
+<ul><li>learns each endpoint's speed limit: starts carefully, speeds up while requests succeed, backs off on &quot;429 Too Many Requests&quot;;</li><li>retries on another endpoint when one fails, and never on the same one twice in a row;</li><li><strong>hedges</strong>: if an endpoint is much slower than usual, the same question goes to a second one and the first answer wins;</li><li><strong>batches</strong>: calls made together travel in one HTTP request where the endpoint allows it (<code>pool.call(method, params, { batch: true })</code>);</li><li>never prints your API keys (<code>pool.stats()</code> and notes show masked labels).</li></ul>
+<h2 id="4-transactions-by-hand"><a class="anchor" href="#4-transactions-by-hand" aria-hidden="true" tabindex="-1">#</a>4. Transactions by hand</h2>
+<p>The SDK builds and parses Solana transactions itself, both the legacy format and the new 4096-byte v1 format.</p>
+<div class="code-wrap"><pre><code>import { buildTransaction, transferInstruction, parseTransaction, verifyPayerSignature, sendAndConfirm, addressToBytes } from &quot;chainboot&quot;;
+
+const to = addressToBytes(&quot;7xQ…&quot;);
+const signature = await sendAndConfirm(pool, (blockhash) =&gt;
+  buildTransaction(me, [transferInstruction(me.publicKey, to, 1_000_000)], blockhash, { version: &quot;legacy&quot; }));
+
+const raw = Buffer.from((await pool.call(&quot;getTransaction&quot;, [signature, { encoding: &quot;base64&quot;, maxSupportedTransactionVersion: 1 }])).transaction[0], &quot;base64&quot;);
+const tx = parseTransaction(raw);
+console.log(tx.version, verifyPayerSignature(tx), tx.instructions.length);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="5-images"><a class="anchor" href="#5-images" aria-hidden="true" tabindex="-1">#</a>5. Images</h2>
+<div class="code-wrap"><pre><code>import { readTar, decompressAuto, buildImage, publishImage, readCatalog, pullImage } from &quot;chainboot&quot;;
+
+<span class="c">// build: nothing touches the network here</span>
+const entries = readTar(decompressAuto(fs.readFileSync(&quot;rootfs.tar.gz&quot;)));
+const built = buildImage(entries, { name: &quot;mylinux&quot;, version: &quot;1.0&quot;, arch: &quot;amd64&quot;, description: &quot;My Linux&quot; });
+console.log(built.manifest.digest, built.manifest.fileCount);
+
+<span class="c">// publish: packs, manifest, catalog entry</span>
+await publishImage(store, me, built, { journalDir: &quot;./journal&quot;, onProgress: (p) =&gt; console.log(p.phase, p.done, p.total) });
+
+<span class="c">// find and download, fully verified</span>
+const catalog = await readCatalog(store, me.address);
+const ref = catalog.images.mylinux.tags.latest.amd64;
+const image = await pullImage(store, me.address, ref, { cacheDir: &quot;./cache&quot; });
+const firstPack = image.pack(0);             <span class="c">// decompressed and checked file by file</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>extractImage(manifest, pack, directory)</code> writes an image to disk. <code>entriesFromImage</code> and <code>writeTar</code> turn it back into an archive.</p>
+<h2 id="6-encrypted-state-for-a-wallet"><a class="anchor" href="#6-encrypted-state-for-a-wallet" aria-hidden="true" tabindex="-1">#</a>6. Encrypted state for a wallet</h2>
+<div class="code-wrap"><pre><code>import { vaultFromKeypair, deriveVault, LOGIN_MESSAGE, seal, open } from &quot;chainboot&quot;;
+
+<span class="c">// from a keypair file ...</span>
+const vault = vaultFromKeypair(me, &quot;devnet&quot;);
+<span class="c">// ... or from a browser wallet's signature of LOGIN_MESSAGE:</span>
+<span class="c">// const vault = deriveVault(walletAddress, signatureBytes, &quot;devnet&quot;);</span>
+
+const secret = seal(vault.encKey, Buffer.from(&quot;only I can read this&quot;), &quot;note&quot;);
+const ref2 = await store.put(vault.signer, secret);        <span class="c">// the vault account pays and signs</span>
+const back = open(vault.encKey, await store.get(ref2, { signers: [vault.signer.publicKey] }), &quot;note&quot;);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>saveSnapshot</code>, <code>readHead</code>, <code>readSnapshot</code>, <code>loadPacks</code> and <code>applySnapshot</code> are the functions behind <code>chainboot save</code> and <code>chainboot restore</code>; <code>scanMachine</code> finds what changed in a machine.</p>
+<h2 id="7-compression"><a class="anchor" href="#7-compression" aria-hidden="true" tabindex="-1">#</a>7. Compression</h2>
+<div class="code-wrap"><pre><code>import { compress, decompress, xzDecode } from &quot;chainboot&quot;;
+
+const packed = compress(data, { arch: &quot;amd64&quot; });   <span class="c">// xz when the tool is installed, otherwise zstd</span>
+const again = decompress(packed.codec, packed.data, data.length);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The SDK contains a complete xz decoder written in TypeScript, so reading never depends on installed tools.</p>
+<h2 id="reference-at-a-glance"><a class="anchor" href="#reference-at-a-glance" aria-hidden="true" tabindex="-1">#</a>Reference at a glance</h2>
+<div class="table-wrap"><table><thead><tr><th>Area</th><th>Exports</th></tr></thead><tbody><tr><td>Keys</td><td><code>Keypair</code> (<code>generate</code>, <code>fromFile</code>, <code>fromSeed</code>, <code>fromSecretKey</code>, <code>sign</code>, <code>address</code>), <code>verifySignature</code>, <code>addressToBytes</code>, <code>b58encode</code>, <code>b58decode</code></td></tr><tr><td>Transactions</td><td><code>buildTransaction</code>, <code>buildNoopTransaction</code>, <code>parseTransaction</code>, <code>verifyPayerSignature</code>, <code>compileMessage</code>, <code>compileMessageV1</code>, <code>noopCapacity</code>, <code>noopInstruction</code>, <code>transferInstruction</code>, <code>computeBudgetInstructions</code></td></tr><tr><td>RPC</td><td><code>RpcPool</code> (<code>call</code>, <code>broadcast</code>, <code>probe</code>, <code>stats</code>), <code>RpcError</code>, <code>GENESIS</code>, <code>clusterName</code>, <code>maskRpcUrl</code></td></tr><tr><td>Storage</td><td><code>ChainStore</code> (<code>put</code>, <code>get</code>, <code>putPointer</code>, <code>getPointer</code>, <code>plan</code>), <code>tagAddress</code>, <code>capacity</code>, <code>TxSender</code>, <code>sendAndConfirm</code>, <code>TrustError</code></td></tr><tr><td>Images</td><td><code>readTar</code>, <code>writeTar</code>, <code>decompressAuto</code>, <code>buildImage</code>, <code>entriesFromImage</code>, <code>verifyPack</code>, <code>extractImage</code>, <code>parseManifest</code>, <code>serializeManifest</code>, <code>validateManifest</code>, <code>treeDigest</code></td></tr><tr><td>Registry</td><td><code>publishImage</code>, <code>pullImage</code>, <code>readCatalog</code>, <code>unlistImage</code>, <code>parseImageName</code>, <code>publishPrivateImage</code>, <code>readPrivateCatalog</code>, <code>unlistPrivateImage</code></td></tr><tr><td>State</td><td><code>LOGIN_MESSAGE</code>, <code>deriveVault</code>, <code>vaultFromKeypair</code>, <code>seal</code>, <code>open</code>, <code>scanMachine</code>, <code>saveSnapshot</code>, <code>readHead</code>, <code>readSnapshot</code>, <code>readIndex</code>, <code>loadPacks</code>, <code>applySnapshot</code></td></tr><tr><td>Compression</td><td><code>compress</code>, <code>decompress</code>, <code>xzDecode</code>, <code>xzUncompressedSize</code></td></tr></tbody></table></div>
+<p>Every export has type declarations and a comment in the source. The sources are short and meant to be read: start with <code>src/store/store.ts</code>.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="05-publishing.html"><span>previous</span>Publishing your own system</a><a class="next" href="07-format.html"><span>next</span>The on-chain format</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/06-sdk.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

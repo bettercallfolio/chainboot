@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Questions and problems · chainboot docs</title>
+<meta name="description" content="Common questions and what to do when something goes wrong.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li class="here"><a href="11-faq.html" aria-current="page"><span class="num">11</span>Questions and problems</a><ul><li><a href="#questions">Questions</a></li><li><a href="#problems">Problems</a></li></ul></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 11</p>
+<h1>Questions and problems</h1>
+<h2 id="questions"><a class="anchor" href="#questions" aria-hidden="true" tabindex="-1">#</a>Questions</h2>
+<p><strong>Is the operating system really on the blockchain?</strong> Yes. Every byte of every file is inside Solana transactions. There is no link to a file server, no IPFS, no cloud bucket. You can check: <code>chainboot pull solinux</code> talks only to the RPC endpoints you configured.</p>
+<p><strong>Then what do I download when I install chainboot?</strong> The program that reads the chain: one JavaScript file of about 250 kB, plus Node.js if you do not have it. On Windows and macOS also a small Linux environment to run machines in. The systems you run come from the chain.</p>
+<p><strong>Why do I need my own RPC endpoint?</strong> Because there is no chainboot server, and that is the point. An endpoint is your door to the network. Free plans are enough.</p>
+<p><strong>Is it slow?</strong> No. Programs run directly on your processor. Download speed depends on your endpoints: about a second for Ubuntu minimal with one keyed endpoint.</p>
+<p><strong>What does it cost?</strong> Running and reading: nothing. Publishing or saving: 0.000005 SOL per transaction, about 0.0013 SOL per megabyte. See <a href="08-networks-and-costs.html">Networks and costs</a>.</p>
+<p><strong>Can I delete something I published or saved?</strong> You can remove it from your catalog or stop pointing at it. You cannot erase it from the ledger. Saves are encrypted; images are public.</p>
+<p><strong>Is Solinux an official Ubuntu?</strong> No. It is Canonical's official Ubuntu base archive, unchanged, plus for the larger edition packages installed from Ubuntu's own repositories. The packaging on chain is this project's and is not affiliated with Canonical.</p>
+<p><strong>Can I run graphical programs?</strong> A machine is a command-line system. Programs that offer a web interface work (the machine shares your network).</p>
+<p><strong>Does it work offline?</strong> Machines you already have start without any network. Downloading, saving and restoring need your endpoints.</p>
+<p><strong>Which wallets work?</strong> Any wallet that supports the Wallet Standard with message signing: Phantom, Solflare, Backpack and others. Or a keypair file.</p>
+<p><strong>I lost access to my wallet. Can I get my saves back?</strong> Only with the wallet's key, or with the folder <code>~/.chainboot/vault</code> from a computer where you were signed in. There is no recovery service, because nobody else has your key.</p>
+<h2 id="problems"><a class="anchor" href="#problems" aria-hidden="true" tabindex="-1">#</a>Problems</h2>
+<p><strong><code>No RPC endpoint is configured yet</code></strong> Add one: <code>chainboot rpc add &lt;url&gt;</code>. See <a href="01-getting-started.html">Getting started</a>.</p>
+<p><strong><code>none of the configured RPC endpoints is usable</code></strong> Run <code>chainboot rpc test</code>. It shows for each endpoint whether it answers and which network it serves. Typical causes: a typo in the API key, a mainnet URL while chainboot is on devnet, or a used-up free quota (&quot;rate limited&quot;).</p>
+<p><strong>Downloads are slow</strong> You are probably using only a public endpoint. Add an endpoint with an API key, or several.</p>
+<p><strong><code>image &quot;…&quot; was not found in the catalog of …</code></strong> Check the name with <code>chainboot list</code>. Images of other publishers need the address: <code>chainboot run &lt;address&gt;/&lt;image&gt;</code>. Also check <code>chainboot network</code>: images live on one network.</p>
+<p><strong><code>these tools are needed but not installed: unshare …</code></strong> Install <code>util-linux</code> and <code>coreutils</code> with your package manager.</p>
+<p><strong><code>sudo</code> asks for my password every time</strong> Starting a machine mounts a file system, which needs administrator rights. <code>sudo</code> remembers the password for a few minutes. Running chainboot as root avoids the question.</p>
+<p><strong>A server inside the machine does not start</strong> The machine shares your computer's network. If the port is already used by your computer (port 22 by its own SSH server, for example), choose another port inside the machine.</p>
+<p><strong><code>chainboot status</code> says &quot;vault needs SOL&quot;</strong> <code>chainboot fund 0.05</code> (or with <code>--keypair</code>). <code>chainboot whoami</code> shows the balance.</p>
+<p><strong><code>chainboot status</code> says &quot;waiting for you&quot;</strong> The save would cost more than automatic saves may spend. <code>chainboot save &lt;machine&gt;</code> shows the cost and asks.</p>
+<p><strong><code>… was saved from another computer after this one last synced</code></strong> Two computers changed the same machine. Take the version on chain with <code>chainboot restore &lt;machine&gt;</code>, or keep the local one with <code>chainboot save &lt;machine&gt; --force</code>.</p>
+<p><strong><code>could not decrypt: wrong wallet, or the data was changed</code></strong> You are signed in with a different wallet than the one that made the save, or with a wallet app that signs messages in a different format. Sign in with the same wallet app.</p>
+<p><strong>The page of <code>chainboot ui</code> says it is &quot;not connected any more&quot;</strong> Each start of <code>chainboot ui</code> creates a new secret link. Use the link it just printed.</p>
+<p><strong>On Windows: <code>chainboot needs WSL 2</code></strong> Open PowerShell as administrator, run <code>wsl --install --no-distribution</code>, restart.</p>
+<p><strong>On macOS: <code>needs a Linux engine</code></strong> Install OrbStack, Docker Desktop, Podman or Lima and run the command again.</p>
+<p><strong>Something else</strong> Run the command with the environment variable <code>CHAINBOOT_DEBUG=1</code> to see where the error comes from, and open an issue with that output. Never paste your endpoint URLs or key files.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="10-ideas-and-roadmap.html"><span>previous</span>Ideas and roadmap</a><a class="next" href="12-thanks.html"><span>next</span>Thank you</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/11-faq.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

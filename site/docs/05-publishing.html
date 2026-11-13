@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Publishing your own system · chainboot docs</title>
+<meta name="description" content="Put any Linux distribution on chain: private by default, public when you say so.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li class="here"><a href="05-publishing.html" aria-current="page"><span class="num">05</span>Publishing your own system</a><ul><li><a href="#the-one-command-public">The one command (public)</a></li><li><a href="#step-by-step">Step by step</a></li><li><a href="#several-processor-types">Several processor types</a></li><li><a href="#reusing-what-is-already-on-chain">Reusing what is already on chain</a></li><li><a href="#updating-and-removing">Updating and removing</a></li><li><a href="#private-images-for-your-wallet-only">Private images: for your wallet only</a></li><li><a href="#what-makes-a-good-image">What makes a good image</a></li><li><a href="#showing-your-catalog-to-others">Showing your catalog to others</a></li></ul></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 05</p>
+<h1>Publishing your own system</h1>
+<p>Anyone can publish a Linux system with chainboot. You need a root file system as a tar archive and one command.</p>
+<p><strong>Images are private by default.</strong> <code>chainboot publish</code> encrypts the system for your wallet alone, because what is written to a ledger can never be erased and a mistake must not expose anything. Publishing for everyone is a deliberate step: you add <code>--public</code> and a publisher key. This page explains the public case first, then <a href="#private-images-for-your-wallet-only">private images</a>.</p>
+<h2 id="the-one-command-public"><a class="anchor" href="#the-one-command-public" aria-hidden="true" tabindex="-1">#</a>The one command (public)</h2>
+<div class="code-wrap"><pre><code>chainboot publish rootfs.tar.gz --name mylinux --version 1.0 --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>chainboot reads the archive, packs and compresses it, shows what it will cost, and asks before sending anything. When it is done, the image is listed in <strong>your catalog</strong> and anyone can run it:</p>
+<div class="code-wrap"><pre><code>chainboot run &lt;your-address&gt;/mylinux</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="step-by-step"><a class="anchor" href="#step-by-step" aria-hidden="true" tabindex="-1">#</a>Step by step</h2>
+<h3 id="1-a-publisher-key"><a class="anchor" href="#1-a-publisher-key" aria-hidden="true" tabindex="-1">#</a>1. A publisher key</h3>
+<p>Your publisher identity is a Solana keypair. Its address is your name on chain; images are found under it.</p>
+<div class="code-wrap"><pre><code>chainboot keygen me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>This prints the address. Keep <code>me.json</code> private and make a backup: whoever has it can publish as you, and without it you cannot update your catalog.</p>
+<p>On devnet, get free test SOL from <a href="https://faucet.solana.com" rel="noopener">https://faucet.solana.com</a> for that address. On mainnet, send real SOL to it. See <a href="08-networks-and-costs.html">Networks and costs</a> for how much.</p>
+<h3 id="2-a-root-file-system"><a class="anchor" href="#2-a-root-file-system" aria-hidden="true" tabindex="-1">#</a>2. A root file system</h3>
+<p>A root file system is &quot;everything below <code>/</code>&quot; of a Linux system, as a tar archive. The archive may be plain, gzip, xz or zstd. Here are four ways to get one.</p>
+<p><strong>From a distribution's download page.</strong> Many distributions publish ready archives:</p>
+<ul><li>Ubuntu base: <a href="https://cdimage.ubuntu.com/ubuntu-base/releases/" rel="noopener">https://cdimage.ubuntu.com/ubuntu-base/releases/</a></li><li>Alpine &quot;mini root filesystem&quot;: <a href="https://alpinelinux.org/downloads/" rel="noopener">https://alpinelinux.org/downloads/</a></li><li>Arch Linux bootstrap, Void Linux ROOTFS, Gentoo stage3, and others</li></ul>
+<div class="code-wrap"><pre><code>curl -LO https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.4-x86_64.tar.gz
+chainboot publish alpine-minirootfs-3.24.4-x86_64.tar.gz --name alpine --version 3.24.4 \
+  --description &quot;Alpine Linux 3.24&quot; --source-url https://dl-cdn.alpinelinux.org/... --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><strong>From a machine you set up by hand.</strong> This is the easiest way to make something of your own:</p>
+<div class="code-wrap"><pre><code>chainboot run solinux-minimal --name mybox --no-autosave
+<span class="c">#   ... install and configure what you need, then exit ...</span>
+chainboot export mybox mybox.tar
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><strong>From Debian's <code>debootstrap</code>:</strong></p>
+<div class="code-wrap"><pre><code>sudo debootstrap --variant=minbase trixie ./rootfs
+sudo tar -C rootfs -cf debian.tar .</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><strong>From a Docker image:</strong></p>
+<div class="code-wrap"><pre><code>docker export $(docker create debian:stable-slim) &gt; debian.tar</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h3 id="3-publish"><a class="anchor" href="#3-publish" aria-hidden="true" tabindex="-1">#</a>3. Publish</h3>
+<div class="code-wrap"><pre><code>chainboot publish debian.tar --name debian --version 13 --description &quot;Debian 13, minimal&quot; --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>image         debian:13 (amd64)
+digest        4c1f…
+contents      6204 entries, 78.1 MB unpacked
+to upload     19.8 MB in 1 pack(s)
+transactions  about 5230
+cost          about 0.0262 SOL on devnet
+Publisher 7xQ… holds 1.0000 SOL
+Publish now? [y/N]</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Add <code>--dry-run</code> to see these numbers without a keypair and without sending anything. The summary also states the visibility, and a public upload asks once more before it starts.</p>
+<p>Options:</p>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--name</code></td><td>image name: lower-case letters, digits, <code>.</code>, <code>_</code>, <code>-</code></td></tr><tr><td><code>--version</code></td><td>version text, for example <code>1.0</code> or <code>26.04.1</code></td></tr><tr><td><code>--arch</code></td><td>processor type of the system: <code>amd64</code>, <code>arm64</code>, <code>riscv64</code>, ... (default: this computer's)</td></tr><tr><td><code>--tag</code></td><td>tags to publish under (repeatable). Default: the version and <code>latest</code></td></tr><tr><td><code>--description</code></td><td>one line shown in <code>chainboot list</code></td></tr><tr><td><code>--source-url</code></td><td>where the archive came from, recorded so others can check</td></tr><tr><td><code>--reuse &lt;image&gt;</code></td><td>do not store files again that this image already has on chain (repeatable)</td></tr><tr><td><code>--cmd &quot;&lt;command&gt;&quot;</code></td><td>what <code>chainboot run</code> starts instead of a login shell</td></tr><tr><td><code>--public</code></td><td>publish for everyone, unencrypted (without it the image is private)</td></tr><tr><td><code>--keypair</code></td><td>with <code>--public</code>: the publisher key that pays</td></tr><tr><td><code>--dry-run</code>, <code>--yes</code></td><td>only show the cost / do not ask</td></tr></tbody></table></div>
+<p>If the upload is interrupted, run the same command again. It continues where it stopped and does not pay twice for what already landed.</p>
+<h2 id="several-processor-types"><a class="anchor" href="#several-processor-types" aria-hidden="true" tabindex="-1">#</a>Several processor types</h2>
+<p>Publish the same name and version once per architecture:</p>
+<div class="code-wrap"><pre><code>chainboot publish ubuntu-base-amd64.tar.gz --name mylinux --version 1.0 --arch amd64 --public --keypair me.json
+chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch arm64 --public --keypair me.json</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>chainboot run</code> picks the right one for each user.</p>
+<h2 id="reusing-what-is-already-on-chain"><a class="anchor" href="#reusing-what-is-already-on-chain" aria-hidden="true" tabindex="-1">#</a>Reusing what is already on chain</h2>
+<p><code>--reuse solinux-minimal</code> tells chainboot to look at that image first. Every file of your system that is byte-for-byte identical to a file in it is referenced instead of uploaded. A system built on top of Solinux minimal that adds 30 MB of software costs 30 MB, not 120 MB.</p>
+<p>The reused image can belong to any publisher. Readers check its packs by hash, so they do not have to trust that publisher.</p>
+<h2 id="updating-and-removing"><a class="anchor" href="#updating-and-removing" aria-hidden="true" tabindex="-1">#</a>Updating and removing</h2>
+<p>Publishing again under the same name and tag moves the tag to the new image. Machines that people already created keep using the image they were made from.</p>
+<div class="code-wrap"><pre><code>chainboot unlist mylinux:1.0 --keypair me.json     <span class="c"># remove one tag</span>
+chainboot unlist mylinux --keypair me.json         <span class="c"># remove the image from your catalog</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Unlisting removes the entry from your catalog. The data stays on the ledger, and whoever knows the manifest's signature can still fetch it. <strong>Do not publish secrets.</strong></p>
+<h2 id="private-images-for-your-wallet-only"><a class="anchor" href="#private-images-for-your-wallet-only" aria-hidden="true" tabindex="-1">#</a>Private images: for your wallet only</h2>
+<p>Without <code>--public</code>, an image is published for you alone:</p>
+<div class="code-wrap"><pre><code>chainboot login                                   <span class="c"># once: your wallet signs one message</span>
+chainboot fund 0.05                               <span class="c"># your vault pays for the upload</span>
+chainboot export mybox mybox.tar
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux
+chainboot run me/mybox                            <span class="c"># on any computer where you are signed in</span>
+chainboot list me                                 <span class="c"># your private images</span>
+chainboot unlist me/mybox</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>What &quot;private&quot; means exactly:</p>
+<ul><li><strong>Encrypted before upload.</strong> The contents of your files, and the manifest with every file name, size and hash, are encrypted with AES-256-GCM. The key is derived from your wallet's signature of the login message, the same key that protects your saves.</li><li><strong>Not listed anywhere public.</strong> The image goes into a private catalog that is itself encrypted. <code>chainboot list</code> of your address shows nothing; only <code>chainboot list me</code> does, and only when you are signed in with the same wallet.</li><li><strong>Signed by your vault.</strong> Readers of your private catalog accept nothing that another key wrote, so nobody can slip an image into it.</li><li><strong>Only what is new is uploaded.</strong> With <code>--reuse</code>, files that are identical to files of a public image (the Ubuntu base, for example) are referenced from that image. They are public anyway, and nothing on chain links your private image to them. A private system built on Solinux costs only what you added.</li></ul>
+<p>No <code>--keypair</code> is used: a private image is paid and signed by your vault, so the vault needs enough SOL (<code>chainboot fund</code>, <code>chainboot whoami</code>).</p>
+<p>What it does not mean:</p>
+<ul><li><strong>It cannot be shared.</strong> Only the wallet that published it can read it. Giving access to other wallets is on the roadmap, not in this version.</li><li><strong>It cannot be erased.</strong> The encrypted data stays on the ledger. If your wallet's signature of the login message ever leaks, the image can be read. <code>unlist</code> only removes the entry.</li><li><strong>On your computer it is plain.</strong> After downloading, the system is unpacked on your disk like any other, so that it can run. The download cache keeps the encrypted form.</li><li><strong>Size and timing are visible.</strong> Anyone can see that your vault account stored some amount of data at some time, as with saves.</li></ul>
+<p>Machines made from a private image are saved and restored like all others; restoring one needs the same wallet, because the image itself has to be fetched again.</p>
+<h2 id="what-makes-a-good-image"><a class="anchor" href="#what-makes-a-good-image" aria-hidden="true" tabindex="-1">#</a>What makes a good image</h2>
+<ul><li><strong>No secrets.</strong> No private keys, passwords or tokens. <code>chainboot export</code> already leaves out SSH host keys, <code>~/.ssh</code>, shell history, logs and the machine ID.</li><li><strong>Small.</strong> Clean package caches before exporting (<code>apt-get clean</code>). Caches in the usual places are left out automatically.</li><li><strong>Honest metadata.</strong> Fill in <code>--description</code> and <code>--source-url</code>. The manifest also records the SHA-256 of the archive you published from.</li><li><strong>Reproducible.</strong> The image's digest depends only on its files. Tell people how you built the archive, and they can rebuild it and compare digests with <code>chainboot publish --dry-run</code>.</li></ul>
+<h2 id="showing-your-catalog-to-others"><a class="anchor" href="#showing-your-catalog-to-others" aria-hidden="true" tabindex="-1">#</a>Showing your catalog to others</h2>
+<div class="code-wrap"><pre><code>chainboot list &lt;your-address&gt;
+chainboot run &lt;your-address&gt;/mylinux</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>In the web interface, &quot;Look at another publisher&quot; does the same.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="04-saving.html"><span>previous</span>Saving to chain</a><a class="next" href="06-sdk.html"><span>next</span>The SDK</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/05-publishing.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

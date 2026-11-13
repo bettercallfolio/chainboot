@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The on-chain format · chainboot docs</title>
+<meta name="description" content="Every byte chainboot writes, so anyone can build a reader or writer.">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <a class="btn primary small" href="../index.html#install">install</a>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li class="here"><a href="07-format.html" aria-current="page"><span class="num">07</span>The on-chain format</a><ul><li><a href="#1-data-transactions">1. Data transactions</a></li><li><a href="#2-objects">2. Objects</a></li><li><a href="#3-pointers-and-tag-addresses">3. Pointers and tag addresses</a></li><li><a href="#4-catalog">4. Catalog</a></li><li><a href="#5-image-manifest">5. Image manifest</a></li><li><a href="#6-saved-machines">6. Saved machines</a></li><li><a href="#7-private-images">7. Private images</a></li><li><a href="#8-versioning">8. Versioning</a></li></ul></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li><a href="12-thanks.html"><span class="num">12</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 07</p>
+<h1>The on-chain format</h1>
+<p>This page describes every byte chainboot writes, so that anyone can write an independent reader or writer in any language. Format version: <strong>1</strong>.</p>
+<p>Conventions: numbers are little-endian unless said otherwise; &quot;signature&quot; means the 64-byte first signature of a transaction, which is also its ID; hex is lower-case.</p>
+<h2 id="1-data-transactions"><a class="anchor" href="#1-data-transactions" aria-hidden="true" tabindex="-1">#</a>1. Data transactions</h2>
+<p>Every piece of chainboot data is the instruction data of one call to the <strong>SPL Noop</strong> program, <code>noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV</code>, in a transaction paid by the publisher. chainboot writes <strong>v1 transactions</strong> (SIMD-0385, up to 4096 bytes) and can read legacy transactions too. Only transactions that succeeded (<code>meta.err == null</code>) count.</p>
+<p>In a v1 transaction chainboot sets a compute unit limit of 20,000 and a loaded-accounts data limit of 262,144 bytes in the transaction config (a Noop call uses about 100 units).</p>
+<p>The instruction data always starts with the magic byte <code>0xCB</code> and a kind byte:</p>
+<div class="table-wrap"><table><thead><tr><th>Kind</th><th>Name</th><th>Layout after the two bytes</th><th>Max payload (v1)</th></tr></thead><tbody><tr><td><code>0x00</code></td><td>leaf</td><td>raw bytes of the object</td><td>3912</td></tr><tr><td><code>0x01</code></td><td>branch</td><td>signatures, 64 bytes each</td><td>61 signatures</td></tr><tr><td><code>0x02</code></td><td>head</td><td>see below</td><td>59 signatures</td></tr><tr><td><code>0x03</code></td><td>inline</td><td><code>version (1 byte = 1)</code> then the whole object</td><td>3911</td></tr><tr><td><code>0x10</code></td><td>pointer</td><td><code>version (1 byte = 1)</code> then the record</td><td>3878</td></tr></tbody></table></div>
+<p>Transactions of kinds 0x00 to 0x03 reference no accounts besides the payer and the Noop program. A pointer transaction additionally references its tag address as a read-only account.</p>
+<h2 id="2-objects"><a class="anchor" href="#2-objects" aria-hidden="true" tabindex="-1">#</a>2. Objects</h2>
+<p>An <strong>object</strong> is a byte string of any length, identified by the signature of its head (or inline) transaction.</p>
+<p>Small objects (up to 3911 bytes) are a single <strong>inline</strong> transaction.</p>
+<p>Larger objects are a tree:</p>
+<ul><li>The object is cut into <strong>leaves</strong> of <code>leafSize</code> bytes (3912 for v1 without priority fee); the last leaf may be shorter.</li><li>The leaf signatures, in order, are grouped into <strong>branches</strong> of up to 61. If there are more than 59 branches, their signatures are grouped again, and so on.</li><li>The <strong>head</strong> lists the signatures of the top level.</li></ul>
+<p>Head layout (after <code>0xCB 0x02</code>):</p>
+<div class="table-wrap"><table><thead><tr><th>Offset</th><th>Size</th><th>Field</th></tr></thead><tbody><tr><td>2</td><td>1</td><td>format version = 1</td></tr><tr><td>3</td><td>1</td><td>depth: 1 means the head lists leaves, 2 means it lists branches that list leaves, ...</td></tr><tr><td>4</td><td>2</td><td>leaf size in bytes</td></tr><tr><td>6</td><td>8</td><td>object size in bytes</td></tr><tr><td>14</td><td>32</td><td>SHA-256 of the object</td></tr><tr><td>46</td><td>64</td><td>signature of the hint object, or 64 zero bytes</td></tr><tr><td>110</td><td>64 × n</td><td>signatures of the top level</td></tr></tbody></table></div>
+<p>All leaves are at the same depth. The number of leaves is <code>ceil(size / leafSize)</code>.</p>
+<p>A writer must wait until the transactions of one level are final before it writes the next level, because a signature is only known once a transaction has landed.</p>
+<h3 id="slot-hints"><a class="anchor" href="#slot-hints" aria-hidden="true" tabindex="-1">#</a>Slot hints</h3>
+<p>The <strong>hint</strong> is itself an object (inline or a tree without a hint of its own). Its content is a list of the slots that contain the object's leaf and branch transactions:</p>
+<div class="code-wrap"><pre><code>varint count, then `count` varints: the first slot, then the difference to the previous slot</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>A varint is LEB128: 7 bits per byte, low bits first, high bit set on all bytes but the last.</p>
+<p>Readers may fetch those blocks with <code>getBlock</code> and pick out the object's transactions by signature. The hint is an optimisation only. A reader must still verify everything as described below and must fetch any missing transaction by signature.</p>
+<h3 id="reading-and-verifying"><a class="anchor" href="#reading-and-verifying" aria-hidden="true" tabindex="-1">#</a>Reading and verifying</h3>
+<ol><li>Fetch the head by signature. Check that the first signature of the returned transaction equals the requested one and is a valid Ed25519 signature of the message by the fee payer. If you trust specific publishers, check that the fee payer is one of them.</li><li>Fetch branches the same way, level by level, with the same checks.</li><li>Fetch the leaves. Check payload sizes (<code>leafSize</code>, except the last).</li><li>Concatenate the leaves and compare the SHA-256 with the head. Reject on mismatch.</li></ol>
+<p>chainboot skips the signature check of leaves at first and relies on step 4; if the hash does not match, it verifies the leaf signatures to find the wrong ones and fetches them again.</p>
+<h2 id="3-pointers-and-tag-addresses"><a class="anchor" href="#3-pointers-and-tag-addresses" aria-hidden="true" tabindex="-1">#</a>3. Pointers and tag addresses</h2>
+<p>A <strong>tag address</strong> is 32 bytes:</p>
+<div class="code-wrap"><pre><code>SHA-256( &quot;chainboot:v1&quot; || 0x00 || part1 || 0x00 || part2 || ... )</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Parts are UTF-8 strings or raw bytes. It is used as an account address but has no private key.</p>
+<p>A <strong>pointer</strong> is a transaction of kind <code>0x10</code> that references a tag address. The current record of a tag is the payload of the newest successful pointer transaction (as listed by <code>getSignaturesForAddress</code>) whose fee payer is the expected owner. Pointer transactions by anyone else are ignored.</p>
+<div class="table-wrap"><table><thead><tr><th>Tag parts</th><th>Owner</th><th>Record</th></tr></thead><tbody><tr><td><code>&quot;catalog&quot;</code>, publisher public key</td><td>publisher</td><td>JSON stored-reference of the catalog</td></tr><tr><td><code>&quot;state&quot;</code>, vault public key, machine name</td><td>vault</td><td>encrypted JSON <code>{ ref, seq, time }</code></td></tr><tr><td><code>&quot;machines&quot;</code>, vault public key</td><td>vault</td><td>encrypted JSON <code>{ ref }</code> of the machine list</td></tr></tbody></table></div>
+<p>A <strong>stored reference</strong> is JSON: <code>{ &quot;sig&quot;, &quot;sha256&quot;, &quot;size&quot;, &quot;codec&quot;, &quot;rawSize&quot; }</code>, where <code>sig</code>, <code>sha256</code> and <code>size</code> describe the object as stored, <code>codec</code> is <code>&quot;xz&quot;</code>, <code>&quot;zstd&quot;</code> or <code>&quot;raw&quot;</code>, and <code>rawSize</code> is the size after decompression.</p>
+<h2 id="4-catalog"><a class="anchor" href="#4-catalog" aria-hidden="true" tabindex="-1">#</a>4. Catalog</h2>
+<p>The catalog is a JSON document (compressed as its reference says):</p>
+<div class="code-wrap"><pre><code>{
+  &quot;chainboot&quot;: 1, &quot;kind&quot;: &quot;catalog&quot;, &quot;publisher&quot;: &quot;&lt;base58 address&gt;&quot;, &quot;updated&quot;: 1794604669,
+  &quot;images&quot;: {
+    &quot;solinux&quot;: {
+      &quot;description&quot;: &quot;…&quot;,
+      &quot;tags&quot;: { &quot;latest&quot;: { &quot;amd64&quot;: { &quot;sig&quot;: &quot;…&quot;, &quot;sha256&quot;: &quot;…&quot;, &quot;size&quot;: 201740, &quot;codec&quot;: &quot;xz&quot;, &quot;rawSize&quot;: 887238,
+                                        &quot;digest&quot;: &quot;…&quot;, &quot;version&quot;: &quot;26.04.1&quot;, &quot;created&quot;: 1790000000,
+                                        &quot;downloadSize&quot;: 21816820, &quot;unpackedSize&quot;: 90200000 } } }
+    }
+  }
+}</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Each architecture entry is the stored reference of an image manifest plus information for display.</p>
+<h2 id="5-image-manifest"><a class="anchor" href="#5-image-manifest" aria-hidden="true" tabindex="-1">#</a>5. Image manifest</h2>
+<p>A JSON document. The tree is written one node per line, in path order.</p>
+<div class="code-wrap"><pre><code>{ &quot;chainboot&quot;: 1, &quot;kind&quot;: &quot;image&quot;, &quot;name&quot;: &quot;…&quot;, &quot;version&quot;: &quot;…&quot;, &quot;arch&quot;: &quot;amd64&quot;, &quot;os&quot;: &quot;linux&quot;,
+  &quot;created&quot;: 1790000000, &quot;description&quot;: &quot;…&quot;, &quot;source&quot;: { &quot;url&quot;: &quot;…&quot;, &quot;sha256&quot;: &quot;…&quot; },
+  &quot;config&quot;: { &quot;cmd&quot;: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;…&quot;] },
+  &quot;digest&quot;: &quot;&lt;hex&gt;&quot;, &quot;rawSize&quot;: 90200000, &quot;fileCount&quot;: 6569,
+  &quot;packs&quot;: [ { &quot;sig&quot;: &quot;…&quot;, &quot;sha256&quot;: &quot;…&quot;, &quot;size&quot;: 21615080, &quot;codec&quot;: &quot;xz&quot;, &quot;rawSha256&quot;: &quot;…&quot;, &quot;rawSize&quot;: 89595002 } ],
+  &quot;tree&quot;: [ … ] }</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Tree nodes are arrays. The first element is the path (relative, <code>/</code>-separated, no <code>.</code> or <code>..</code>, valid UTF-8), the second the type:</p>
+<div class="table-wrap"><table><thead><tr><th>Type</th><th>Array</th></tr></thead><tbody><tr><td>file</td><td><code>[path, &quot;f&quot;, mode, uid, gid, mtime, size, sha256, pack, offset]</code> and optionally an object of extended attributes (name to base64)</td></tr><tr><td>directory</td><td><code>[path, &quot;d&quot;, mode, uid, gid, mtime]</code> and optionally extended attributes</td></tr><tr><td>symbolic link</td><td><code>[path, &quot;l&quot;, mode, uid, gid, mtime, target]</code></td></tr><tr><td>hard link</td><td><code>[path, &quot;h&quot;, targetPath]</code> (the target is a file node of the same tree)</td></tr><tr><td>device</td><td><code>[path, &quot;c&quot; or &quot;b&quot;, mode, uid, gid, mtime, major, minor]</code></td></tr><tr><td>FIFO</td><td><code>[path, &quot;p&quot;, mode, uid, gid, mtime]</code></td></tr></tbody></table></div>
+<p><code>mode</code> is the permission bits (0 to 0o7777), <code>mtime</code> whole seconds. A file's content is <code>size</code> bytes at <code>offset</code> in the decompressed pack number <code>pack</code>. Empty files have <code>pack</code> -1. Nodes are sorted by the bytes of their UTF-8 path, and every parent directory appears as a node before its children.</p>
+<p><strong>Packs</strong> are the contents of files, concatenated. <code>codec</code> says how a pack is compressed: <code>xz</code> (LZMA2, optionally preceded by the x86 or ARM64 BCJ filter), <code>zstd</code>, or <code>raw</code>.</p>
+<p><strong>Digest.</strong> The image's identity, independent of packing:</p>
+<div class="code-wrap"><pre><code>SHA-256( &quot;chainboot-tree-v1\n&quot; + for every node in order: identity + &quot;\n&quot; )</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>where <code>identity</code> is the node as compact JSON (no spaces) without the <code>pack</code> and <code>offset</code> elements: for a file <code>[path,&quot;f&quot;,mode,uid,gid,mtime,size,sha256]</code> (plus the attribute object with sorted keys, if any); other nodes unchanged.</p>
+<p>A reader must validate a manifest before writing anything to disk: safe sorted paths, parents that are directories of the image, hard links that point at files, pack references within bounds, and the digest.</p>
+<h2 id="6-saved-machines"><a class="anchor" href="#6-saved-machines" aria-hidden="true" tabindex="-1">#</a>6. Saved machines</h2>
+<p><strong>Keys.</strong> The wallet signs the UTF-8 text of the login message (see <a href="04-saving.html">Saving to chain</a>). With that 64-byte signature as input key material:</p>
+<div class="code-wrap"><pre><code>vault seed      = HKDF-SHA256(ikm = signature, salt = &quot;chainboot-vault-v1&quot;, info = &quot;&lt;cluster&gt;:signer&quot;, 32 bytes)
+encryption key  = HKDF-SHA256(ikm = signature, salt = &quot;chainboot-vault-v1&quot;, info = &quot;&lt;cluster&gt;:encryption&quot;, 32 bytes)</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>&lt;cluster&gt;</code> is <code>devnet</code>, <code>testnet</code> or <code>mainnet-beta</code>. The vault seed is an Ed25519 seed; its public key is the vault account.</p>
+<p><strong>Encryption.</strong> AES-256-GCM. A sealed blob is:</p>
+<div class="code-wrap"><pre><code>0x01 || nonce (12 random bytes) || ciphertext || tag (16 bytes)</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>with a purpose string as additional authenticated data: <code>pack</code>, <code>snapshot</code>, <code>snapshot-pointer</code>, <code>index</code>, <code>index-pointer</code>. Data is compressed first, then sealed.</p>
+<p><strong>Snapshot.</strong> A sealed, compressed JSON document:</p>
+<div class="code-wrap"><pre><code>{ &quot;chainboot&quot;: 1, &quot;kind&quot;: &quot;snapshot&quot;, &quot;machine&quot;: &quot;…&quot;, &quot;seq&quot;: 7, &quot;time&quot;: 1794604669,
+  &quot;image&quot;: { &quot;publisher&quot;: &quot;…&quot;, &quot;name&quot;: &quot;…&quot;, &quot;tag&quot;: &quot;…&quot;, &quot;arch&quot;: &quot;…&quot;, &quot;digest&quot;: &quot;…&quot;, &quot;manifest&quot;: { stored reference } },
+  &quot;packs&quot;: [ { pack fields as in a manifest, &quot;enc&quot;: 1 } ],
+  &quot;tree&quot;: [ nodes as in a manifest ],
+  &quot;deleted&quot;: [ &quot;path&quot;, … ],
+  &quot;fingerprint&quot;: &quot;&lt;hex&gt;&quot;,
+  &quot;history&quot;: [ { &quot;seq&quot;: 6, &quot;time&quot;: …, &quot;ref&quot;: { stored reference }, &quot;files&quot;: 140, &quot;bytes&quot;: 1820000 }, … ] }</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>tree</code> holds every object of the machine that differs from the image; <code>deleted</code> the paths of the image that no longer exist. A pack with <code>&quot;enc&quot;: 1</code> is sealed with purpose <code>pack</code>; a pack with <code>&quot;enc&quot;: 0</code> is a public pack of the image, referenced unchanged. To restore: start from the image, remove the deleted paths, then write the tree.</p>
+<h2 id="7-private-images"><a class="anchor" href="#7-private-images" aria-hidden="true" tabindex="-1">#</a>7. Private images</h2>
+<p>A private image uses the same manifest and pack formats, with these differences:</p>
+<ul><li>A pack entry may carry <code>&quot;enc&quot;: 1</code>. Such a pack is stored as a sealed blob with purpose <code>pack</code> (compress first, then seal); <code>sha256</code> and <code>size</code> describe the sealed blob. Packs without <code>enc</code> are public packs of other images, referenced unchanged.</li><li>The manifest object is the compressed manifest sealed with purpose <code>image-manifest</code>.</li><li>The owner's private catalog is a sealed document with purpose <code>private-catalog</code> (<code>{ &quot;chainboot&quot;: 1, &quot;kind&quot;: &quot;private-catalog&quot;, &quot;updated&quot;: …, &quot;images&quot;: { … } }</code>, entries as in a public catalog plus <code>&quot;private&quot;: true</code>), found through an encrypted pointer under the tag <code>&quot;private-images&quot;</code>, vault public key.</li><li>Every transaction is paid and signed by the vault account.</li></ul>
+<h2 id="8-versioning"><a class="anchor" href="#8-versioning" aria-hidden="true" tabindex="-1">#</a>8. Versioning</h2>
+<p>Readers must reject head, inline and pointer transactions whose version byte they do not know, and manifests whose <code>chainboot</code> field they do not know. New kinds and fields will get new numbers; version 1 data stays readable.</p>
+<nav class="pager" aria-label="More guides"><a class="prev" href="06-sdk.html"><span>previous</span>The SDK</a><a class="next" href="08-networks-and-costs.html"><span>next</span>Networks and costs</a></nav>
+<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/07-format.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>
