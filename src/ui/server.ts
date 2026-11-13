@@ -10,6 +10,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
@@ -77,7 +78,7 @@ export function openBrowser(url: string): boolean {
 }
 
 function webRoot(): string {
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  const here = path.dirname(fileURLToPath(import.meta.url));
   for (const dir of [path.join(here, "web"), path.join(here, "..", "ui", "web"), path.join(here, "ui", "web")]) if (fs.existsSync(path.join(dir, "index.html"))) return dir;
   throw new Error("the web interface files are missing from this installation");
 }

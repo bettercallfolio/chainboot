@@ -2,9 +2,13 @@
 import { build } from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { writeTar } from "../src/image/tar.ts";
 
-const root = path.dirname(path.dirname(new URL(import.meta.url).pathname));
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dist = path.join(root, "dist");
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 fs.rmSync(dist, { recursive: true, force: true });
@@ -32,9 +36,14 @@ fix(path.join(dist, "types"));
 
 // the release archive the installers download
 if (process.argv.includes("--archive")) {
+  // written with chainboot's own tar writer, so the archive is identical on every platform
   const name = "chainboot.tar.gz";
-  execFileSync("tar", ["-czf", name, "--owner=0", "--group=0", "--mtime=2026-01-01", "chainboot.mjs", "web", "VERSION"], { cwd: dist });
-  const hash = execFileSync("sha256sum", [name], { cwd: dist }).toString().split(" ")[0];
+  const file = (rel, mode) => ({ path: rel, type: "f", mode, uid: 0, gid: 0, mtime: 1767225600, data: fs.readFileSync(path.join(dist, rel)) });
+  const entries = [file("chainboot.mjs", 0o755), { path: "web", type: "d", mode: 0o755, uid: 0, gid: 0, mtime: 1767225600 },
+    ...fs.readdirSync(path.join(dist, "web")).sort().map((f) => file(`web/${f}`, 0o644)), file("VERSION", 0o644)];
+  const archive = zlib.gzipSync(Buffer.concat(writeTar(entries)), { level: 9 });
+  fs.writeFileSync(path.join(dist, name), archive);
+  const hash = createHash("sha256").update(archive).digest("hex");
   fs.writeFileSync(path.join(dist, `${name}.sha256`), `${hash}  ${name}\n`);
   console.log(`dist/${name} ${hash}`);
 }
