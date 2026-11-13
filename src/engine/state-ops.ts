@@ -4,7 +4,8 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { parseManifest, type FileNode } from "../image/manifest.ts";
 import { loadConfig, openStore, paths } from "../local/home.ts";
-import { scanMachine } from "../state/scan.ts";
+import { TAR_END, tarHead, tarPadding, type Entry } from "../image/tar.ts";
+import { isUnsaved, scanMachine } from "../state/scan.ts";
 import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, saveSnapshot, type Head, type SavePlan, type Snapshot } from "../state/snapshot.ts";
 import { loadVault, type Vault } from "../state/vault.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
@@ -223,4 +224,56 @@ export function autosaveInBackground(home: EngineHome, homePath: string, name: s
   child.unref();
   fs.closeSync(log);
   return true;
+}
+
+/**
+ * Must run inside the machine's mount namespace. Writes the machine's complete file system
+ * (image + changes) as a tar archive, ready for `chainboot publish`. Runtime mounts and caches
+ * are left out, exactly like in saves.
+ */
+// Left out of exported images: secrets and identity that every machine must have for itself, and history.
+const PRIVATE_FILES = [/^etc\/ssh\/ssh_host_[^/]*$/, /^root\/\.bash_history$/, /^home\/[^/]+\/\.bash_history$/, /^var\/lib\/systemd\/random-seed$/, /^var\/lib\/dbus\/machine-id$/, /^var\/log\/.*\.(log|gz|[0-9])$/, /^var\/log\/(wtmp|btmp|lastlog|faillog)$/, /^root\/\.ssh\//, /^home\/[^/]+\/\.ssh\//];
+// Written as empty files: must exist, but their content belongs to one machine only.
+const EMPTIED_FILES = new Set(["etc/machine-id"]);
+
+export function exportInner(home: EngineHome, name: string, file: string, progress: (phase: string, done: number, total: number) => void): { entries: number; bytes: number } {
+  const merged = path.join(machineDir(home, name), "merged");
+  const fd = fs.openSync(file, "w", 0o644);
+  const inodes = new Map<string, string>();
+  let entries = 0, bytes = 0;
+  const buf = Buffer.allocUnsafe(1 << 20);
+  const emit = (e: Entry, size: number) => { for (const b of tarHead(e, size)) fs.writeSync(fd, b); entries++; if (entries % 1000 === 0) progress("exporting", entries, entries + 1000); };
+  const walk = (rel: string) => {
+    for (const nm of fs.readdirSync(rel ? path.join(merged, rel) : merged).sort()) {
+      const p = rel ? `${rel}/${nm}` : nm;
+      if (isUnsaved(p) || PRIVATE_FILES.some((re) => re.test(p))) continue;
+      const abs = path.join(merged, p);
+      const st = fs.lstatSync(abs);
+      const common = { path: p, mode: st.mode & 0o7777, uid: st.uid, gid: st.gid, mtime: Math.floor(st.mtimeMs / 1000) };
+      if (st.isFile() && EMPTIED_FILES.has(p)) { emit({ ...common, type: "f" }, 0); continue; }
+      if (st.isDirectory()) { emit({ ...common, type: "d" }, 0); walk(p); }
+      else if (st.isSymbolicLink()) emit({ ...common, type: "l", link: fs.readlinkSync(abs) }, 0);
+      else if (st.isFIFO()) emit({ ...common, type: "p" }, 0);
+      else if (st.isFile()) {
+        const id = `${st.dev}:${st.ino}`, first = st.nlink > 1 ? inodes.get(id) : undefined;
+        if (first) { emit({ ...common, type: "h", link: first }, 0); continue; }
+        if (st.nlink > 1) inodes.set(id, p);
+        emit({ ...common, type: "f" }, st.size);
+        const src = fs.openSync(abs, "r");
+        let left = st.size;
+        try {
+          while (left > 0) {
+            const n = fs.readSync(src, buf, 0, Math.min(buf.length, left), null);
+            if (n <= 0) throw new Error(`${p} shrank while it was being exported`);
+            fs.writeSync(fd, buf, 0, n); left -= n;
+          }
+        } finally { fs.closeSync(src); }
+        fs.writeSync(fd, tarPadding(st.size));
+        bytes += st.size;
+      }
+      // sockets and device nodes are runtime objects: images do not carry them
+    }
+  };
+  try { walk(""); fs.writeSync(fd, TAR_END); } finally { fs.closeSync(fd); }
+  return { entries, bytes };
 }

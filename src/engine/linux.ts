@@ -138,14 +138,25 @@ for f in resolv.conf hosts hostname; do
   mount --bind "$CB_DIR/etc/$f" "$M/etc/$f"
 done
 hostname "$CB_NAME"
+# things every machine needs for itself and images therefore do not carry
+if [ -e "$M/etc/machine-id" ] && [ ! -s "$M/etc/machine-id" ]; then
+  (cat /proc/sys/kernel/random/uuid | tr -d - > "$M/etc/machine-id") 2>/dev/null || true
+fi
+if [ -x "$M/usr/bin/ssh-keygen" ] && [ -d "$M/etc/ssh" ] && ! ls "$M"/etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+  chroot "$M" /usr/bin/ssh-keygen -A >/dev/null 2>&1 || true
+fi
 trap - EXIT
 : > "$CB_DIR/ready"
+# an optional start-up script inside the machine, for services that should come up with it
+if [ -x "$M/etc/chainboot/start" ]; then
+  (chroot "$M" /bin/sh -c 'cd /; exec /etc/chainboot/start' > "$CB_DIR/start.log" 2>&1 &)
+fi
 # wait for the first session, then stay for as long as any session holds the lock.
 # The machine lingers a moment after the last session, so commands that follow each other reuse it.
 n=0
-while [ ! -e "$CB_DIR/attached" ] && [ "$n" -lt 120 ]; do sleep 0.25; n=$((n+1)); done
+while [ ! -e "$CB_DIR/attached" ] && [ ! -e "$CB_DIR/keep" ] && [ "$n" -lt 120 ]; do sleep 0.25; n=$((n+1)); done
 free=0
-while [ "$free" -lt 4 ]; do
+while [ "$free" -lt 4 ] || [ -e "$CB_DIR/keep" ]; do
   if flock -n -x "$CB_DIR/lock" true 2>/dev/null; then free=$((free+1)); else free=0; fi
   sleep 0.5
 done
@@ -164,7 +175,7 @@ function sleepMs(ms: number): void {
 }
 
 /** Starts the machine's namespaces if they are not up yet and returns the init PID. */
-export function startMachine(home: EngineHome, name: string, say: (text: string) => void, progress?: (done: number, total: number) => void): number {
+export function startMachine(home: EngineHome, name: string, say: (text: string) => void, progress?: (done: number, total: number) => void, keep = false): number {
   const dir = machineDir(home, name);
   const info = readMachine(home, name);
   if (!info) throw new Error(`there is no machine named "${name}"`);
@@ -182,12 +193,13 @@ export function startMachine(home: EngineHome, name: string, say: (text: string)
   }
   try {
     const running = initPid(dir);
-    if (running) return running;
+    if (running) { if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); return running; }
     ensureExtracted(home, info.image.digest, say, progress);
     const lower = imageRootfs(home, info.image.digest);
     if (/[,:\\]/.test(lower + dir)) throw new Error(`the chainboot directory path may not contain "," ":" or "\\" (${home.machines})`);
     for (const d of ["upper", "work", "merged", "etc"]) fs.mkdirSync(path.join(dir, d), { recursive: true });
     for (const f of ["ready", "failed", "attached", "pid"]) fs.rmSync(path.join(dir, f), { force: true });
+    if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); else fs.rmSync(path.join(dir, "keep"), { force: true });
     fs.writeFileSync(path.join(dir, "lock"), "");
     fs.writeFileSync(path.join(dir, "etc", "resolv.conf"), hostResolvConf());
     fs.writeFileSync(path.join(dir, "etc", "hostname"), `${name}\n`);
@@ -254,6 +266,7 @@ export function enterMachine(home: EngineHome, name: string, pid: number, comman
 export function stopMachine(home: EngineHome, name: string): boolean {
   const dir = machineDir(home, name);
   const pid = initPid(dir);
+  fs.rmSync(path.join(dir, "keep"), { force: true });
   if (!pid) return false;
   try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
   for (let i = 0; i < 100 && initPid(dir); i++) sleepMs(50);

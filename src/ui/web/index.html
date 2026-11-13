@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chainboot</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">chainboot</span><span class="cursor"></span><span class="tag">operating systems from the chain</span></div>
+  <div class="top-right">
+    <label class="inline">network <select id="network"></select></label>
+    <button id="wallet-chip" class="chip">not signed in</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner" class="banner hidden"></div>
+
+  <section id="sec-endpoints">
+    <h2><span class="n">1</span> Endpoints</h2>
+    <p class="hint">chainboot reads the blockchain through RPC endpoints, and you bring your own. Free ones take a minute to get (Helius, QuickNode, Alchemy, Triton, Ankr). Add as many as you like: more endpoints mean faster downloads.</p>
+    <div id="endpoints" class="list compact"></div>
+    <form id="endpoint-form" class="row">
+      <input id="endpoint-url" type="url" placeholder="https://your-endpoint.example/your-key" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Add endpoint</button>
+      <button type="button" id="endpoint-test" class="ghost">Test all</button>
+    </form>
+  </section>
+
+  <section id="sec-systems">
+    <h2><span class="n">2</span> Systems on chain</h2>
+    <p class="hint">Every system below is stored on Solana. Getting one downloads it straight from the chain and checks every file against its hash.</p>
+    <div id="catalog" class="cards"><div class="empty">Add an endpoint to see what is available.</div></div>
+    <details>
+      <summary>Look at another publisher</summary>
+      <form id="publisher-form" class="row">
+        <input id="publisher" placeholder="publisher address" autocomplete="off" spellcheck="false">
+        <button type="submit" class="ghost">Show</button>
+      </form>
+    </details>
+  </section>
+
+  <section id="sec-machines">
+    <h2><span class="n">3</span> Your machines</h2>
+    <p class="hint">A machine is a system plus everything you changed in it. It keeps its state between sessions.</p>
+    <div id="machines" class="list"><div class="empty">No machines yet. Get a system above.</div></div>
+  </section>
+
+  <section id="sec-wallet">
+    <h2><span class="n">4</span> Save to chain</h2>
+    <p class="hint">Sign in with your wallet and your machines are saved to Solana, encrypted with a key only you can make. Continue on any computer by signing in there. Your wallet signs one message; a small helper account (the vault) then pays the fees of your saves, so you are not asked again.</p>
+    <div id="wallet-panel"></div>
+  </section>
+
+  <section id="sec-publish">
+    <h2><span class="n">5</span> Publish your own system</h2>
+    <p class="hint">Any Linux distribution can live on chain. Build a machine the way you like it, then publish it for everyone (or just for yourself).</p>
+    <pre class="code" id="publish-help">chainboot run solbuntu-minimal --name mybox       # install and configure what you need
+chainboot export mybox mybox.tar                  # turn the machine into an archive
+chainboot keygen me.json                          # your publisher key (fund it with a little SOL)
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solbuntu-minimal --keypair me.json</pre>
+    <p class="hint">Others run it with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive from any distribution works too.</p>
+  </section>
+
+  <section id="sec-activity" class="hidden">
+    <h2><span class="n">&gt;</span> Activity <button id="activity-close" class="ghost small">hide</button></h2>
+    <div id="job-title" class="job-title"></div>
+    <div class="bar"><div id="job-bar" class="bar-fill"></div></div>
+    <pre id="job-log" class="log"></pre>
+    <div id="job-command" class="hint"></div>
+  </section>
+</main>
+
+<footer>chainboot runs on your computer. This page talks only to the chainboot program that opened it. <span id="version"></span></footer>
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

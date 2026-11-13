@@ -6,12 +6,12 @@ import {
   checkMachineName, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
-import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, insideMachine, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
+import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { homeDir, hostArch, loadConfig, openStore } from "../local/home.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { fmtBytes } from "../util/bytes.ts";
-import { UsageError, flag, type Args } from "./args.ts";
+import { UsageError, flag, has, type Args } from "./args.ts";
 import { confirm, pull, resolveImage } from "./cmd-image.ts";
 import { ProgressLine, bold, dim, green, info, ok, out, table, yellow } from "./term.ts";
 
@@ -48,6 +48,11 @@ changes. Several terminals can be inside one machine at once; it stops when the 
   chainboot run solbuntu                      Open a shell
   chainboot run solbuntu -- apt-get update    Run one command and return
   chainboot run solbuntu --name test          A second, separate machine from the same image
+  chainboot run solbuntu --no-autosave        Create the machine with automatic saving turned off
+
+Keeping a machine up (for services such as a web server):
+  chainboot start <machine>     Start it and keep it running without an open terminal
+  If the machine has an executable /etc/chainboot/start, it is run every time the machine starts.
 
 Related:
   chainboot machines            List your machines
@@ -83,8 +88,7 @@ export async function cmdRun(a: Args): Promise<void> {
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
     ok(`created machine ${bold(name)} from ${found.name}:${found.tag}`);
-  } else if (wanted.name !== machine.image.name && !flag(a, "name")) {
-    throw new Error(`machine "${name}" already exists and was made from ${machine.image.name}; pick another name with --name`);
+    if (has(a, "no-autosave")) asRoot(["autosave", name, "off"]);
   }
   process.exitCode = asRoot(["enter", name, "--", ...command]);
 }
@@ -94,6 +98,14 @@ export function cmdMachines(): void {
   if (!list.length) { info("No machines yet. Create one with: chainboot run solbuntu"); return; }
   out(table(list.map((m) => [bold(m.name), `${m.image.name}:${m.image.tag}`, m.image.arch, m.running ? green("running") : "stopped", new Date(m.created * 1000).toISOString().slice(0, 10)]),
     ["machine", "image", "arch", "state", "created"]));
+}
+
+export function cmdStart(a: Args): void {
+  requireLinux();
+  const name = a._[0];
+  if (!name) throw new UsageError("say which machine: chainboot start <machine>");
+  if (!readMachine(engineHome(), name)) throw new Error(`there is no machine named "${name}". Create it first with: chainboot run <image> --name ${name}`);
+  process.exitCode = asRoot(["start", name]);
 }
 
 export function cmdStop(a: Args): void {
@@ -127,6 +139,29 @@ function localImages(home: EngineHome): LocalImage[] {
     } catch { /* not an image directory */ }
   }
   return list;
+}
+
+export const EXPORT_HELP = `Usage:
+  chainboot export <machine> <file.tar>
+
+Writes a machine's whole file system (image plus your changes) as a tar archive. Use it to
+publish a system you built by hand:
+
+  chainboot run solbuntu-minimal --name mybox       # install and configure what you need
+  chainboot export mybox mybox.tar
+  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solbuntu-minimal --keypair me.json`;
+
+export function cmdExport(a: Args): void {
+  requireLinux();
+  const [name, file] = a._;
+  if (!name || !file) throw new UsageError("usage: chainboot export <machine> <file.tar>");
+  if (!readMachine(engineHome(), name)) throw new Error(`there is no machine named "${name}"`);
+  const target = path.resolve(file);
+  if (fs.existsSync(target)) throw new Error(`${target} already exists`);
+  const status = asRoot(["export", name, target]);
+  // the engine runs as root: hand the archive to the user who asked for it
+  if (status === 0 && process.getuid?.() !== 0) spawnSync("sudo", ["chown", `${process.getuid!()}:${process.getgid!()}`, target], { stdio: "ignore" });
+  process.exitCode = status;
 }
 
 export function cmdImages(): void {
@@ -197,9 +232,22 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   if (op === "restore-inner") {
     return restoreInner(home, name, rest[0] && rest[0] !== "latest" ? Number(rest[0]) : null, say, progress).then((status) => { line.done(); process.exitCode = status; });
   }
+  if (op === "export") { process.exitCode = insideMachine(home, homePath, name, ["export-inner", name, ...rest]); return; }
+  if (op === "export-inner") {
+    const r = exportInner(home, name, rest[0]!, progress);
+    line.done();
+    ok(`exported ${name}: ${r.entries} entries, ${fmtBytes(r.bytes)}`);
+    return;
+  }
   if (op === "autosave") {
     const off = path.join(machineDir(home, name), "autosave-off");
     if (rest[0] === "off") { fs.writeFileSync(off, ""); ok(`automatic saving is off for ${name}`); } else { fs.rmSync(off, { force: true }); ok(`automatic saving is on for ${name}`); }
+    return;
+  }
+  if (op === "start") {
+    startMachine(home, name, () => {}, (done, total) => line.update(done, total, "count", "Unpacking"), true);
+    line.done();
+    ok(`${name} is running and stays up until: chainboot stop ${name}`);
     return;
   }
   if (op === "stop") { if (stopMachine(home, name)) ok(`stopped ${name}`); else info(`${name} is not running`); return; }

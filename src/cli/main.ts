@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import { Keypair } from "../solana/keys.ts";
-import { UsageError, allow, has, parseArgs, type Args } from "./args.ts";
+import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { RPC_HELP, cmdNetwork, cmdRpc } from "./cmd-rpc.ts";
-import { RUN_HELP, cmdEngine, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStop } from "./cmd-run.ts";
+import { EXPORT_HELP, RUN_HELP, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
 
@@ -13,6 +13,7 @@ export const VERSION = "0.1.0";
 const HELP = `${bold("chainboot")} ${VERSION}: store, share and boot whole operating systems from a blockchain
 
 ${bold("Start here")}
+  chainboot ui                   Open the point-and-click interface in your browser
   chainboot rpc add <url>        Add an RPC endpoint (you can add many)
   chainboot list                 Show the systems you can run
   chainboot run solbuntu         Download, verify and start Solbuntu (Ubuntu 26.04 LTS)
@@ -20,6 +21,7 @@ ${bold("Start here")}
 ${bold("Machines")}
   run <image> [-- command]       Open a shell (or run a command) in a machine
   machines                       List your machines
+  start <machine>                Keep a machine running in the background
   stop <machine>                 Stop a running machine
   rm <machine>                   Delete a machine and its changes
 
@@ -35,6 +37,7 @@ ${bold("Images")}
   images                         List downloaded images
   rmi <image>                    Delete a downloaded image
   publish <archive> ...          Put your own Linux system on chain
+  export <machine> <file.tar>    Turn a machine into an archive you can publish
   unlist <image>                 Remove an image from your catalog
 
 ${bold("Settings")}
@@ -47,11 +50,13 @@ Run "chainboot <command> --help" for details.`;
 interface Command { run: (a: Args) => Promise<void> | void; help: string; options: string[]; booleans?: string[] }
 
 const COMMANDS: Record<string, Command> = {
-  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch"] },
+  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave"], booleans: ["no-autosave"] },
   machines: { run: cmdMachines, help: RUN_HELP, options: [] },
+  start: { run: cmdStart, help: RUN_HELP, options: [] },
   stop: { run: cmdStop, help: RUN_HELP, options: [] },
   rm: { run: cmdRm, help: RUN_HELP, options: ["yes"], booleans: ["yes"] },
   images: { run: cmdImages, help: RUN_HELP, options: [] },
+  export: { run: cmdExport, help: EXPORT_HELP, options: [] },
   rmi: { run: cmdRmi, help: RUN_HELP, options: [] },
   login: { run: cmdLogin, help: LOGIN_HELP, options: ["keypair"] },
   logout: { run: cmdLogout, help: LOGIN_HELP, options: [] },
@@ -62,6 +67,22 @@ const COMMANDS: Record<string, Command> = {
   history: { run: cmdHistory, help: SAVE_HELP, options: [] },
   status: { run: cmdStatus, help: SAVE_HELP, options: [] },
   autosave: { run: cmdAutosave, help: SAVE_HELP, options: [] },
+  ui: {
+    help: "Usage:\n  chainboot ui [--port <number>] [--no-open]\n\nOpens the chainboot interface in your browser: pick a system, manage machines, connect your\nwallet. The page is served by this program on your own computer and is reachable only from it.",
+    options: ["port", "no-open"], booleans: ["no-open"],
+    run: async (a) => {
+      const { startUi, openBrowser } = await import("../ui/server.ts");
+      const port = flag(a, "port");
+      if (port !== undefined && !/^\d{2,5}$/.test(port)) throw new UsageError("--port takes a number");
+      const ui = await startUi({ port: port ? Number(port) : undefined });
+      info(`${bold("chainboot interface")} is running. Open it here:`);
+      out(ui.url);
+      if (!has(a, "no-open") && !openBrowser(ui.url)) info(dim("No browser could be opened automatically; open the link above on this computer."));
+      info(dim("Press Ctrl+C to stop."));
+      await new Promise<void>((resolve) => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve); });
+      ui.close();
+    },
+  },
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },

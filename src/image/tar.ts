@@ -171,13 +171,12 @@ function paxRecord(key: string, value: Buffer): Buffer {
 
 const FLAG: Record<EntryType, string> = { f: "0", h: "1", l: "2", c: "3", b: "4", d: "5", p: "6" };
 
-/** Serialises entries as a pax tar archive, returned as a list of chunks (to avoid one huge copy). */
-export function writeTar(entries: Iterable<Entry>): Buffer[] {
+/** Header blocks (pax records when needed, then the ustar header) for one entry whose content is `size` bytes. */
+export function tarHead(e: Entry, size: number): Buffer[] {
   const out: Buffer[] = [];
-  for (const e of entries) {
+  {
     const name = e.type === "d" ? `${e.path}/` : e.path;
     const link = e.link ?? "";
-    const size = e.type === "f" ? e.data?.length ?? 0 : 0;
     const records: Buffer[] = [];
     if (Buffer.byteLength(name) > 100) records.push(paxRecord("path", Buffer.from(name)));
     if (Buffer.byteLength(link) > 100) records.push(paxRecord("linkpath", Buffer.from(link)));
@@ -191,8 +190,26 @@ export function writeTar(entries: Iterable<Entry>): Buffer[] {
     }
     const short = (s: string) => (Buffer.byteLength(s) > 100 ? Buffer.from(s).subarray(0, 100).toString("latin1") : s);
     out.push(header(short(name), e, Math.min(size, 0o77777777777), FLAG[e.type], short(link)));
-    if (size) out.push(e.data!, Buffer.alloc((512 - (size % 512)) % 512));
   }
-  out.push(Buffer.alloc(1024));
+  return out;
+}
+
+/** Zero bytes that follow a file's content to fill its last 512-byte block. */
+export function tarPadding(size: number): Buffer {
+  return Buffer.alloc((512 - (size % 512)) % 512);
+}
+
+/** The two empty blocks that end an archive. */
+export const TAR_END = Buffer.alloc(1024);
+
+/** Serialises entries as a pax tar archive, returned as a list of chunks (to avoid one huge copy). */
+export function writeTar(entries: Iterable<Entry>): Buffer[] {
+  const out: Buffer[] = [];
+  for (const e of entries) {
+    const size = e.type === "f" ? e.data?.length ?? 0 : 0;
+    out.push(...tarHead(e, size));
+    if (size) out.push(e.data!, tarPadding(size));
+  }
+  out.push(TAR_END);
   return out;
 }
