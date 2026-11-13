@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# never commit keys or RPC endpoints
+*.keypair.json
+payer.json
+rpcs.txt
+.env
+.env.*
+.chainboot/

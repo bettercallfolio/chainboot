@@ -1,0 +1,24 @@
+{
+  "name": "chainboot",
+  "version": "0.1.0",
+  "description": "Store, share and boot whole operating systems from a blockchain. Example: Solbuntu, Ubuntu 26.04 LTS on Solana.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.15" },
+  "bin": { "chainboot": "dist/chainboot.mjs" },
+  "main": "dist/sdk.mjs",
+  "types": "dist/sdk.d.ts",
+  "exports": { ".": { "types": "./dist/sdk.d.ts", "default": "./dist/sdk.mjs" } },
+  "files": ["dist", "README.md", "LICENSE", "docs"],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "dev": "node src/cli/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
