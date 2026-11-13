@@ -12,8 +12,11 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<!-- "prelaunch" hides links to the (still private) repository and marks the installer as not yet available.
+     Remove the class when the repository is public. -->
+<body class="prelaunch">
 <a class="skip" href="#main">Skip to content</a>
+<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon.</p>
 
 <header class="nav">
   <div class="wrap bar">
@@ -26,7 +29,7 @@
       <a href="#sdk">sdk</a>
       <a href="docs/index.html">docs</a>
     </nav>
-    <a class="btn primary small" href="#install">install</a>
+    <a class="btn primary small" href="#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
   </div>
 </header>
 
@@ -38,10 +41,10 @@
     <h1>Boot an operating system from a blockchain.</h1>
     <p class="lead">chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer, in your own terminal, at native speed. There is no server in between: it reads the chain through the RPC endpoints you give it and checks every byte.</p>
     <div class="cta">
-      <a class="btn primary" href="#install">Install</a>
+      <a class="btn primary" href="#install" data-public>Install</a>
       <a class="btn" href="#how">How it works</a>
       <a class="btn" href="docs/index.html">Read the docs</a>
-      <a class="btn quiet" href="https://github.com/bettercallfolio/chainboot">GitHub</a>
+      <a class="btn quiet" href="https://github.com/bettercallfolio/chainboot" data-public>GitHub</a>
     </div>
   </div>
 
@@ -200,6 +203,7 @@
 <section class="wrap" id="install">
   <p class="label"># install</p>
   <h2>One line. No administrator rights.</h2>
+  <p class="soon-note prelaunch-only">Not available yet. These commands start working when the repository is opened to the public.</p>
   <div class="install">
     <div class="tabs" role="tablist" aria-label="Operating system">
       <button role="tab" aria-selected="true" aria-controls="cmd" data-cmd="curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh">Linux · macOS · WSL</button>
@@ -261,7 +265,7 @@
       <a href="docs/07-format.html">format</a>
       <a href="docs/09-security.html">security</a>
       <a href="docs/10-ideas-and-roadmap.html">roadmap</a>
-      <a href="https://github.com/bettercallfolio/chainboot">github</a>
+      <a href="https://github.com/bettercallfolio/chainboot" data-public>github</a>
     </nav>
   </div>
   <p class="wrap legal">Solinux is this project's packaging of Ubuntu on Solana and is not affiliated with or endorsed by Canonical. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds. Solana and all other names belong to their owners.</p>

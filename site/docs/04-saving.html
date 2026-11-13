@@ -9,8 +9,9 @@
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
-<body class="docs-page">
+<body class="docs-page prelaunch">
 <a class="skip" href="#main">Skip to content</a>
+<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -22,7 +23,7 @@
       <a href="../index.html#sdk">sdk</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install">install</a>
+    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
   </div>
 </header>
 <div class="wrap docs">
@@ -108,13 +109,13 @@ chainboot restore solinux --snapshot 7</code></pre><button class="copy" type="bu
 <h2 id="things-to-know-before-you-rely-on-it"><a class="anchor" href="#things-to-know-before-you-rely-on-it" aria-hidden="true" tabindex="-1">#</a>Things to know before you rely on it</h2>
 <ul><li><strong>Ledger data cannot be erased.</strong> Deleting a file and saving again removes it from the new save, but the old encrypted save stays on chain. If your wallet's signature of the login message ever leaks, old saves can be read.</li><li><strong>The login lives in <code>~/.chainboot/vault/</code>.</strong> Anyone who can read that folder can read your saves and spend the vault's balance. <code>chainboot logout</code> deletes it from this computer.</li><li><strong>Use the same wallet app everywhere.</strong> The key comes from the signature. Software wallets (Phantom, Solflare, Backpack, a keypair file) all sign the plain message and agree with each other. A hardware wallet may sign in a different format and then leads to a different vault.</li><li><strong>Devnet is not permanent.</strong> Use it to try things out.</li></ul>
 <nav class="pager" aria-label="More guides"><a class="pager-prev" href="03-machines.html"><span>previous</span>Machines</a><a class="pager-next" href="05-publishing.html"><span>next</span>Publishing your own system</a></nav>
-<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/04-saving.md" rel="noopener">Edit this page on GitHub</a></p>
+<p class="source" data-public><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/04-saving.md" rel="noopener">Edit this page on GitHub</a></p>
   </main>
 </div>
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>

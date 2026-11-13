@@ -9,8 +9,9 @@
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
-<body class="docs-page">
+<body class="docs-page prelaunch">
 <a class="skip" href="#main">Skip to content</a>
+<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -22,7 +23,7 @@
       <a href="../index.html#sdk">sdk</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install">install</a>
+    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
   </div>
 </header>
 <div class="wrap docs">
@@ -132,13 +133,13 @@ encryption key  = HKDF-SHA256(ikm = signature, salt = &quot;chainboot-vault-v1&q
 <h2 id="8-versioning"><a class="anchor" href="#8-versioning" aria-hidden="true" tabindex="-1">#</a>8. Versioning</h2>
 <p>Readers must reject head, inline and pointer transactions whose version byte they do not know, and manifests whose <code>chainboot</code> field they do not know. New kinds and fields will get new numbers; version 1 data stays readable.</p>
 <nav class="pager" aria-label="More guides"><a class="pager-prev" href="06-sdk.html"><span>previous</span>The SDK</a><a class="pager-next" href="08-networks-and-costs.html"><span>next</span>Networks and costs</a></nav>
-<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/07-format.md" rel="noopener">Edit this page on GitHub</a></p>
+<p class="source" data-public><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/07-format.md" rel="noopener">Edit this page on GitHub</a></p>
   </main>
 </div>
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>

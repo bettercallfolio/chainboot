@@ -9,8 +9,9 @@
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
-<body class="docs-page">
+<body class="docs-page prelaunch">
 <a class="skip" href="#main">Skip to content</a>
+<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -22,7 +23,7 @@
       <a href="../index.html#sdk">sdk</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install">install</a>
+    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
   </div>
 </header>
 <div class="wrap docs">
@@ -103,13 +104,13 @@ chainboot rm test                            <span class="c"># delete one</span>
 <h2 id="where-things-are"><a class="anchor" href="#where-things-are" aria-hidden="true" tabindex="-1">#</a>Where things are</h2>
 <div class="table-wrap"><table><thead><tr><th>Path</th><th>What</th></tr></thead><tbody><tr><td><code>~/.chainboot/config.json</code></td><td>network and RPC endpoints</td></tr><tr><td><code>~/.chainboot/cache/</code></td><td>downloaded data (safe to delete; it is fetched again)</td></tr><tr><td><code>~/.chainboot/images/</code></td><td>unpacked systems</td></tr><tr><td><code>~/.chainboot/machines/</code></td><td>your machines and their changes</td></tr><tr><td><code>~/.chainboot/vault/</code></td><td>your login (encryption key and vault key); keep it private</td></tr></tbody></table></div>
 <nav class="pager" aria-label="More guides"><span></span><a class="pager-next" href="02-how-it-works.html"><span>next</span>How it works</a></nav>
-<p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/01-getting-started.md" rel="noopener">Edit this page on GitHub</a></p>
+<p class="source" data-public><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/01-getting-started.md" rel="noopener">Edit this page on GitHub</a></p>
   </main>
 </div>
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot">github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>

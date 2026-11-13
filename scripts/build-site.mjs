@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const docsDir = path.join(root, "docs"), outDir = path.join(root, "site", "docs");
 const REPO = "https://github.com/bettercallfolio/chainboot";
+// While the repository is private, pages are built in pre-release mode: links into the repository are hidden.
+// Set to false (and remove class="prelaunch" from site/index.html) when the repository is public.
+const PRELAUNCH = true;
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (text) => text.toLowerCase().replace(/`/g, "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
@@ -158,8 +161,9 @@ function page({ title, description, body, current }) {
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
-<body class="docs-page">
+<body class="docs-page${PRELAUNCH ? " prelaunch" : ""}">
 <a class="skip" href="#main">Skip to content</a>
+<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -171,7 +175,7 @@ function page({ title, description, body, current }) {
       <a href="../index.html#sdk">sdk</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install">install</a>
+    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
   </div>
 </header>
 <div class="wrap docs">
@@ -189,7 +193,7 @@ ${body}
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="${REPO}">github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="${REPO}" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>
@@ -202,7 +206,7 @@ const pages = new Map();
 docs.forEach((d, i) => {
   const prev = docs[i - 1], next = docs[i + 1];
   const nav = `<nav class="pager" aria-label="More guides">${prev ? `<a class="pager-prev" href="${prev.name}.html"><span>previous</span>${esc(prev.title)}</a>` : "<span></span>"}${next ? `<a class="pager-next" href="${next.name}.html"><span>next</span>${esc(next.title)}</a>` : "<span></span>"}</nav>`;
-  const source = `<p class="source"><a href="${REPO}/blob/main/docs/${d.name}.md" rel="noopener">Edit this page on GitHub</a></p>`;
+  const source = `<p class="source" data-public><a href="${REPO}/blob/main/docs/${d.name}.md" rel="noopener">Edit this page on GitHub</a></p>`;
   pages.set(`${d.name}.html`, page({ title: d.title, description: SUMMARY[d.name] ?? d.title, current: d.name, body: `<p class="label"># docs / ${d.number}</p>\n${d.html}\n${nav}\n${source}` }));
 });
 pages.set("index.html", page({
