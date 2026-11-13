@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chainboot: operating systems from the chain</title>
+<meta name="description" content="chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer at native speed. No server in between. Example: Solinux, Ubuntu 26.04 LTS on Solana.">
+<meta property="og:title" content="chainboot: operating systems from the chain">
+<meta property="og:description" content="Store, share and boot whole operating systems from a blockchain. Verified, fast, private by default, and yours.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#121416">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="#top" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Sections">
+      <a href="#how">how it works</a>
+      <a href="#systems">systems</a>
+      <a href="#save">save</a>
+      <a href="#publish">publish</a>
+      <a href="#sdk">sdk</a>
+      <a href="https://github.com/bettercallfolio/chainboot/tree/main/docs">docs</a>
+    </nav>
+    <a class="btn primary small" href="#install">install</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero wrap" id="top">
+  <div class="pitch">
+    <p class="kicker"><span class="dot"></span> runs on Solana devnet today</p>
+    <h1>Boot an operating system from a blockchain.</h1>
+    <p class="lead">chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer, in your own terminal, at native speed. There is no server in between: it reads the chain through the RPC endpoints you give it and checks every byte.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn" href="#how">How it works</a>
+      <a class="btn quiet" href="https://github.com/bettercallfolio/chainboot">GitHub</a>
+    </div>
+  </div>
+
+  <div class="term" role="img" aria-label="Terminal: chainboot run solinux downloads Ubuntu from Solana, verifies it and opens a root shell. On exit, changes are saved to Solana in the background.">
+    <div class="term-bar"><i></i><i></i><i></i><span>your terminal</span></div>
+    <pre id="demo" class="term-body" aria-hidden="true"></pre>
+  </div>
+</section>
+
+<section class="wrap stats" aria-label="Measured numbers">
+  <div><b>~1 s</b><span>to download and verify Ubuntu base (22 MB) through one RPC endpoint</span></div>
+  <div><b>0.2 s</b><span>to open a machine you already have</span></div>
+  <div><b>0.0013 SOL</b><span>to store one megabyte, forever</span></div>
+  <div><b>0</b><span>servers between you and the chain</span></div>
+</section>
+
+<section class="wrap" id="how">
+  <p class="label"># how it works</p>
+  <h2>A ledger is a hard disk, if you cut the files small enough.</h2>
+  <div class="cols">
+    <div class="steps">
+      <div class="step"><span class="n">1</span><div><h3>Files become transactions</h3><p>A Solana transaction can carry 3,912 bytes of free data for a fixed fee of 0.000005 SOL. chainboot cuts a file into pieces and puts each piece into a transaction.</p></div></div>
+      <div class="step"><span class="n">2</span><div><h3>One signature is the address</h3><p>Lists of signatures are stored the same way, forming a small tree. The signature of the top transaction is all you need to find a file of any size, with its size and SHA-256.</p></div></div>
+      <div class="step"><span class="n">3</span><div><h3>Whole blocks, not single requests</h3><p>One request returns a whole block with hundreds of the file's transactions. That is why a single free endpoint downloads Ubuntu in about a second.</p></div></div>
+      <div class="step"><span class="n">4</span><div><h3>Verified, then run natively</h3><p>Signatures and hashes are checked before anything is used. The system is unpacked once and runs directly on your processor: no emulation.</p></div></div>
+    </div>
+    <pre class="diagram" aria-label="Diagram: a head transaction points to branch transactions, which point to leaf transactions that carry the file. Publishing turns a root file system into transactions on the Solana ledger; running fetches blocks, verifies them and unpacks the system once.">
+              head              <span class="c">the file's address</span>
+            /  |  \             <span class="c">size + SHA-256</span>
+      branch branch branch      <span class="c">61 signatures each</span>
+      / | \     ...
+   leaf leaf leaf               <span class="c">3,912 bytes each</span>
+
+ <span class="c">publish</span>                     <span class="c">run</span>
+ root file system            chainboot run solinux
+      | pack + xz                 | pointer, catalog,
+      v                           v manifest
+ transactions --> <b>Solana</b> --> blocks, verified
+      |           ledger          | unpack once
+      v                           v
+ catalog + pointer           image + changes = machine</pre>
+  </div>
+</section>
+
+<section class="wrap" id="features">
+  <p class="label"># what you get</p>
+  <h2>Small program, strong guarantees.</h2>
+  <div class="grid">
+    <article><h3><span class="mark">[v]</span> Verified</h3><p>RPC endpoints only deliver bytes. A wrong or dishonest endpoint can be slow, but it cannot change what you run.</p></article>
+    <article><h3><span class="mark">[>]</span> Fast</h3><p>Programs run on your own processor. Work is spread over all your endpoints, with batching, hedging and learned rate limits.</p></article>
+    <article><h3><span class="mark">[*]</span> Yours</h3><p>Your machines are saved to chain, encrypted with a key that only your wallet can make. No account, no company.</p></article>
+    <article><h3><span class="mark">[#]</span> Private by default</h3><p>What you publish is encrypted for your wallet alone. Sharing with everyone takes an explicit <code>--public</code>.</p></article>
+    <article><h3><span class="mark">[+]</span> Universal</h3><p>Ubuntu is the example, not the limit. Any Linux distribution, on amd64 or arm64, can be published by anyone.</p></article>
+    <article><h3><span class="mark">[/]</span> A toolkit</h3><p>Built on a TypeScript SDK with no dependencies: files on chain, pointers, an RPC pool, wallet-derived encryption.</p></article>
+  </div>
+</section>
+
+<section class="wrap" id="systems">
+  <p class="label"># chainboot list</p>
+  <h2>On chain right now.</h2>
+  <div class="table" role="table" aria-label="Systems stored on Solana devnet">
+    <div class="tr th" role="row"><span role="columnheader">image</span><span role="columnheader">what it is</span><span role="columnheader">arch</span><span role="columnheader">download</span><span role="columnheader">cost to publish</span></div>
+    <div class="tr" role="row"><span role="cell"><b>solinux</b></span><span role="cell">Ubuntu 26.04.1 LTS server system, 419 packages: SSH, sudo, git, editors</span><span role="cell">amd64, arm64</span><span role="cell">114 MB</span><span role="cell">0.12 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>solinux-minimal</b></span><span role="cell">Ubuntu 26.04.1 LTS base system</span><span role="cell">amd64, arm64</span><span role="cell">22 MB</span><span role="cell">0.028 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>alpine</b></span><span role="cell">Alpine Linux 3.24</span><span role="cell">amd64, arm64</span><span role="cell">3 MB</span><span role="cell">0.004 SOL</span></div>
+  </div>
+  <p class="note">Measured on Solana devnet. From an empty cache to a shell prompt with 13 endpoints: Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start: 0.2 s.</p>
+</section>
+
+<section class="wrap" id="save">
+  <p class="label"># continue anywhere</p>
+  <h2>Your machine follows your wallet.</h2>
+  <div class="cols even">
+    <div>
+      <p class="lead small">Sign one message with your wallet. From it chainboot derives an encryption key and a small helper account that pays the fees, so the wallet is never asked again. Everything you change is saved after each session, encrypted. On another computer: sign in, type the same command.</p>
+      <ul class="ticks">
+        <li>Only what is new is uploaded. A session that installs a few packages costs well under 0.001 SOL.</li>
+        <li>Every save is kept. Go back to any earlier one.</li>
+        <li>Two computers changed the same machine? chainboot tells you and never picks silently.</li>
+        <li>Works with Phantom, Solflare, Backpack and any Wallet Standard wallet, or a keypair file.</li>
+      </ul>
+    </div>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>another computer</span></div>
+<pre class="term-body"><span class="p">$</span> chainboot login
+<span class="o">Signed in as 7xQp…r5uu on devnet.</span>
+<span class="p">$</span> chainboot run solinux
+<span class="o">You have a saved machine named solinux on chain.</span>
+<span class="o">Bringing it back instead of starting from scratch.</span>
+<span class="ok">✔</span> <span class="o">restored "solinux" from save #12: 141 entries</span>
+<span class="r">root@solinux:~#</span> <span class="cursor inline"></span></pre>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="publish">
+  <p class="label"># publish your own</p>
+  <h2>Build a machine. Put it on chain.</h2>
+  <div class="cols even">
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>publish</span></div>
+<pre class="term-body"><span class="c"># set up a machine the way you like it</span>
+<span class="p">$</span> chainboot run solinux-minimal --name mybox
+<span class="p">$</span> chainboot export mybox mybox.tar
+
+<span class="c"># for yourself (the default): encrypted</span>
+<span class="p">$</span> chainboot publish mybox.tar --name mybox \
+    --version 1.0 --reuse solinux-minimal
+<span class="p">$</span> chainboot run me/mybox
+
+<span class="c"># for everyone: say so</span>
+<span class="p">$</span> chainboot publish mybox.tar --name mybox \
+    --version 1.0 --public --keypair me.json</pre>
+    </div>
+    <div>
+      <p class="lead small">A root file system of any distribution works: a download from the distribution, a <code>debootstrap</code>, a <code>docker export</code>, or a machine you configured by hand.</p>
+      <ul class="ticks">
+        <li><b>Private by default.</b> A ledger never forgets, so the safe choice is the default. Only your wallet can list, fetch or read what you publish.</li>
+        <li><b>Pay only for what is new.</b> Files that are already on chain, like the Ubuntu base, are referenced, not uploaded again.</li>
+        <li><b>Reproducible.</b> An image's digest depends only on its files. Anyone can rebuild and compare.</li>
+        <li><b>No program to deploy.</b> Everything uses ordinary transactions and the existing Noop program.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="sdk">
+  <p class="label"># the sdk</p>
+  <h2>Four building blocks. No dependencies.</h2>
+  <div class="cols even">
+    <div>
+      <ul class="blocks">
+        <li><code>ChainStore</code><span>files of any size on the ledger, addressed by one signature, verified on read</span></li>
+        <li><code>putPointer / getPointer</code><span>names that only their owner can move</span></li>
+        <li><code>RpcPool</code><span>many endpoints that behave like one fast, reliable one</span></li>
+        <li><code>deriveVault / seal / open</code><span>encrypted private state unlocked by a wallet signature</span></li>
+      </ul>
+      <p class="note">Package registries that cannot be changed quietly. Development environments shared with one line. Game saves owned by the player. Websites whose every file is on chain. The docs have a page of ideas.</p>
+    </div>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>store.mjs</span></div>
+<pre class="term-body"><span class="k">import</span> { RpcPool, ChainStore, Keypair } <span class="k">from</span> <span class="s">"chainboot"</span>;
+
+<span class="k">const</span> store = <span class="k">new</span> ChainStore(<span class="k">new</span> RpcPool([url]));
+<span class="k">const</span> me = Keypair.fromFile(<span class="s">"me.json"</span>);
+
+<span class="c">// write: any size, resumable</span>
+<span class="k">const</span> ref = <span class="k">await</span> store.put(me, data);
+
+<span class="c">// read: verified against its SHA-256</span>
+<span class="k">const</span> back = <span class="k">await</span> store.get(ref);</pre>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="install">
+  <p class="label"># install</p>
+  <h2>One line. No administrator rights.</h2>
+  <div class="install">
+    <div class="tabs" role="tablist" aria-label="Operating system">
+      <button role="tab" aria-selected="true" aria-controls="cmd" data-cmd="curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh">Linux · macOS · WSL</button>
+      <button role="tab" aria-selected="false" aria-controls="cmd" data-cmd="irm https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.ps1 | iex">Windows</button>
+      <button role="tab" aria-selected="false" aria-controls="cmd" data-cmd="git clone https://github.com/bettercallfolio/chainboot &amp;&amp; cd chainboot &amp;&amp; npm ci &amp;&amp; npm run build">From source</button>
+    </div>
+    <div class="cmd"><span class="p">$</span><code id="cmd">curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh</code><button class="btn small" id="copy" type="button">copy</button></div>
+    <ol class="next">
+      <li><code>chainboot rpc add &lt;your endpoint&gt;</code><span>free from Helius, QuickNode, Alchemy, Triton, Ankr</span></li>
+      <li><code>chainboot run solinux</code><span>Ubuntu 26.04 LTS, straight from Solana</span></li>
+      <li><code>chainboot ui</code><span>or point and click, in your browser</span></li>
+    </ol>
+    <p class="note">Linux runs machines directly. Windows uses WSL 2. macOS uses OrbStack, Docker Desktop, Podman or Lima. The installer checks every download against its SHA-256.</p>
+  </div>
+</section>
+
+<section class="wrap" id="status">
+  <p class="label"># honest status</p>
+  <h2>Early, working, and clear about its limits.</h2>
+  <div class="cols even">
+    <div class="box">
+      <h3 class="ok">works today</h3>
+      <ul class="plain">
+        <li>Publish, list, download and verify images</li>
+        <li>Run machines on Linux, amd64 and arm64</li>
+        <li>Encrypted saves, restore, history, automatic saving</li>
+        <li>Private images for one wallet</li>
+        <li>Web interface and wallet sign-in</li>
+        <li>Tested end to end on Solana devnet</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3 class="warn">good to know</h3>
+      <ul class="plain">
+        <li>A machine is not a security sandbox: run images you trust</li>
+        <li>It uses your kernel and does not boot systemd</li>
+        <li>Ledger data cannot be erased; saves are encrypted but stay</li>
+        <li>Windows and macOS engines are new and little tested</li>
+        <li>No official images on mainnet yet</li>
+        <li>Devnet is a test network and can be reset</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap thanks" id="thanks">
+  <p class="label"># thank you</p>
+  <p>chainboot stands on the work of the engineers who built Solana and made 4096-byte transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu, Debian and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard, Node.js and TypeScript. <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/12-thanks.md">The full list.</a></p>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Documentation">
+      <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/01-getting-started.md">getting started</a>
+      <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/02-how-it-works.md">how it works</a>
+      <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/07-format.md">format</a>
+      <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/09-security.md">security</a>
+      <a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/10-ideas-and-roadmap.md">roadmap</a>
+      <a href="https://github.com/bettercallfolio/chainboot">github</a>
+    </nav>
+  </div>
+  <p class="wrap legal">Solinux is this project's packaging of Ubuntu on Solana and is not affiliated with or endorsed by Canonical. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds. Solana and all other names belong to their owners.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -151,6 +151,11 @@ Known limits, so nothing surprises you:
 11. [Questions and problems](docs/11-faq.md)
 12. [Thank you](docs/12-thanks.md)
 
+## Website
+
+The project's website is the static page in [`site/`](site/). It has no build step and can be
+hosted anywhere.
+
 ## Thank you
 
 chainboot stands on the work of many people: the engineers who built Solana and made large
