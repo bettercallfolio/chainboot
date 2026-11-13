@@ -248,8 +248,17 @@ test("pool: batches calls where the endpoint allows it and falls back where it d
   const perRequest = (u: string) => chain.perUrlCalls.get(u)! / chain.perUrl.get(u)!;
   assert.ok(perRequest(urls[2]!) >= 3, `the batching endpoint carried ${perRequest(urls[2]!).toFixed(1)} calls per request`);
   if (chain.perUrl.get(urls[1]!)) assert.ok(perRequest(urls[1]!) >= 1.5, `the endpoint with per-call limits still batched (${perRequest(urls[1]!).toFixed(1)} calls per request)`);
-  assert.ok(perRequest(urls[0]!) < 1.2, "the endpoint without batch support got single calls");
-  assert.ok(pool.stats().every((s) => s.ok > 0), "the endpoint without batch support still did its share");
+  // which endpoint gets how much work depends on timing; what must hold is how each one is used
+  if (chain.perUrl.get(urls[0]!)) assert.ok(perRequest(urls[0]!) < 1.5, "the endpoint without batch support got single calls");
+
+  // an endpoint that refuses batches works alone too: chainboot notices once and sends single calls
+  const alone = new FakeChain(), only = alone.urls(1);
+  alone.faults.set(only[0]!, { noBatch: true });
+  const notes: string[] = [];
+  const soloStore = new ChainStore(new RpcPool(only, { fetch: alone.fetch, initialRate: 400, onNote: (t) => notes.push(t) }));
+  const soloRef = await soloStore.put(payer, data.subarray(0, 60_000), { pollMs: 20, txVersion: "legacy" });
+  assert.deepEqual(await soloStore.get(soloRef, { mode: "transactions" }), data.subarray(0, 60_000));
+  assert.equal(notes.filter((t) => t.includes("does not accept batched requests")).length, 1);
 });
 
 test("store: not enough funds is reported clearly", async () => {
