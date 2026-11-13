@@ -295,13 +295,46 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     }
   });
 
+  // Inside the engine container (macOS) only one port is published to the computer, so the
+  // interface must use exactly that port. An interface left over from an earlier run is stopped first.
+  const fixedPort = process.env.CHAINBOOT_UI_BIND === "0.0.0.0";
+  const pidFile = path.join(homeDir(), "ui.pid");
+  const wanted = opts.port ?? 7717;
+  if (fixedPort) {
+    try {
+      const old = Number(fs.readFileSync(pidFile, "utf8"));
+      if (old > 1 && old !== process.pid && fs.readFileSync(`/proc/${old}/cmdline`, "utf8").includes("chainboot")) {
+        process.kill(old, "SIGTERM");
+        for (let i = 0; i < 40 && fs.existsSync(`/proc/${old}`); i++) await new Promise((r) => setTimeout(r, 50));
+        if (fs.existsSync(`/proc/${old}`)) process.kill(old, "SIGKILL");
+      }
+    } catch { /* nothing to take over */ }
+  }
   const port = await new Promise<number>((resolve, reject) => {
+    let tries = 0;
     const tryListen = (p: number) => {
-      server.once("error", (e: NodeJS.ErrnoException) => { if (e.code === "EADDRINUSE" && p !== 0) tryListen(0); else reject(e); });
-      // inside the engine container on macOS the port is published to the host's loopback only
-      server.listen(p, process.env.CHAINBOOT_UI_BIND === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1", () => resolve((server.address() as { port: number }).port));
+      server.once("error", (e: NodeJS.ErrnoException) => {
+        if (e.code !== "EADDRINUSE") return reject(e);
+        if (!fixedPort) return p !== 0 ? tryListen(0) : reject(e);
+        if (++tries < 20) return void setTimeout(() => tryListen(p), 150); // the old interface is still letting go of the port
+        reject(new Error(`port ${p} inside the chainboot engine is used by another program. Restart the engine (for Docker: docker restart chainboot) and try again.`));
+      });
+      server.listen(p, fixedPort ? "0.0.0.0" : "127.0.0.1", () => resolve((server.address() as { port: number }).port));
     };
-    tryListen(opts.port ?? 7717);
+    tryListen(wanted);
   });
-  return { url: `http://127.0.0.1:${port}/${opts.page ?? ""}#token=${token}`, port, token, close: () => server.close(), onLogin };
+  const close = () => { server.close(); server.closeAllConnections(); if (fixedPort) { try { if (Number(fs.readFileSync(pidFile, "utf8")) === process.pid) fs.rmSync(pidFile); } catch { /* already gone */ } } };
+  if (fixedPort) {
+    fs.mkdirSync(homeDir(), { recursive: true });
+    fs.writeFileSync(pidFile, String(process.pid));
+    // the command on the computer ended (window closed, Ctrl+C): stop serving instead of lingering in the engine.
+    // Only when it was started from a terminal; without one, the input is closed from the start.
+    if (process.env.CHAINBOOT_UI_TERMINAL === "1") {
+      process.stdin.on("end", () => { close(); process.exit(0); });
+      process.stdin.on("close", () => { close(); process.exit(0); });
+      process.stdin.resume();
+    }
+    process.on("SIGTERM", () => { close(); process.exit(0); });
+  }
+  return { url: `http://127.0.0.1:${port}/${opts.page ?? ""}#token=${token}`, port, token, close, onLogin };
 }

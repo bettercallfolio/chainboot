@@ -210,6 +210,7 @@ export function proxy(kind: EngineKind, argv: string[], watchForLinks: (url: str
   const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
   const env: Record<string, string> = { TERM: process.env.TERM || "xterm-256color", CHAINBOOT_UI_BIND: kind === "docker" || kind === "podman" ? "0.0.0.0" : "127.0.0.1" };
   if (process.env.NO_COLOR) env.NO_COLOR = "1";
+  if (process.stdin.isTTY) env.CHAINBOOT_UI_TERMINAL = "1";
   const p = [...prefix(kind, interactive, env), `${ENGINE_APP}/node`, `${ENGINE_APP}/app/chainboot.mjs`, ...argv];
   const wantsLink = ["ui", "login", "fund"].includes(argv[0] ?? "");
   return new Promise((resolve, reject) => {
