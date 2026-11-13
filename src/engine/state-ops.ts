@@ -213,6 +213,47 @@ export function resetLayer(home: EngineHome, name: string): void {
   for (const f of ["save.json", "scan-cache.json"]) fs.rmSync(path.join(dir, f), { force: true });
 }
 
+/** Minutes between automatic saves while a machine keeps running. */
+export const AUTOSAVE_MINUTES = Math.max(1, Number(process.env.CHAINBOOT_AUTOSAVE_MINUTES) || 10);
+
+/**
+ * Starts one background watcher per running machine. While the machine is up, it saves every
+ * AUTOSAVE_MINUTES (a save with nothing new costs nothing and sends nothing).
+ */
+export function watchInBackground(home: EngineHome, homePath: string, name: string): void {
+  const c = (() => { try { return loadConfig(); } catch { return null; } })();
+  if (!c || !loadVault(paths.vault(), c.cluster)) return;
+  const dir = machineDir(home, name);
+  if (fs.existsSync(path.join(dir, "autosave-off"))) return;
+  try {
+    const pid = Number(fs.readFileSync(path.join(dir, "watch.pid"), "utf8"));
+    if (pid > 1) { process.kill(pid, 0); return; } // a watcher is already running
+  } catch { /* none */ }
+  const log = fs.openSync(path.join(dir, "save.log"), "a");
+  const child = spawn(process.execPath, [...process.execArgv, process.argv[1]!, "_engine", homePath, "", "watch", name], { detached: true, stdio: ["ignore", log, log] });
+  child.unref();
+  fs.closeSync(log);
+  if (child.pid) fs.writeFileSync(path.join(dir, "watch.pid"), String(child.pid));
+}
+
+/** Body of the watcher process: runs until the machine stops. */
+export async function watchLoop(home: EngineHome, homePath: string, name: string): Promise<void> {
+  const dir = machineDir(home, name);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  try {
+    for (;;) {
+      for (let waited = 0; waited < AUTOSAVE_MINUTES * 60; waited += 5) {
+        await sleep(5000);
+        if (!initPid(dir)) return;
+      }
+      if (fs.existsSync(path.join(dir, "autosave-off"))) continue;
+      spawnSync(process.execPath, [...process.execArgv, process.argv[1]!, "_engine", homePath, "", "save", name, "--auto"], { stdio: "ignore" });
+    }
+  } finally {
+    fs.rmSync(path.join(dir, "watch.pid"), { force: true });
+  }
+}
+
 /** Starts a save in the background (after a session ends). Output goes to machines/<name>/save.log. */
 export function autosaveInBackground(home: EngineHome, homePath: string, name: string): boolean {
   const c = (() => { try { return loadConfig(); } catch { return null; } })();

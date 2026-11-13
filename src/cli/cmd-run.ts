@@ -6,7 +6,7 @@ import {
   checkMachineName, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
-import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
+import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
@@ -234,6 +234,7 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
         info(dim(`  Take the newer one with "chainboot restore ${name}", or keep this copy with "chainboot save ${name} --force".`));
       }
     }
+    watchInBackground(home, homePath, name);
     process.exitCode = enterMachine(home, name, pid, rest[0] === "--" ? rest.slice(1) : rest);
     if (autosaveInBackground(home, homePath, name)) info(dim("Changes are saved to Solana in the background. Check with: chainboot status"));
     return;
@@ -260,8 +261,10 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     if (rest[0] === "off") { fs.writeFileSync(off, ""); ok(`automatic saving is off for ${name}`); } else { fs.rmSync(off, { force: true }); ok(`automatic saving is on for ${name}`); }
     return;
   }
+  if (op === "watch") return watchLoop(home, homePath, name);
   if (op === "start") {
     startMachine(home, name, () => {}, (done, total) => line.update(done, total, "count", "Unpacking"), true);
+    watchInBackground(home, homePath, name);
     line.done();
     ok(`${name} is running and stays up until: chainboot stop ${name}`);
     return;

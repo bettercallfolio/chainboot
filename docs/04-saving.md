@@ -58,7 +58,8 @@ installs a few packages costs well under 0.001 SOL.
 ## Automatic saving
 
 Once you are signed in, nothing more is needed. When a session ends, chainboot checks in the
-background what changed and saves it.
+background what changed and saves it. A machine that stays up for a long time is also saved
+every 10 minutes while it runs (a save with nothing new sends nothing and costs nothing).
 
 ```
 root@solbuntu:~# exit

@@ -1,6 +1,6 @@
 // Signing in and adding funds with a browser wallet, started from the command line.
 import { loadVault, type Vault } from "../state/vault.ts";
-import { paths, type Config } from "../local/home.ts";
+import { openStore, paths, type Config } from "../local/home.ts";
 import { openBrowser, startUi, type UiServer } from "./server.ts";
 
 const say = (t: string) => process.stderr.write(t + "\n");
@@ -32,9 +32,17 @@ export async function loginWithBrowser(c: Config): Promise<void> {
   } finally { ui.close(); }
 }
 
-export async function fundWithBrowser(_c: Config, v: Vault, amount: number): Promise<void> {
+export async function fundWithBrowser(c: Config, v: Vault, amount: number): Promise<void> {
+  const pool = (await openStore(c)).pool;
+  const balance = async () => (await pool.call<{ value: number }>("getBalance", [v.signer.address, { commitment: "confirmed" }])).value;
+  const before = await balance();
   const ui = await page(`Add ${amount} SOL to your vault ${v.signer.address} with the "Add to vault" button on this page:`);
   try {
-    await timeout(10 * 60_000);
+    for (const started = Date.now(); Date.now() - started < 10 * 60_000;) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const now = await balance().catch(() => before);
+      if (now > before) { say(`The vault received ${((now - before) / 1e9).toFixed(4)} SOL and now holds ${(now / 1e9).toFixed(4)} SOL.`); await new Promise((r) => setTimeout(r, 1500)); return; }
+    }
+    throw new Error("no transfer arrived in the vault. Nothing was changed.");
   } finally { ui.close(); }
 }
