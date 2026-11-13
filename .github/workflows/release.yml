@@ -19,4 +19,11 @@ jobs:
       - name: Publish the release files
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/chainboot.tar.gz dist/chainboot.tar.gz.sha256 install.sh install.ps1 --title "chainboot $GITHUB_REF_NAME" --generate-notes
+        run: |
+          files="dist/chainboot.tar.gz dist/chainboot.tar.gz.sha256 install.sh install.ps1"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # the tag was moved to a newer commit: replace the files of the existing release
+            gh release upload "$GITHUB_REF_NAME" $files --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" $files --title "chainboot $GITHUB_REF_NAME" --generate-notes
+          fi
