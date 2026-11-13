@@ -202,6 +202,16 @@ export function pushVault(kind: EngineKind, cluster: string): void {
   must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_HOME}/vault && chmod 700 ${ENGINE_HOME}/vault && cat > ${ENGINE_HOME}/vault/${cluster}.json && chmod 600 ${ENGINE_HOME}/vault/${cluster}.json`], fs.readFileSync(file)), "copying the login into the engine");
 }
 
+/** Copies a login made inside the engine (with a browser wallet) to this side, for commands that run here. */
+export function pullVault(kind: EngineKind, cluster: string): boolean {
+  const r = inEngine(kind, ["sh", "-c", `cat ${ENGINE_HOME}/vault/${cluster}.json 2>/dev/null`]);
+  if (r.status !== 0 || !r.stdout?.length) return false;
+  try { JSON.parse(r.stdout.toString("utf8")); } catch { return false; }
+  fs.mkdirSync(paths.vault(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(paths.vault(), `${cluster}.json`), r.stdout, { mode: 0o600 });
+  return true;
+}
+
 /**
  * Runs this same command line inside the engine and returns its exit status.
  * `watchForLinks` opens the first http://127.0.0.1 link the command prints in the browser of this computer.

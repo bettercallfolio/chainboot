@@ -191,7 +191,7 @@ export async function restoreInner(home: EngineHome, name: string, seq: number |
   const lower = imageRootfs(home, info.image.digest);
   const inImage = new Map<string, string>();
   for (const n of base.tree) if (n[1] === "f" && n[6] > 0 && !inImage.has(n[7])) inImage.set(n[7], n[0]);
-  const local = (n: FileNode) => !snap.packs[n[8]]!.enc && inImage.has(n[7]);
+  const local = (n: FileNode) => inImage.has(n[7]);
   const pack = await loadPacks(store, vault, snap, home.cache, (d, t) => progress("downloading", d, t), local);
   progress("applying", 0, 1);
   applySnapshot(snap, path.join(dir, "merged"), (n) => {

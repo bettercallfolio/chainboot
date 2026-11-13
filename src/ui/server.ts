@@ -16,6 +16,7 @@ import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, resolvePublisher, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
+import { readPrivateCatalog } from "../registry/private.ts";
 import { readCatalog } from "../registry/registry.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { GENESIS, RpcPool, type Cluster } from "../solana/rpc.ts";
@@ -182,11 +183,14 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     },
     "POST /api/catalog": async (b) => {
       const c = loadConfig();
-      const publisher = resolvePublisher(c, b.publisher || undefined);
-      const cat = await readCatalog(await store(), publisher, path.join(paths.cache(), "objects"));
+      const mine = b.publisher === "me";
+      const vault = mine ? loadVault(paths.vault(), c.cluster) : null;
+      if (mine && !vault) throw new Error("sign in to see your private images");
+      const publisher = mine ? "me" : resolvePublisher(c, b.publisher || undefined);
+      const cat = vault ? await readPrivateCatalog(await store(), vault) : await readCatalog(await store(), publisher, path.join(paths.cache(), "objects"));
       const arch = hostArch();
       return {
-        publisher, arch,
+        publisher, arch, private: mine,
         images: Object.entries(cat.images).map(([name, img]) => ({
           name, description: img.description ?? "",
           tags: Object.entries(img.tags).map(([tag, arches]) => ({ tag, arches: Object.keys(arches), size: arches[arch]?.downloadSize ?? null, unpacked: arches[arch]?.unpackedSize ?? null, version: arches[arch]?.version ?? Object.values(arches)[0]?.version })),

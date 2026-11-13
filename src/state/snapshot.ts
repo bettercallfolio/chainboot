@@ -63,7 +63,7 @@ const indexTag = (v: Vault) => tagAddress("machines", v.signer.publicKey);
 
 // ---- small encrypted documents: an object on chain plus a pointer to its newest version
 
-async function putDoc(store: ChainStore, v: Vault, tag: Buffer, purpose: string, doc: unknown, extra: Record<string, unknown>, opts: { journalDir?: string; commitment?: Commitment; onProgress?: (done: number, total: number) => void } = {}): Promise<StoredRef> {
+export async function putDoc(store: ChainStore, v: Vault, tag: Buffer, purpose: string, doc: unknown, extra: Record<string, unknown>, opts: { journalDir?: string; commitment?: Commitment; onProgress?: (done: number, total: number) => void } = {}): Promise<StoredRef> {
   const raw = Buffer.from(JSON.stringify(doc), "utf8");
   const packed = compress(raw);
   const sealed = seal(v.encKey, packed.data, purpose);
@@ -73,12 +73,12 @@ async function putDoc(store: ChainStore, v: Vault, tag: Buffer, purpose: string,
   return ref;
 }
 
-async function getDocByRef<T>(store: ChainStore, v: Vault, purpose: string, ref: StoredRef, cacheDir?: string): Promise<T> {
+export async function getDocByRef<T>(store: ChainStore, v: Vault, purpose: string, ref: StoredRef, cacheDir?: string): Promise<T> {
   const sealed = await store.get({ sig: ref.sig, sha256: ref.sha256, size: ref.size }, { signers: [v.signer.publicKey], cacheDir });
   return JSON.parse(decompress(ref.codec, open(v.encKey, sealed, purpose), ref.rawSize).toString("utf8")) as T;
 }
 
-async function getPointer<T>(store: ChainStore, v: Vault, tag: Buffer, purpose: string): Promise<(T & { ref: StoredRef }) | null> {
+export async function getPointer<T>(store: ChainStore, v: Vault, tag: Buffer, purpose: string): Promise<(T & { ref: StoredRef }) | null> {
   const p = await store.getPointer(tag, [v.signer.publicKey]);
   if (!p) return null;
   return JSON.parse(open(v.encKey, p.payload, `${purpose}-pointer`).toString("utf8")) as T & { ref: StoredRef };
@@ -141,7 +141,7 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
     return i;
   };
   const known = new Map<string, { pack: SnapshotPack; offset: number }>();
-  for (const n of base.tree) if (n[1] === "f" && n[6] > 0) known.set(n[7], { pack: { ...base.packs[n[8]]!, enc: 0 }, offset: n[9] });
+  for (const n of base.tree) if (n[1] === "f" && n[6] > 0) known.set(n[7], { pack: { ...base.packs[n[8]]!, enc: base.packs[n[8]]!.enc ?? 0 }, offset: n[9] });
   if (prev) for (const n of prev.snapshot.tree) if (n[1] === "f" && n[6] > 0) known.set(n[7], { pack: prev.snapshot.packs[n[8]]!, offset: n[9] });
 
   const files = scan.changes.filter((c) => c.type === "f" && (c.size ?? 0) > 0);

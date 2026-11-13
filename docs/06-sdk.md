@@ -168,7 +168,7 @@ installed tools.
 | RPC | `RpcPool` (`call`, `broadcast`, `probe`, `stats`), `RpcError`, `GENESIS`, `clusterName`, `maskRpcUrl` |
 | Storage | `ChainStore` (`put`, `get`, `putPointer`, `getPointer`, `plan`), `tagAddress`, `capacity`, `TxSender`, `sendAndConfirm`, `TrustError` |
 | Images | `readTar`, `writeTar`, `decompressAuto`, `buildImage`, `entriesFromImage`, `verifyPack`, `extractImage`, `parseManifest`, `serializeManifest`, `validateManifest`, `treeDigest` |
-| Registry | `publishImage`, `pullImage`, `readCatalog`, `unlistImage`, `parseImageName` |
+| Registry | `publishImage`, `pullImage`, `readCatalog`, `unlistImage`, `parseImageName`, `publishPrivateImage`, `readPrivateCatalog`, `unlistPrivateImage` |
 | State | `LOGIN_MESSAGE`, `deriveVault`, `vaultFromKeypair`, `seal`, `open`, `scanMachine`, `saveSnapshot`, `readHead`, `readSnapshot`, `readIndex`, `loadPacks`, `applySnapshot` |
 | Compression | `compress`, `decompress`, `xzDecode`, `xzUncompressedSize` |
 

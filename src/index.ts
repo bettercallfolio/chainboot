@@ -29,6 +29,7 @@ export { buildImage, normalizeEntries, entriesFromImage, verifyPack, type BuiltI
 export { parseManifest, serializeManifest, validateManifest, treeDigest, type ImageManifest, type TreeNode, type PackInfo } from "./image/manifest.ts";
 export { extractImage } from "./image/extract.ts";
 export { publishImage, pullImage, readCatalog, unlistImage, parseImageName, type Catalog, type ImageRef } from "./registry/registry.ts";
+export { publishPrivateImage, readPrivateCatalog, unlistPrivateImage, type PrivateCatalog } from "./registry/private.ts";
 
 // Saving machines: wallet-derived keys, encrypted snapshots
 export { LOGIN_MESSAGE, deriveVault, vaultFromKeypair, seal, open, type Vault } from "./state/vault.ts";

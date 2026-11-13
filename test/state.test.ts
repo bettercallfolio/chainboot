@@ -168,3 +168,63 @@ test("save and restore: changes, deletions and history survive the round trip th
   assert.equal(await readHead(store, stranger, "box"), null);
   await assert.rejects(readSnapshot(store, stranger, second!.head.ref), /not published by a trusted key|could not decrypt/);
 });
+
+test("private images: only the wallet that published them can list, fetch or read them", { skip: !posix && "needs a POSIX file system" }, async () => {
+  const { publishImage, pullImage, readCatalog } = await import("../src/registry/registry.ts");
+  const { publishPrivateImage, readPrivateCatalog, unlistPrivateImage } = await import("../src/registry/private.ts");
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 }));
+  const publisher = Keypair.generate();
+  const owner = vaultFromKeypair(Keypair.generate(), "devnet"), stranger = vaultFromKeypair(Keypair.generate(), "devnet");
+  const cache = tmp();
+
+  // a public base image, and a private image built on it that adds secret files
+  const baseFiles = [d("etc"), f("etc/os-release", "NAME=base\n"), d("usr"), f("usr/lib.so", crypto.randomBytes(30_000))];
+  const base = buildImage(baseFiles, { name: "base", version: "1", arch: "amd64" });
+  await publishImage(store, publisher, base, { commitment: "confirmed" });
+  const secret = crypto.randomBytes(40_000);
+  const built = buildImage([...baseFiles, d("srv"), f("srv/customer-list-TOPSECRET.db", secret), f("srv/notes.txt", "the launch code is 4242\n")],
+    { name: "vaultbox", version: "1", arch: "amd64", description: "my private system" }, { reuse: [base.manifest] });
+  assert.equal(built.newPacks.size, 1, "only content that is not public already is uploaded");
+  const before = new Set(chain.txs.keys());
+  const ref = await publishPrivateImage(store, owner, built, { commitment: "confirmed" });
+  assert.equal(ref.private, true);
+
+  // nothing the private publish wrote reveals names or contents
+  const written = [...chain.txs.entries()].filter(([sig]) => !before.has(sig)).map(([, t]) => Buffer.from(t.raw, "base64"));
+  assert.ok(written.length > 10);
+  for (const raw of written) {
+    for (const needle of ["TOPSECRET", "vaultbox", "launch code", "customer-list", "my private system"]) assert.ok(!raw.includes(Buffer.from(needle)), `"${needle}" is visible on chain`);
+    assert.ok(!raw.includes(secret.subarray(0, 64)), "file content is visible on chain");
+  }
+  assert.deepEqual(Object.keys((await readCatalog(store, owner.signer.address)).images), [], "it is not in any public catalog");
+
+  // the owner finds it, fetches it and gets the exact files back; public content comes from the public pack
+  const mine = await readPrivateCatalog(store, owner);
+  assert.deepEqual(Object.keys(mine.images), ["vaultbox"]);
+  const entry = mine.images.vaultbox!.tags.latest!.amd64!;
+  const pulled = await pullImage(store, owner.signer.address, entry, { cacheDir: cache, vault: owner });
+  assert.equal(pulled.manifest.digest, built.manifest.digest);
+  assert.deepEqual(pulled.manifest.packs.map((p) => p.enc ?? 0).sort(), [0, 1]);
+  const dest = path.join(tmp(), "root");
+  extractImage(pulled.manifest, (i) => pulled.pack(i), dest);
+  assert.ok(fs.readFileSync(path.join(dest, "srv/customer-list-TOPSECRET.db")).equals(secret));
+  assert.equal(fs.readFileSync(path.join(dest, "etc/os-release"), "utf8"), "NAME=base\n");
+  // what is kept in the local cache is still encrypted
+  for (const file of fs.readdirSync(path.join(cache, "objects"))) assert.ok(!fs.readFileSync(path.join(cache, "objects", file)).includes(Buffer.from("TOPSECRET")));
+
+  // everyone else: not listed, and the entry is useless without the wallet
+  assert.deepEqual(Object.keys((await readPrivateCatalog(store, stranger)).images), []);
+  await assert.rejects(pullImage(store, owner.signer.address, entry, { cacheDir: tmp() }), /private image/);
+  await assert.rejects(pullImage(store, owner.signer.address, entry, { cacheDir: tmp(), vault: stranger }), /could not decrypt/);
+  const blind = await pullImage(store, owner.signer.address, entry, { cacheDir: tmp(), vault: owner });
+  const forged = { ...blind, pack: blind.pack };
+  assert.ok(forged.manifest.packs.some((p) => p.enc === 1));
+  // a stranger cannot plant an image in the owner's private catalog
+  const fake = buildImage([d("etc"), f("etc/evil", "x")], { name: "vaultbox", version: "9", arch: "amd64" });
+  await publishPrivateImage(store, stranger, fake, { commitment: "confirmed" });
+  assert.equal((await readPrivateCatalog(store, owner)).images.vaultbox!.tags.latest!.amd64!.version, "1");
+
+  assert.equal(await unlistPrivateImage(store, owner, "vaultbox"), true);
+  assert.deepEqual(Object.keys((await readPrivateCatalog(store, owner)).images), []);
+});

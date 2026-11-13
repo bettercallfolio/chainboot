@@ -153,7 +153,7 @@ export async function cmdRestore(a: Args): Promise<void> {
   if (local && fs.existsSync(path.join(machineDir(home, name), "upper")) && !(await confirm(`Replace the local state of "${name}" with the saved one? Local changes that were not saved are lost.`, a))) { info("cancelled"); return; }
   const snapshot = flag(a, "snapshot");
   if (snapshot !== undefined && !/^\d+$/.test(snapshot)) throw new UsageError("--snapshot takes a save number, see: chainboot history <machine>");
-  await pull(store, entry.image.publisher, { ...entry.image.manifest, digest: entry.image.digest }, `${entry.image.name}:${entry.image.tag}`);
+  await pull(store, entry.image.publisher, { ...entry.image.manifest, digest: entry.image.digest, private: entry.image.private }, `${entry.image.name}:${entry.image.tag}`);
   if (!local) {
     const machine: MachineInfo = { name, image: entry.image, created: entry.created };
     fs.mkdirSync(machineDir(home, name), { recursive: true });

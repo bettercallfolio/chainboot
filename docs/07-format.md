@@ -219,7 +219,21 @@ the image that no longer exist. A pack with `"enc": 1` is sealed with purpose `p
 with `"enc": 0` is a public pack of the image, referenced unchanged. To restore: start from
 the image, remove the deleted paths, then write the tree.
 
-## 7. Versioning
+## 7. Private images
+
+A private image uses the same manifest and pack formats, with these differences:
+
+- A pack entry may carry `"enc": 1`. Such a pack is stored as a sealed blob with purpose
+  `pack` (compress first, then seal); `sha256` and `size` describe the sealed blob. Packs
+  without `enc` are public packs of other images, referenced unchanged.
+- The manifest object is the compressed manifest sealed with purpose `image-manifest`.
+- The owner's private catalog is a sealed document with purpose `private-catalog`
+  (`{ "chainboot": 1, "kind": "private-catalog", "updated": …, "images": { … } }`, entries as
+  in a public catalog plus `"private": true`), found through an encrypted pointer under the
+  tag `"private-images"`, vault public key.
+- Every transaction is paid and signed by the vault account.
+
+## 8. Versioning
 
 Readers must reject head, inline and pointer transactions whose version byte they do not
 know, and manifests whose `chainboot` field they do not know. New kinds and fields will get

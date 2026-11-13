@@ -113,7 +113,7 @@ and on Linux. The list below is in rough order of importance.
 - Fetch only the files a program actually opens (lazy loading), so even very large systems
   start in a second.
 - Priority fees in the command-line tool for busy times on mainnet.
-- Share saved machines with other wallets (encrypt for several keys).
+- Share saved machines and private images with other wallets (encrypt for several keys).
 - Signed "official" lists that several publishers maintain together.
 - Extended attributes in saves.
 

@@ -71,6 +71,7 @@ function render() {
     chip.textContent = state.login ? "wallet " + short(state.login.wallet) : "not signed in";
     chip.className = "btn" + (state.login ? " on" : "");
     $("signout").classList.toggle("hidden", !state.login);
+    $("private-show").classList.toggle("hidden", !state.login);
     const notes = [];
     if (state.cluster !== "mainnet-beta") notes.push(state.cluster + " is a test network: its SOL has no value and its data can be reset.");
     if (!state.canRun) notes.push("Open machines from a terminal on this system: chainboot run <system>.");
@@ -107,7 +108,8 @@ function renderCatalog() {
     if (!state.endpoints.length) return say("Add an endpoint to see what is available.");
     if (!catalog) return say("Reading the catalog from the chain…");
     if (catalog.error) return say(catalog.error, "bad");
-    if (!catalog.images.length) return say("This publisher has no systems on " + state.cluster + ".");
+    if (!catalog.images.length) return say(catalog.private ? "You have no private systems yet. Publish one with: chainboot publish <archive> --private --name <name> --version <version>" : "This publisher has no systems on " + state.cluster + ".");
+    $("catalog-summary").textContent = catalog.private ? "your private systems: encrypted, readable by your wallet only" : "stored on Solana, verified on download";
     const prefix = catalog.publisher === state.officialPublisher ? "" : catalog.publisher + "/";
     // the full system first, then the rest by size
     const order = (a, b) => Number(/-minimal$/.test(a.name)) - Number(/-minimal$/.test(b.name)) || (b.tags[0]?.unpacked || 0) - (a.tags[0]?.unpacked || 0) || a.name.localeCompare(b.name);
@@ -317,6 +319,7 @@ $("publisher-toggle").addEventListener("click", () => { const f = $("publisher-f
 $("publish-toggle").addEventListener("click", () => { const b = $("publish-body"); toggle($("publish-toggle"), b, b.classList.contains("hidden")); });
 $("network").addEventListener("change", guard(async (e) => { tests.clear(); balances = null; applyState(await api("POST", "/api/network", { cluster: e.target.value })); await loadCatalog(""); }));
 $("publisher-form").addEventListener("submit", guard(async (e) => { e.preventDefault(); await loadCatalog($("publisher").value.trim()); }));
+$("private-show").addEventListener("click", guard(() => loadCatalog("me")));
 $("wallet-chip").addEventListener("click", () => $("sec-wallet").scrollIntoView({ behavior: "smooth" }));
 $("signout").addEventListener("click", guard(async () => { balances = null; applyState(await api("POST", "/api/logout")); }));
 $("activity-close").addEventListener("click", () => $("sec-activity").classList.add("hidden"));

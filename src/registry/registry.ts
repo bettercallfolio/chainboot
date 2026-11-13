@@ -15,6 +15,7 @@ import { ChainStore, tagAddress, type PutProgress } from "../store/store.ts";
 import type { Commitment } from "../store/sender.ts";
 import { verifyPack, type BuiltImage } from "../image/build.ts";
 import { parseManifest, serializeManifest, type ImageManifest } from "../image/manifest.ts";
+import { open, type Vault } from "../state/vault.ts";
 
 /** Where to find one stored object and how to unpack it. */
 export interface StoredRef { sig: string; sha256: string; size: number; codec: Codec; rawSize: number }
@@ -27,6 +28,8 @@ export interface ImageRef extends StoredRef {
   /** Bytes to download (manifest + packs) and bytes on disk after unpacking. */
   downloadSize: number;
   unpackedSize: number;
+  /** True in a private catalog: manifest and new packs are encrypted with the owner's vault key. */
+  private?: boolean;
 }
 
 export interface Catalog {
@@ -135,18 +138,24 @@ export function parseImageName(text: string): ImageName {
 
 export interface PulledImage {
   manifest: ImageManifest;
-  ref: StoredRef & { digest: string };
+  ref: StoredRef & { digest: string; private?: boolean };
   /** Returns the verified, decompressed pack `index`. */
   pack(index: number): Buffer;
 }
 
 /** Downloads (or takes from cache) the manifest and all packs of an image, fully verified. */
-export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal }): Promise<PulledImage> {
+export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal; vault?: Vault }): Promise<PulledImage> {
   const key = addressToBytes(publisher);
   const objects = path.join(opts.cacheDir, "objects");
   fs.mkdirSync(objects, { recursive: true });
+  const needVault = (): Vault => {
+    if (!opts.vault) throw new Error("this is a private image: sign in with the wallet that published it (chainboot login)");
+    return opts.vault;
+  };
   opts.onProgress?.({ phase: "manifest", done: 0, total: ref.size });
-  const manifest = parseManifest(await getStored(store, ref, { signers: [key], cacheDir: objects, signal: opts.signal, onProgress: (d, t) => opts.onProgress?.({ phase: "manifest", done: d, total: t }) }));
+  let body = await store.get({ sig: ref.sig, sha256: ref.sha256, size: ref.size }, { signers: [key], cacheDir: objects, signal: opts.signal, onProgress: (g) => opts.onProgress?.({ phase: "manifest", done: g.bytes, total: g.size }) });
+  if (ref.private) body = open(needVault().encKey, body, "image-manifest");
+  const manifest = parseManifest(decompress(ref.codec, body, ref.rawSize));
   if (manifest.digest !== ref.digest) throw new Error(`the manifest of ${manifest.name} does not match its catalog entry`);
   const total = manifest.packs.reduce((n, p) => n + p.size, 0);
   const got = new Array<number>(manifest.packs.length).fill(0);
@@ -161,7 +170,7 @@ export async function pullImage(store: ChainStore, publisher: string, ref: Store
       let r = raw.get(index);
       if (!r) {
         const p = manifest.packs[index]!;
-        r = decompress(p.codec, stored[index]!, p.rawSize);
+        r = decompress(p.codec, p.enc ? open(needVault().encKey, stored[index]!, "pack") : stored[index]!, p.rawSize);
         verifyPack(manifest, index, r);
         raw.set(index, r);
       }

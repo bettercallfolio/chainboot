@@ -50,6 +50,7 @@ changes. Several terminals can be inside one machine at once; it stops when the 
   chainboot run solinux                      Open a shell
   chainboot run solinux -- apt-get update    Run one command and return
   chainboot run solinux --name test          A second, separate machine from the same image
+  chainboot run me/mybox                     One of your private images (needs "chainboot login")
   chainboot run solinux --no-autosave        Create the machine with automatic saving turned off
   chainboot run solinux --fresh              Do not bring back a saved machine of the same name
 
@@ -86,7 +87,7 @@ export async function cmdRun(a: Args): Promise<void> {
     if (saved) {
       info(`You have a saved machine named ${bold(name)} on chain. Bringing it back instead of starting from scratch.`);
       info(dim(`(To start a new, empty one, use another name: chainboot run ${text} --name <name>)`));
-      if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, { ...saved.image.manifest, digest: saved.image.digest }, `${saved.image.name}:${saved.image.tag}`);
+      if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, { ...saved.image.manifest, digest: saved.image.digest, private: saved.image.private }, `${saved.image.name}:${saved.image.tag}`);
       fs.mkdirSync(machineDir(home, name), { recursive: true });
       fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created }, null, 2) + "\n");
       if (asRoot(["restore", name, "latest"]) !== 0) throw new Error(`could not restore "${name}". Remove the half-made machine with "chainboot rm ${name}" and try again.`);
@@ -95,11 +96,11 @@ export async function cmdRun(a: Args): Promise<void> {
     }
     const found = await resolveImage(store, c, text, flag(a, "arch") ?? hostArch());
     let digest = found.ref.digest;
-    if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, found.ref, `${found.name}:${found.tag}`)).manifest.digest;
+    if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, { ...found.ref, private: found.private }, `${found.name}:${found.tag}`)).manifest.digest;
     const r = found.ref;
     machine = {
       name, created: Math.floor(Date.now() / 1000),
-      image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize } },
+      image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, ...(found.private && { private: true }), manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize } },
     };
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");

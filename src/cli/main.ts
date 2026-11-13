@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { Keypair } from "../solana/keys.ts";
 import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
-import { engineKind, ensureEngine, proxy, pushVault, removeEngine } from "../engine/remote.ts";
+import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } from "../engine/remote.ts";
 import { loadConfig } from "../local/home.ts";
 import { RPC_HELP, cmdNetwork, cmdRpc } from "./cmd-rpc.ts";
 import { EXPORT_HELP, RUN_HELP, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
@@ -40,7 +40,7 @@ ${bold("Images")}
   pull <image>                   Download an image without starting it
   images                         List downloaded images
   rmi <image>                    Delete a downloaded image
-  publish <archive> ...          Put your own Linux system on chain
+  publish <archive> ...          Put your own Linux system on chain (--private: for your wallet only)
   export <machine> <file.tar>    Turn a machine into an archive you can publish
   unlist <image>                 Remove an image from your catalog
 
@@ -107,7 +107,7 @@ const COMMANDS: Record<string, Command> = {
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
-  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes"], booleans: ["dry-run", "yes"] },
+  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private"], booleans: ["dry-run", "yes", "private"] },
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
   keygen: {
     help: "Usage:\n  chainboot keygen <file>    Create a new Solana keypair file (never overwrites)",
@@ -134,7 +134,15 @@ async function main(): Promise<void> {
   if (name === "--version" || name === "version") { out(VERSION); return; }
   if (name === "_engine") { await cmdEngine(rest); return; }
   if (name === "engine") { await cmdEngineInfo(rest); return; }
-  if (COMMANDS[name] && !HOST_COMMANDS.has(name) && !rest.includes("--help") && !rest.includes("-h")) {
+  // private images need the login, which lives in the engine: listing and unlisting run there,
+  // publishing runs here (it reads a local file) with a copy of the login
+  const privateHere = name === "publish" && rest.includes("--private");
+  const privateThere = (name === "list" && rest[0] === "me") || (name === "unlist" && (rest[0] ?? "").startsWith("me/"));
+  if (privateHere && !rest.includes("--help")) {
+    const kind = engineKind();
+    if (kind) { await ensureEngine(kind); pullVault(kind, loadConfig().cluster); }
+  }
+  if (COMMANDS[name] && (!HOST_COMMANDS.has(name) || privateThere) && !rest.includes("--help") && !rest.includes("-h")) {
     const kind = engineKind();
     if (kind) {
       const keypairLogin = name === "login" && rest.includes("--keypair");

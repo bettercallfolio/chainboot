@@ -143,6 +143,52 @@ chainboot unlist mylinux --keypair me.json         # remove the image from your 
 Unlisting removes the entry from your catalog. The data stays on the ledger, and whoever
 knows the manifest's signature can still fetch it. **Do not publish secrets.**
 
+## Private images: for your wallet only
+
+Add `--private` and the image is published for you alone:
+
+```sh
+chainboot login                                   # once: your wallet signs one message
+chainboot fund 0.05                               # your vault pays for the upload
+chainboot export mybox mybox.tar
+chainboot publish mybox.tar --name mybox --version 1.0 --private --reuse solinux
+chainboot run me/mybox                            # on any computer where you are signed in
+chainboot list me                                 # your private images
+chainboot unlist me/mybox
+```
+
+What "private" means exactly:
+
+- **Encrypted before upload.** The contents of your files, and the manifest with every file
+  name, size and hash, are encrypted with AES-256-GCM. The key is derived from your wallet's
+  signature of the login message, the same key that protects your saves.
+- **Not listed anywhere public.** The image goes into a private catalog that is itself
+  encrypted. `chainboot list` of your address shows nothing; only `chainboot list me` does,
+  and only when you are signed in with the same wallet.
+- **Signed by your vault.** Readers of your private catalog accept nothing that another key
+  wrote, so nobody can slip an image into it.
+- **Only what is new is uploaded.** With `--reuse`, files that are identical to files of a
+  public image (the Ubuntu base, for example) are referenced from that image. They are public
+  anyway, and nothing on chain links your private image to them. A private system built on
+  Solinux costs only what you added.
+
+No `--keypair` is used: a private image is paid and signed by your vault, so the vault needs
+enough SOL (`chainboot fund`, `chainboot whoami`).
+
+What it does not mean:
+
+- **It cannot be shared.** Only the wallet that published it can read it. Giving access to
+  other wallets is on the roadmap, not in this version.
+- **It cannot be erased.** The encrypted data stays on the ledger. If your wallet's signature
+  of the login message ever leaks, the image can be read. `unlist` only removes the entry.
+- **On your computer it is plain.** After downloading, the system is unpacked on your disk
+  like any other, so that it can run. The download cache keeps the encrypted form.
+- **Size and timing are visible.** Anyone can see that your vault account stored some
+  amount of data at some time, as with saves.
+
+Machines made from a private image are saved and restored like all others; restoring one
+needs the same wallet, because the image itself has to be fetched again.
+
 ## What makes a good image
 
 - **No secrets.** No private keys, passwords or tokens. `chainboot export` already leaves
