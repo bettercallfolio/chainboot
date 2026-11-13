@@ -201,7 +201,7 @@ ${body}
 const pages = new Map();
 docs.forEach((d, i) => {
   const prev = docs[i - 1], next = docs[i + 1];
-  const nav = `<nav class="pager" aria-label="More guides">${prev ? `<a class="prev" href="${prev.name}.html"><span>previous</span>${esc(prev.title)}</a>` : "<span></span>"}${next ? `<a class="next" href="${next.name}.html"><span>next</span>${esc(next.title)}</a>` : "<span></span>"}</nav>`;
+  const nav = `<nav class="pager" aria-label="More guides">${prev ? `<a class="pager-prev" href="${prev.name}.html"><span>previous</span>${esc(prev.title)}</a>` : "<span></span>"}${next ? `<a class="pager-next" href="${next.name}.html"><span>next</span>${esc(next.title)}</a>` : "<span></span>"}</nav>`;
   const source = `<p class="source"><a href="${REPO}/blob/main/docs/${d.name}.md" rel="noopener">Edit this page on GitHub</a></p>`;
   pages.set(`${d.name}.html`, page({ title: d.title, description: SUMMARY[d.name] ?? d.title, current: d.name, body: `<p class="label"># docs / ${d.number}</p>\n${d.html}\n${nav}\n${source}` }));
 });

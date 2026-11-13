@@ -76,7 +76,7 @@ chainboot network mainnet-beta     <span class="c"># switch (also: devnet, testn
 <p>For anything you care about: use mainnet, use providers with archive access, and keep in mind that you rely on at least one of them continuing to serve history. Your own archive is <code>~/.chainboot/cache</code>: everything you downloaded is there, verified, and you could publish it again.</p>
 <h2 id="moving-from-devnet-to-mainnet"><a class="anchor" href="#moving-from-devnet-to-mainnet" aria-hidden="true" tabindex="-1">#</a>Moving from devnet to mainnet</h2>
 <ol><li><code>chainboot network mainnet-beta</code></li><li><code>chainboot rpc add &lt;a mainnet endpoint&gt;</code></li><li>Publish your images again with a funded mainnet keypair. Images do not move between networks by themselves, but the same archive gives the same digest, so anyone can check that the mainnet image is the one from devnet.</li><li>Sign in again (<code>chainboot login</code>). Your mainnet vault is a different account than your devnet vault; fund it with real SOL.</li></ol>
-<nav class="pager" aria-label="More guides"><a class="prev" href="07-format.html"><span>previous</span>The on-chain format</a><a class="next" href="09-security.html"><span>next</span>Security</a></nav>
+<nav class="pager" aria-label="More guides"><a class="pager-prev" href="07-format.html"><span>previous</span>The on-chain format</a><a class="pager-next" href="09-security.html"><span>next</span>Security</a></nav>
 <p class="source"><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/08-networks-and-costs.md" rel="noopener">Edit this page on GitHub</a></p>
   </main>
 </div>

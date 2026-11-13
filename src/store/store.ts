@@ -241,24 +241,36 @@ export class ChainStore {
   }
 
   async #fetchTx(signature: string, opts: GetOptions, verify = true): Promise<{ tx: ParsedTx; result: TxResult }> {
+    if (opts.signal?.aborted) throw new Error("download aborted");
     const expected = b58decodeFixed(signature, SIG, "signature");
-    let lastProblem = "";
-    // a wrong answer from one endpoint must not end the download: ask again (the pool rotates endpoints)
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (opts.signal?.aborted) throw new Error("download aborted");
-      const result = await this.pool.call<TxResult>("getTransaction", [signature, { encoding: "base64", maxSupportedTransactionVersion: 1, commitment: "confirmed" }], { accept: (r) => r !== null, batch: true });
+    let good: { tx: ParsedTx; result: TxResult } | null = null, untrusted: TrustError | null = null, problem = "";
+    // The answer is checked inside the pool's `accept`: an endpoint that returns nothing, garbage or
+    // a different transaction is skipped for this request and the next endpoint is asked.
+    const accept = (answer: unknown): boolean => {
+      const result = answer as TxResult | null;
+      if (result === null) return false;
       try {
         if (!result || !Array.isArray(result.transaction) || typeof result.transaction[0] !== "string") throw new Error("malformed answer");
         if (!result.meta || result.meta.err !== null) throw new Error("transaction failed on chain");
         const tx = parseTransaction(Buffer.from(result.transaction[0], "base64"));
         ChainStore.#check(tx, expected, opts.signers, verify);
-        return { tx, result };
+        good ??= { tx, result };
+        return true;
       } catch (e) {
-        if (e instanceof TrustError) throw e;
-        lastProblem = (e as Error).message;
+        // a genuine transaction by somebody else is a final answer, not a faulty endpoint
+        if (e instanceof TrustError) { untrusted = e; return true; }
+        problem = (e as Error).message;
+        return false;
       }
+    };
+    try {
+      await this.pool.call<TxResult>("getTransaction", [signature, { encoding: "base64", maxSupportedTransactionVersion: 1, commitment: "confirmed" }], { accept, batch: true });
+    } catch (e) {
+      throw new Error(`could not get a valid copy of transaction ${signature}: ${problem || (e as Error).message}`);
     }
-    throw new Error(`could not get a valid copy of transaction ${signature}: ${lastProblem}`);
+    if (opts.signal?.aborted) throw new Error("download aborted");
+    if (untrusted) throw untrusted;
+    return good!;
   }
 
   static #payload(tx: ParsedTx): Buffer | null {
