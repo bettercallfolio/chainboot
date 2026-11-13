@@ -9,73 +9,94 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="logo">chainboot</span><span class="cursor"></span><span class="tag">operating systems from the chain</span></div>
-  <div class="top-right">
-    <label class="inline">network <select id="network"></select></label>
-    <button id="wallet-chip" class="chip">not signed in</button>
+  <div class="bar">
+    <div class="brand"><span class="logo">chainboot</span><span class="tag">operating systems from the chain</span></div>
+    <div class="top-right">
+      <label class="field">network <select id="network" aria-label="Network"></select></label>
+      <button id="wallet-chip" class="btn">not signed in</button>
+    </div>
   </div>
 </header>
 
 <main>
-  <div id="banner" class="banner hidden"></div>
+  <p id="banner" class="notice hidden"></p>
 
   <section id="sec-endpoints">
-    <h2><span class="n">1</span> Endpoints</h2>
-    <p class="hint">chainboot reads the blockchain through RPC endpoints, and you bring your own. Free ones take a minute to get (Helius, QuickNode, Alchemy, Triton, Ankr). Add as many as you like: more endpoints mean faster downloads.</p>
-    <div id="endpoints" class="list compact"></div>
-    <form id="endpoint-form" class="row">
-      <input id="endpoint-url" type="url" placeholder="https://your-endpoint.example/your-key" autocomplete="off" spellcheck="false" required>
-      <button type="submit">Add endpoint</button>
-      <button type="button" id="endpoint-test" class="ghost">Test all</button>
-    </form>
+    <div class="head">
+      <h2>Endpoints</h2>
+      <span id="endpoints-summary" class="sub"></span>
+      <button id="endpoints-toggle" class="btn quiet" aria-expanded="false">Manage</button>
+    </div>
+    <div id="endpoints-body" class="hidden">
+      <p class="hint">chainboot reads the chain through RPC endpoints, and you bring your own. A free one takes a minute to get (Helius, QuickNode, Alchemy, Triton, Ankr). More endpoints mean faster downloads.</p>
+      <div id="endpoints" class="grid two"></div>
+      <form id="endpoint-form" class="row">
+        <input id="endpoint-url" type="url" placeholder="https://your-endpoint.example/your-key" autocomplete="off" spellcheck="false" required>
+        <button type="submit" class="btn primary">Add</button>
+        <button type="button" id="endpoint-test" class="btn">Test all</button>
+      </form>
+    </div>
   </section>
 
   <section id="sec-systems">
-    <h2><span class="n">2</span> Systems on chain</h2>
-    <p class="hint">Every system below is stored on Solana. Getting one downloads it straight from the chain and checks every file against its hash.</p>
-    <div id="catalog" class="cards"><div class="empty">Add an endpoint to see what is available.</div></div>
-    <details>
-      <summary>Look at another publisher</summary>
-      <form id="publisher-form" class="row">
-        <input id="publisher" placeholder="publisher address" autocomplete="off" spellcheck="false">
-        <button type="submit" class="ghost">Show</button>
-      </form>
-    </details>
+    <div class="head">
+      <h2>Systems</h2>
+      <span id="catalog-summary" class="sub">stored on Solana, verified on download</span>
+      <button id="publisher-toggle" class="btn quiet" aria-expanded="false">Other publisher</button>
+    </div>
+    <form id="publisher-form" class="row hidden">
+      <input id="publisher" placeholder="publisher address (empty for the official catalog)" autocomplete="off" spellcheck="false">
+      <button type="submit" class="btn">Show</button>
+    </form>
+    <div id="catalog" class="grid three"><div class="empty">Add an endpoint to see what is available.</div></div>
   </section>
 
   <section id="sec-machines">
-    <h2><span class="n">3</span> Your machines</h2>
-    <p class="hint">A machine is a system plus everything you changed in it. It keeps its state between sessions.</p>
-    <div id="machines" class="list"><div class="empty">No machines yet. Get a system above.</div></div>
+    <div class="head">
+      <h2>Machines</h2>
+      <span class="sub">a system plus everything you changed in it</span>
+    </div>
+    <div id="machines" class="rows"><div class="empty">No machines yet. Get a system above.</div></div>
   </section>
 
   <section id="sec-wallet">
-    <h2><span class="n">4</span> Save to chain</h2>
-    <p class="hint">Sign in with your wallet and your machines are saved to Solana, encrypted with a key only you can make. Continue on any computer by signing in there. Your wallet signs one message; a small helper account (the vault) then pays the fees of your saves, so you are not asked again.</p>
+    <div class="head">
+      <h2>Save to chain</h2>
+      <span class="sub">encrypted with a key only your wallet can make</span>
+      <button id="signout" class="btn quiet hidden">Sign out</button>
+    </div>
     <div id="wallet-panel"></div>
   </section>
 
   <section id="sec-publish">
-    <h2><span class="n">5</span> Publish your own system</h2>
-    <p class="hint">Any Linux distribution can live on chain. Build a machine the way you like it, then publish it for everyone (or just for yourself).</p>
-    <pre class="code" id="publish-help">chainboot run solinux-minimal --name mybox       # install and configure what you need
-chainboot export mybox mybox.tar                  # turn the machine into an archive
-chainboot keygen me.json                          # your publisher key (fund it with a little SOL)
+    <div class="head">
+      <h2>Publish your own</h2>
+      <span class="sub">any Linux distribution can live on chain</span>
+      <button id="publish-toggle" class="btn quiet" aria-expanded="false">Show how</button>
+    </div>
+    <div id="publish-body" class="hidden">
+      <pre class="code">chainboot run solinux-minimal --name mybox      # install and configure what you need
+chainboot export mybox mybox.tar                 # turn the machine into an archive
+chainboot keygen me.json                         # your publisher key (fund it with a little SOL)
 chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json</pre>
-    <p class="hint">Others run it with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive from any distribution works too.</p>
+      <p class="hint">Others run it with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive of any distribution works too.</p>
+    </div>
   </section>
 
   <section id="sec-activity" class="hidden">
-    <h2><span class="n">&gt;</span> Activity <button id="activity-close" class="ghost small">hide</button></h2>
-    <div id="job-title" class="job-title"></div>
-    <div class="bar"><div id="job-bar" class="bar-fill"></div></div>
+    <div class="head">
+      <h2 id="job-title">Activity</h2>
+      <span class="sub"></span>
+      <button id="activity-close" class="btn quiet">Hide</button>
+    </div>
+    <div class="progress"><div id="job-bar"></div></div>
     <pre id="job-log" class="log"></pre>
-    <div id="job-command" class="hint"></div>
+    <p id="job-command" class="hint"></p>
   </section>
 </main>
 
-<footer>chainboot runs on your computer. This page talks only to the chainboot program that opened it. <span id="version"></span></footer>
-<div id="toast" class="toast hidden"></div>
+<footer><span>This page talks only to the chainboot program on this computer.</span><span id="version"></span></footer>
+<div id="toast" class="toast hidden" role="status"></div>
 <script src="app.js"></script>
 </body>
 </html>
