@@ -43,7 +43,7 @@
       <h2>Systems</h2>
       <span id="catalog-summary" class="sub">stored on Solana, verified on download</span>
       <div class="tools">
-        <button id="private-show" class="btn hidden" title="Systems you published with --private: encrypted, readable by your wallet only">My private systems</button>
+        <button id="private-show" class="btn hidden" title="Systems you published (private by default): encrypted, readable by your wallet only">My private systems</button>
         <button id="publisher-toggle" class="btn quiet" aria-expanded="false">Other publisher</button>
       </div>
     </div>
@@ -80,9 +80,15 @@
     <div id="publish-body" class="hidden">
       <pre class="code">chainboot run solinux-minimal --name mybox      # install and configure what you need
 chainboot export mybox mybox.tar                 # turn the machine into an archive
-chainboot keygen me.json                         # your publisher key (fund it with a little SOL)
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json</pre>
-      <p class="hint">Others run it with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive of any distribution works too.</p>
+
+# for yourself (the default): encrypted, only your wallet can read it
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal
+chainboot run me/mybox
+
+# for everyone: needs a publisher key and the word --public
+chainboot keygen me.json                         # fund it with a little SOL
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json</pre>
+      <p class="hint">Others run a public system with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive of any distribution works too. What is written to the ledger can never be erased.</p>
     </div>
   </section>
 

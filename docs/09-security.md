@@ -69,9 +69,9 @@ your own files, but chainboot does not promise isolation there either.
   your wallet's). Keep only a small balance in the vault.
 - Encrypted saves stay on the ledger forever. If the key leaks later, old saves become
   readable. Do not save things that must stay secret for decades.
-- Publishing an image is different: images are **public**, unless you publish with
-  `--private`. A private image is encrypted with the same key as your saves, listed only in
-  your encrypted private catalog, and readable by your wallet alone. The same warnings apply:
+- Published images are **private by default**: encrypted with the same key as your saves,
+  listed only in your encrypted private catalog, and readable by your wallet alone. An image
+  becomes public only when you publish it with `--public`. The same warnings apply:
   it cannot be erased, and it is as safe as your wallet's signature of the login message.
   Never publish a system that contains secrets as a public image.
 

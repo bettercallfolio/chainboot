@@ -108,7 +108,7 @@ function renderCatalog() {
     if (!state.endpoints.length) return say("Add an endpoint to see what is available.");
     if (!catalog) return say("Reading the catalog from the chain…");
     if (catalog.error) return say(catalog.error, "bad");
-    if (!catalog.images.length) return say(catalog.private ? "You have no private systems yet. Publish one with: chainboot publish <archive> --private --name <name> --version <version>" : "This publisher has no systems on " + state.cluster + ".");
+    if (!catalog.images.length) return say(catalog.private ? "You have no private systems yet. Publish one with: chainboot publish <archive> --name <name> --version <version>" : "This publisher has no systems on " + state.cluster + ".");
     $("catalog-summary").textContent = catalog.private ? "your private systems: encrypted, readable by your wallet only" : "stored on Solana, verified on download";
     const prefix = catalog.publisher === state.officialPublisher ? "" : catalog.publisher + "/";
     // the full system first, then the rest by size

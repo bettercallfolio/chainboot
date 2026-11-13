@@ -166,7 +166,8 @@ publish a system you built by hand:
 
   chainboot run solinux-minimal --name mybox       # install and configure what you need
   chainboot export mybox mybox.tar
-  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json`;
+  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal     # private: chainboot run me/mybox
+  chainboot publish mybox.tar ... --public --keypair me.json                          # or for everyone`;
 
 export function cmdExport(a: Args): void {
   requireLinux();

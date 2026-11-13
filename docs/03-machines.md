@@ -113,7 +113,7 @@ When a machine is set up the way you like it, you can make it an image and publi
 
 ```sh
 chainboot export web web.tar
-chainboot publish web.tar --name web --version 1.0 --reuse solinux --keypair me.json
+chainboot publish web.tar --name web --version 1.0 --reuse solinux --public --keypair me.json
 ```
 
 `export` writes the machine's complete file system as a tar archive. It leaves out what

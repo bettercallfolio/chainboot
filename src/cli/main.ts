@@ -40,7 +40,7 @@ ${bold("Images")}
   pull <image>                   Download an image without starting it
   images                         List downloaded images
   rmi <image>                    Delete a downloaded image
-  publish <archive> ...          Put your own Linux system on chain (--private: for your wallet only)
+  publish <archive> ...          Put your own Linux system on chain (private; --public for everyone)
   export <machine> <file.tar>    Turn a machine into an archive you can publish
   unlist <image>                 Remove an image from your catalog
 
@@ -107,7 +107,7 @@ const COMMANDS: Record<string, Command> = {
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
-  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private"], booleans: ["dry-run", "yes", "private"] },
+  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public"], booleans: ["dry-run", "yes", "private", "public"] },
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
   keygen: {
     help: "Usage:\n  chainboot keygen <file>    Create a new Solana keypair file (never overwrites)",
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   if (name === "engine") { await cmdEngineInfo(rest); return; }
   // private images need the login, which lives in the engine: listing and unlisting run there,
   // publishing runs here (it reads a local file) with a copy of the login
-  const privateHere = name === "publish" && rest.includes("--private");
+  const privateHere = name === "publish" && !rest.includes("--public");
   const privateThere = (name === "list" && rest[0] === "me") || (name === "unlist" && (rest[0] ?? "").startsWith("me/"));
   if (privateHere && !rest.includes("--help")) {
     const kind = engineKind();

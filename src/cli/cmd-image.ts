@@ -41,7 +41,7 @@ export async function resolveImage(store: ChainStore, c: Config, text: string, a
   const image = cat.images[n.name];
   if (!image) {
     const names = Object.keys(cat.images);
-    if (mine) throw new Error(`you have no private image named "${n.name}".` + (names.length ? ` Yours: ${names.join(", ")}` : " Publish one with: chainboot publish <archive> --private --name <name> --version <version>"));
+    if (mine) throw new Error(`you have no private image named "${n.name}".` + (names.length ? ` Yours: ${names.join(", ")}` : " Publish one with: chainboot publish <archive> --name <name> --version <version>"));
     throw new Error(`image "${n.name}" was not found in the catalog of ${publisher}.` + (names.length ? ` Available: ${names.join(", ")}` : " That publisher has no images on this network."));
   }
   const tag = image.tags[n.tag];
@@ -79,7 +79,12 @@ export async function pull(store: ChainStore, publisher: string, ref: StoredRef 
 export const PUBLISH_HELP = `Usage:
   chainboot publish <rootfs.tar[.gz|.xz|.zst]> --name <name> --version <version> [options]
 
-Puts a root file system on chain and lists it in your catalog.
+Puts a root file system on chain.
+
+By default the image is PRIVATE: encrypted with your wallet's key, listed only in your private
+catalog and paid by your vault (sign in first with "chainboot login"). Run it with
+"chainboot run me/<name>". Data on a ledger can never be erased, so making a system readable
+by everyone is a choice you state explicitly with --public.
 
 Options:
   --arch <arch>          Architecture of the system (default: this computer's, ${hostArch()})
@@ -88,10 +93,10 @@ Options:
   --source-url <url>     Where the archive came from (recorded so others can verify it)
   --reuse <image>        Do not store files again that <image> already has on chain; repeatable
   --cmd <command>        Command started by "chainboot run" (default: a root login shell)
-  --keypair <file>       Solana keypair that pays and becomes the publisher
-  --private              Publish for yourself only: encrypted with your wallet's key, listed in your
-                         private catalog, paid by your vault (needs "chainboot login"; no --keypair).
-                         Run it with: chainboot run me/<name>
+  --public               Publish for everyone, unencrypted, in the public catalog of --keypair.
+                         Others run it with: chainboot run <your-address>/<name>
+  --keypair <file>       With --public: the Solana keypair that pays and becomes the publisher
+  --private              The default, accepted for clarity
   --dry-run              Build and show the cost, but send nothing
   --yes                  Do not ask for confirmation`;
 
@@ -100,8 +105,13 @@ export async function cmdPublish(a: Args): Promise<void> {
   if (!file || !name || !version) throw new UsageError("publish needs an archive, --name and --version");
   const arch = flag(a, "arch") ?? hostArch();
   const c = loadConfig();
-  const vault = has(a, "private") ? requireLogin(c) : null;
-  if (vault && flag(a, "keypair")) throw new UsageError("a private image is paid and signed by your vault; leave out --keypair (add SOL with: chainboot fund <amount>)");
+  const isPublic = has(a, "public");
+  if (isPublic && has(a, "private")) throw new UsageError("choose one of --public and --private");
+  if (!isPublic && flag(a, "keypair")) {
+    throw new UsageError("images are private by default and are paid by your vault, not by a keypair. To publish for everyone, say so: add --public. For a private image, leave out --keypair.");
+  }
+  // a private dry run works without a login; a real private upload needs one
+  const vault = isPublic ? null : has(a, "dry-run") ? loadVault(paths.vault(), c.cluster) : requireLogin(c);
   const payer = vault ? vault.signer : has(a, "dry-run") && !flag(a, "keypair") && !process.env.CHAINBOOT_KEYPAIR ? null : loadKeypair(a);
   info(`Reading ${file}`);
   const packed = fs.readFileSync(file);
@@ -124,7 +134,8 @@ export async function cmdPublish(a: Args): Promise<void> {
   let tx = ChainStore.plan(Math.ceil(manifestBytes / 4)).transactions + 3; // manifest compresses about 4x; catalog + pointer
   for (const b of built.newPacks.values()) tx += ChainStore.plan(b.length).transactions;
   out(table([
-    ["image", `${bold(m.name)}:${m.version} (${m.arch})` + (vault ? "  private: only your wallet can read it" : "")],
+    ["image", `${bold(m.name)}:${m.version} (${m.arch})`],
+    ["visibility", isPublic ? "PUBLIC: everyone can read it, forever" : "private: encrypted, only your wallet can read it"],
     ["digest", m.digest],
     ["contents", `${m.fileCount} entries, ${fmtBytes(m.rawSize)} unpacked`],
     ["to upload", `${fmtBytes(newBytes)} in ${built.newPacks.size} pack(s)` + (reuse.length ? dim(` (${m.packs.length - built.newPacks.size} pack(s) reused)`) : "")],
@@ -135,7 +146,7 @@ export async function cmdPublish(a: Args): Promise<void> {
   const balance = (await store!.pool.call<{ value: number }>("getBalance", [payer!.address])).value;
   info(`${vault ? "Your vault" : "Publisher"} ${payer!.address} holds ${(balance / 1e9).toFixed(4)} SOL`);
   if (balance < tx * 5000) throw new Error(`not enough SOL for this upload (about ${((tx * 5000) / 1e9).toFixed(4)} SOL needed)` + (vault ? ". Add SOL to your vault with: chainboot fund <amount>" : ""));
-  if (!(await confirm("Publish now?", a))) { info("cancelled"); return; }
+  if (!(await confirm(isPublic ? "Publish for everyone? It can never be erased from the ledger." : "Publish privately now?", a))) { info("cancelled"); return; }
   const line = new ProgressLine();
   const options = {
     tags: flags(a, "tag").length ? flags(a, "tag") : undefined,
@@ -176,7 +187,7 @@ export async function cmdList(a: Args): Promise<void> {
       }
     }
   }
-  if (!rows.length) { info(mine ? `You have no private images on ${c.cluster}. Publish one with: chainboot publish <archive> --private --name <name> --version <version>` : `${publisher} has not published any images on ${c.cluster}.`); return; }
+  if (!rows.length) { info(mine ? `You have no private images on ${c.cluster}. Publish one with: chainboot publish <archive> --name <name> --version <version>` : `${publisher} has not published any images on ${c.cluster}.`); return; }
   out(table(rows, ["image", "tag", "arch", "download", "on disk", "description"]));
   info(dim(`publisher ${publisher} on ${c.cluster}`));
 }

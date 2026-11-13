@@ -1,12 +1,17 @@
 # Publishing your own system
 
 Anyone can publish a Linux system with chainboot. You need a root file system as a tar
-archive, a Solana keypair with a little SOL, and one command.
+archive and one command.
 
-## The one command
+**Images are private by default.** `chainboot publish` encrypts the system for your wallet
+alone, because what is written to a ledger can never be erased and a mistake must not expose
+anything. Publishing for everyone is a deliberate step: you add `--public` and a publisher
+key. This page explains the public case first, then [private images](#private-images-for-your-wallet-only).
+
+## The one command (public)
 
 ```sh
-chainboot publish rootfs.tar.gz --name mylinux --version 1.0 --keypair me.json
+chainboot publish rootfs.tar.gz --name mylinux --version 1.0 --public --keypair me.json
 ```
 
 chainboot reads the archive, packs and compresses it, shows what it will cost, and asks
@@ -48,7 +53,7 @@ may be plain, gzip, xz or zstd. Here are four ways to get one.
 ```sh
 curl -LO https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-minirootfs-3.24.4-x86_64.tar.gz
 chainboot publish alpine-minirootfs-3.24.4-x86_64.tar.gz --name alpine --version 3.24.4 \
-  --description "Alpine Linux 3.24" --source-url https://dl-cdn.alpinelinux.org/... --keypair me.json
+  --description "Alpine Linux 3.24" --source-url https://dl-cdn.alpinelinux.org/... --public --keypair me.json
 ```
 
 **From a machine you set up by hand.** This is the easiest way to make something of your own:
@@ -57,7 +62,7 @@ chainboot publish alpine-minirootfs-3.24.4-x86_64.tar.gz --name alpine --version
 chainboot run solinux-minimal --name mybox --no-autosave
 #   ... install and configure what you need, then exit ...
 chainboot export mybox mybox.tar
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --keypair me.json
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json
 ```
 
 **From Debian's `debootstrap`:**
@@ -76,7 +81,7 @@ docker export $(docker create debian:stable-slim) > debian.tar
 ### 3. Publish
 
 ```sh
-chainboot publish debian.tar --name debian --version 13 --description "Debian 13, minimal" --keypair me.json
+chainboot publish debian.tar --name debian --version 13 --description "Debian 13, minimal" --public --keypair me.json
 ```
 
 ```
@@ -90,7 +95,8 @@ Publisher 7xQ… holds 1.0000 SOL
 Publish now? [y/N]
 ```
 
-Add `--dry-run` to see these numbers without a keypair and without sending anything.
+Add `--dry-run` to see these numbers without a keypair and without sending anything. The
+summary also states the visibility, and a public upload asks once more before it starts.
 
 Options:
 
@@ -104,7 +110,8 @@ Options:
 | `--source-url` | where the archive came from, recorded so others can check |
 | `--reuse <image>` | do not store files again that this image already has on chain (repeatable) |
 | `--cmd "<command>"` | what `chainboot run` starts instead of a login shell |
-| `--keypair` | the publisher key that pays |
+| `--public` | publish for everyone, unencrypted (without it the image is private) |
+| `--keypair` | with `--public`: the publisher key that pays |
 | `--dry-run`, `--yes` | only show the cost / do not ask |
 
 If the upload is interrupted, run the same command again. It continues where it stopped and
@@ -115,8 +122,8 @@ does not pay twice for what already landed.
 Publish the same name and version once per architecture:
 
 ```sh
-chainboot publish ubuntu-base-amd64.tar.gz --name mylinux --version 1.0 --arch amd64 --keypair me.json
-chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch arm64 --keypair me.json
+chainboot publish ubuntu-base-amd64.tar.gz --name mylinux --version 1.0 --arch amd64 --public --keypair me.json
+chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch arm64 --public --keypair me.json
 ```
 
 `chainboot run` picks the right one for each user.
@@ -145,13 +152,13 @@ knows the manifest's signature can still fetch it. **Do not publish secrets.**
 
 ## Private images: for your wallet only
 
-Add `--private` and the image is published for you alone:
+Without `--public`, an image is published for you alone:
 
 ```sh
 chainboot login                                   # once: your wallet signs one message
 chainboot fund 0.05                               # your vault pays for the upload
 chainboot export mybox mybox.tar
-chainboot publish mybox.tar --name mybox --version 1.0 --private --reuse solinux
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux
 chainboot run me/mybox                            # on any computer where you are signed in
 chainboot list me                                 # your private images
 chainboot unlist me/mybox

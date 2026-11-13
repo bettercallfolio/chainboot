@@ -36,8 +36,8 @@ Sit down at another computer, sign in, type the same command, and continue where
   (22 MB) downloads in about one second, even through a single free endpoint.
 - **Yours.** Your machines are encrypted with a key that only your wallet can make. No
   account, no company, no server that can be switched off.
-- **Private when you want.** `chainboot publish --private` stores a whole system that only
-  your wallet can list, fetch or read.
+- **Private by default.** `chainboot publish` stores a whole system that only your wallet can
+  list, fetch or read. Sharing it with everyone takes an explicit `--public`.
 - **A toolkit.** The command-line tool is built on a small TypeScript SDK with no
   dependencies. Use it to store your own data, or build something we did not think of.
 
@@ -121,7 +121,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | Publish, list, download and verify images | Works. Tested on devnet. |
 | Run machines on Linux | Works. Tested (Ubuntu host, amd64; arm64 images through emulation). |
 | Save, restore, history, automatic saving, continue on another computer | Works. Tested on devnet. |
-| Private images (`publish --private`, `run me/<image>`) | Works. Tested on devnet with two wallets. |
+| Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |
