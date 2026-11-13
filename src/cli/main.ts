@@ -5,6 +5,7 @@ import { UsageError, allow, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { RPC_HELP, cmdNetwork, cmdRpc } from "./cmd-rpc.ts";
 import { RUN_HELP, cmdEngine, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStop } from "./cmd-run.ts";
+import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
 
 export const VERSION = "0.1.0";
@@ -21,6 +22,13 @@ ${bold("Machines")}
   machines                       List your machines
   stop <machine>                 Stop a running machine
   rm <machine>                   Delete a machine and its changes
+
+${bold("Save to chain")}
+  login                          Sign in with your wallet (enables saving)
+  save [machine]                 Save a machine's changes on chain, encrypted
+  restore [machine]              Bring a saved machine back, on any computer
+  history <machine>              List the saves of a machine
+  status                         Show login, vault balance and save state
 
 ${bold("Images")}
   pull <image>                   Download an image without starting it
@@ -45,6 +53,15 @@ const COMMANDS: Record<string, Command> = {
   rm: { run: cmdRm, help: RUN_HELP, options: ["yes"], booleans: ["yes"] },
   images: { run: cmdImages, help: RUN_HELP, options: [] },
   rmi: { run: cmdRmi, help: RUN_HELP, options: [] },
+  login: { run: cmdLogin, help: LOGIN_HELP, options: ["keypair"] },
+  logout: { run: cmdLogout, help: LOGIN_HELP, options: [] },
+  whoami: { run: cmdWhoami, help: LOGIN_HELP, options: [] },
+  fund: { run: cmdFund, help: LOGIN_HELP, options: ["keypair", "yes"], booleans: ["yes"] },
+  save: { run: cmdSave, help: SAVE_HELP, options: ["force", "yes", "note"], booleans: ["force", "yes"] },
+  restore: { run: cmdRestore, help: SAVE_HELP, options: ["snapshot", "yes"], booleans: ["yes"] },
+  history: { run: cmdHistory, help: SAVE_HELP, options: [] },
+  status: { run: cmdStatus, help: SAVE_HELP, options: [] },
+  autosave: { run: cmdAutosave, help: SAVE_HELP, options: [] },
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
@@ -71,7 +88,7 @@ async function main(): Promise<void> {
   const [name, ...rest] = process.argv.slice(2);
   if (!name || name === "help" || name === "--help" || name === "-h") { out(HELP); return; }
   if (name === "--version" || name === "version") { out(VERSION); return; }
-  if (name === "_engine") { cmdEngine(rest); return; }
+  if (name === "_engine") { await cmdEngine(rest); return; }
   const cmd = COMMANDS[name];
   if (!cmd) throw new UsageError(`unknown command "${name}". Run "chainboot help" to see what is available.`);
   const args = parseArgs(rest, cmd.booleans);

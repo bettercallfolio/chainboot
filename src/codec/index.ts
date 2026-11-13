@@ -38,10 +38,17 @@ export function compress(data: Uint8Array, opts: { arch?: string; codec?: Codec 
   return { codec: want, data: out };
 }
 
+/** Large packs decode several times faster with the system `xz` tool; the built-in decoder is the fallback. */
+function xzFast(data: Uint8Array, rawSize: number): Buffer | null {
+  if (data.length < (1 << 20) || !hasXzTool()) return null;
+  const r = spawnSync("xz", ["-dc"], { input: data, maxBuffer: Math.max(rawSize, 1) + 1024 });
+  return r.status === 0 && r.stdout.length === rawSize ? r.stdout : null;
+}
+
 export function decompress(codec: Codec, data: Uint8Array, rawSize: number): Buffer {
   let out: Buffer;
   if (codec === "raw") out = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  else if (codec === "xz") out = xzDecode(data);
+  else if (codec === "xz") out = xzFast(data, rawSize) ?? xzDecode(data);
   else if (codec === "zstd") out = zlib.zstdDecompressSync(data, { maxOutputLength: Math.max(rawSize, 1) });
   else throw new Error(`unknown codec "${codec as string}"`);
   if (out.length !== rawSize) throw new Error(`decompressed size is ${out.length}, expected ${rawSize}`);

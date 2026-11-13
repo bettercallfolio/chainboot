@@ -135,13 +135,13 @@ export function parseImageName(text: string): ImageName {
 
 export interface PulledImage {
   manifest: ImageManifest;
-  ref: ImageRef;
+  ref: StoredRef & { digest: string };
   /** Returns the verified, decompressed pack `index`. */
   pack(index: number): Buffer;
 }
 
 /** Downloads (or takes from cache) the manifest and all packs of an image, fully verified. */
-export async function pullImage(store: ChainStore, publisher: string, ref: ImageRef, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal }): Promise<PulledImage> {
+export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal }): Promise<PulledImage> {
   const key = addressToBytes(publisher);
   const objects = path.join(opts.cacheDir, "objects");
   fs.mkdirSync(objects, { recursive: true });

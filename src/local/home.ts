@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GENESIS, RpcPool, maskRpcUrl, type Cluster } from "../solana/rpc.ts";
+import { GENESIS, RpcPool, maskRpcUrl, type Cluster, type ProbeCache } from "../solana/rpc.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { ChainStore } from "../store/store.ts";
 
@@ -70,8 +70,22 @@ Add as many as you like; more endpoints mean faster downloads:
 export async function openStore(c: Config, onNote?: (text: string) => void): Promise<ChainStore> {
   const urls = rpcUrls(c);
   if (!urls.length) throw new Error(NO_RPC_HELP);
-  const pool = new RpcPool(urls, { onNote });
-  const report = await pool.probe(GENESIS[c.cluster]);
+  const cacheFile = path.join(paths.cache(), "endpoints.json");
+  let known: ProbeCache = {};
+  try { known = JSON.parse(fs.readFileSync(cacheFile, "utf8")) as ProbeCache; } catch { /* first run */ }
+  const before = JSON.stringify(known);
+  let pool = new RpcPool(urls, { onNote });
+  let report: { label: string; ok: boolean; detail: string }[];
+  try { report = await pool.probe(GENESIS[c.cluster], known); } catch (e) {
+    // every endpoint was written off from memory: ask them all again before giving up
+    if (!Object.keys(known).length) throw e;
+    known = {};
+    pool = new RpcPool(urls, { onNote });
+    report = await pool.probe(GENESIS[c.cluster], known);
+  }
+  if (JSON.stringify(known) !== before) {
+    try { fs.mkdirSync(paths.cache(), { recursive: true }); fs.writeFileSync(cacheFile, JSON.stringify(known)); } catch { /* the cache is optional */ }
+  }
   for (const r of report) if (!r.ok) onNote?.(`skipping ${r.label}: ${r.detail}`);
   return new ChainStore(pool);
 }

@@ -6,6 +6,7 @@
 //   - an endpoint that fails or times out rests for a moment and the work moves to the others.
 // Requests wait in one queue and go to whichever endpoint has room, so one slow or
 // rate-limited endpoint never becomes a bottleneck. Nothing here prints API keys.
+import { createHash } from "node:crypto";
 import { sleep } from "../util/bytes.ts";
 
 export type RpcErrorKind = "rate-limit" | "network" | "server" | "unsupported" | "rpc" | "invalid" | "exhausted";
@@ -126,6 +127,12 @@ export function clusterName(genesisHash: string): string {
   return `unknown network ${genesisHash.slice(0, 8)}…`;
 }
 
+/** Remembered probe answers, keyed by a hash of the URL (so no API key is written to the cache). */
+export type ProbeCache = Record<string, { genesis: string | null; error?: string; at: number }>;
+export function probeKey(url: string): string {
+  return createHash("sha256").update(url).digest("hex").slice(0, 24);
+}
+
 /** Hides credentials: keeps the host, drops path/query secrets. */
 export function maskRpcUrl(url: string): string {
   try {
@@ -183,17 +190,27 @@ export class RpcPool {
    * a different network than `genesisHash`. Mixing networks would silently break uploads, so
    * call this once before real work. Returns one line per endpoint for display.
    */
-  async probe(genesisHash?: string): Promise<{ label: string; ok: boolean; detail: string }[]> {
+  async probe(genesisHash?: string, known: ProbeCache = {}): Promise<{ label: string; ok: boolean; detail: string }[]> {
+    const now = Date.now();
     const report = await Promise.all(this.#eps.map(async (e) => {
+      // an endpoint does not change networks: a recent answer is reused, so commands start without waiting
+      const seen = known[probeKey(e.url)];
+      if (seen && now - seen.at < (seen.genesis ? 7 * 86_400_000 : 10 * 60_000)) {
+        if (!seen.genesis) { e.removed = true; return { label: e.label, ok: false, detail: seen.error ?? "unreachable" }; }
+        if (genesisHash && seen.genesis !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(seen.genesis)})` }; }
+        return { label: e.label, ok: true, detail: clusterName(seen.genesis) };
+      }
       for (let attempt = 0; ; attempt++) {
         try {
           const g = await this.#single(e, "getGenesisHash", [], 8000);
           if (typeof g !== "string") throw new RpcError("server", "malformed answer");
+          known[probeKey(e.url)] = { genesis: g, at: now };
           if (genesisHash && g !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(g)})` }; }
           return { label: e.label, ok: true, detail: clusterName(g) };
         } catch (err) {
           if (attempt < 2 && (err as RpcError).kind !== "unsupported") { await sleep(400 * (attempt + 1)); continue; }
           e.removed = true;
+          known[probeKey(e.url)] = { genesis: null, error: (err as Error).message, at: now };
           return { label: e.label, ok: false, detail: (err as Error).message };
         }
       }
@@ -293,7 +310,8 @@ export class RpcPool {
       // a batchable call waits until a decent batch can go out, instead of dribbling one call per request
       const need = job.opts.batch && !e.batchOff ? Math.max(1, Math.min(e.batch, backlog, Math.floor(e.rate / 4))) : 1;
       if (e.tokens < need) continue;
-      const load = e.inflight / Math.max(1, e.rate) + e.latency / 1e6;
+      // spare capacity first (an endpoint that had to be slowed down counts as busier), then latency
+      const load = (e.inflight + 1) / Math.max(1, e.rate) + e.latency / 1e6;
       if (load < bestLoad) { bestLoad = load; best = e; }
     }
     if (best) return best;

@@ -1,19 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import readline from "node:readline/promises";
 import {
-  checkMachineName, enterMachine, imageReady, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
+  checkMachineName, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
+import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, insideMachine, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { homeDir, hostArch, loadConfig, openStore } from "../local/home.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { fmtBytes } from "../util/bytes.ts";
 import { UsageError, flag, type Args } from "./args.ts";
 import { confirm, pull, resolveImage } from "./cmd-image.ts";
-import { ProgressLine, bold, dim, green, info, ok, out, table } from "./term.ts";
+import { ProgressLine, bold, dim, green, info, ok, out, table, yellow } from "./term.ts";
 
-function engineHome(home = homeDir()): EngineHome {
+export function engineHome(home = homeDir()): EngineHome {
   return { images: path.join(home, "images"), machines: path.join(home, "machines"), cache: path.join(home, "cache") };
 }
 
@@ -22,7 +24,7 @@ function requireLinux(): void {
 }
 
 /** Runs an engine command as root: directly when we are root, through sudo otherwise. Returns the exit status. */
-function asRoot(args: string[]): number {
+export function asRoot(args: string[]): number {
   const self = [process.execPath, ...process.execArgv, process.argv[1]!, "_engine", homeDir(), process.env.TERM ?? "", ...args];
   if (process.getuid?.() === 0) return spawnSync(self[0]!, self.slice(1), { stdio: "inherit" }).status ?? 1;
   if (spawnSync("sh", ["-c", "command -v sudo"], { stdio: "ignore" }).status !== 0) {
@@ -73,7 +75,11 @@ export async function cmdRun(a: Args): Promise<void> {
     const found = await resolveImage(store, c, text, flag(a, "arch") ?? hostArch());
     let digest = found.ref.digest;
     if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, found.ref, `${found.name}:${found.tag}`)).manifest.digest;
-    machine = { name, image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest }, created: Math.floor(Date.now() / 1000) };
+    const r = found.ref;
+    machine = {
+      name, created: Math.floor(Date.now() / 1000),
+      image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize } },
+    };
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
     ok(`created machine ${bold(name)} from ${found.name}:${found.tag}`);
@@ -142,19 +148,58 @@ export async function cmdRmi(a: Args): Promise<void> {
 }
 
 /** Internal: `chainboot _engine <home> <term> <operation> ...`, always run as root. */
-export function cmdEngine(argv: string[]): void {
+export function cmdEngine(argv: string[]): void | Promise<void> {
   const [homePath, term, op, name, ...rest] = argv;
   if (!homePath || !op || !name) throw new Error("internal engine command used incorrectly");
   if (process.getuid?.() !== 0) throw new Error("the engine must run as root");
   if (term) process.env.TERM = term;
   const home = engineHome(homePath);
+  process.env.CHAINBOOT_HOME = homePath;
+  const line = new ProgressLine();
+  const say = (t: string) => info(t);
+  const progress = (phase: string, done: number, total: number) => line.update(done, total, phase === "uploading" || phase === "downloading" ? "bytes" : "count", phase[0]!.toUpperCase() + phase.slice(1));
+  const ask = async (q: string) => {
+    if (!process.stdin.isTTY) return false;
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    try { return /^y(es)?$/i.test((await rl.question(`${q} [y/N] `)).trim()); } finally { rl.close(); }
+  };
+  if (op === "check-inner") return checkInner(home, name).then((code) => { process.exit(code); });
   if (op === "enter") {
-    const line = new ProgressLine();
     line.start("Unpacking");
     let unpacked = false;
-    const pid = startMachine(home, name, () => {}, (done, total) => { unpacked = true; line.update(done, total, "count"); });
+    const wasRunning = initPid(machineDir(home, name)) !== null;
+    let pid = startMachine(home, name, () => {}, (done, total) => { unpacked = true; line.update(done, total, "count"); });
     line.done(unpacked ? "image unpacked" : undefined);
+    // signed in and this machine was saved before: continue from the newest save if another computer made one
+    if (!wasRunning && !process.env.CHAINBOOT_OFFLINE && readSaveStatus(machineDir(home, name))?.seq) {
+      const code = insideMachine(home, homePath, name, ["check-inner", name], "ignore");
+      if (code === CHECK_NEWER_CLEAN) {
+        info("A newer save of this machine is on chain (made on another computer). Updating to it.");
+        resetLayer(home, name);
+        if (insideMachine(home, homePath, name, ["restore-inner", name, "latest"]) !== 0) info(dim("The update did not complete; starting the machine as it is."));
+        pid = startMachine(home, name, () => {});
+      } else if (code === CHECK_NEWER_CONFLICT) {
+        info(`${yellow("!")} A newer save of this machine is on chain, but this copy also has changes that were not saved.`);
+        info(dim(`  Take the newer one with "chainboot restore ${name}", or keep this copy with "chainboot save ${name} --force".`));
+      }
+    }
     process.exitCode = enterMachine(home, name, pid, rest[0] === "--" ? rest.slice(1) : rest);
+    if (autosaveInBackground(home, homePath, name)) info(dim("Changes are saved to Solana in the background. Check with: chainboot status"));
+    return;
+  }
+  if (op === "save") { process.exitCode = insideMachine(home, homePath, name, ["save-inner", name, ...rest], rest.includes("--auto") ? "ignore" : "inherit"); return; }
+  if (op === "save-inner") {
+    const noteAt = rest.indexOf("--note");
+    return saveInner(home, name, { force: rest.includes("--force"), auto: rest.includes("--auto"), yes: rest.includes("--yes"), note: noteAt >= 0 ? rest[noteAt + 1] : undefined }, say, progress, ask)
+      .then((status) => { line.done(); process.exitCode = status; });
+  }
+  if (op === "restore") { resetLayer(home, name); process.exitCode = insideMachine(home, homePath, name, ["restore-inner", name, ...rest]); return; }
+  if (op === "restore-inner") {
+    return restoreInner(home, name, rest[0] && rest[0] !== "latest" ? Number(rest[0]) : null, say, progress).then((status) => { line.done(); process.exitCode = status; });
+  }
+  if (op === "autosave") {
+    const off = path.join(machineDir(home, name), "autosave-off");
+    if (rest[0] === "off") { fs.writeFileSync(off, ""); ok(`automatic saving is off for ${name}`); } else { fs.rmSync(off, { force: true }); ok(`automatic saving is on for ${name}`); }
     return;
   }
   if (op === "stop") { if (stopMachine(home, name)) ok(`stopped ${name}`); else info(`${name} is not running`); return; }

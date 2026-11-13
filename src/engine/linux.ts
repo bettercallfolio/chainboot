@@ -19,7 +19,11 @@ import { parseManifest, type ImageManifest } from "../image/manifest.ts";
 
 export interface MachineInfo {
   name: string;
-  image: { publisher: string; name: string; tag: string; arch: string; digest: string };
+  image: {
+    publisher: string; name: string; tag: string; arch: string; digest: string;
+    /** Where the image's manifest is on chain, so the exact same image can be fetched again later. */
+    manifest: { sig: string; sha256: string; size: number; codec: "xz" | "zstd" | "raw"; rawSize: number };
+  };
   created: number;
 }
 
@@ -136,10 +140,15 @@ done
 hostname "$CB_NAME"
 trap - EXIT
 : > "$CB_DIR/ready"
-# wait for the first session, then stay for as long as any session holds the lock
+# wait for the first session, then stay for as long as any session holds the lock.
+# The machine lingers a moment after the last session, so commands that follow each other reuse it.
 n=0
 while [ ! -e "$CB_DIR/attached" ] && [ "$n" -lt 120 ]; do sleep 0.25; n=$((n+1)); done
-while ! flock -n -x "$CB_DIR/lock" true 2>/dev/null; do sleep 1; done
+free=0
+while [ "$free" -lt 4 ]; do
+  if flock -n -x "$CB_DIR/lock" true 2>/dev/null; then free=$((free+1)); else free=0; fi
+  sleep 0.5
+done
 `;
 
 function hostResolvConf(): string {

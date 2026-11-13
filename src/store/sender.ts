@@ -261,4 +261,35 @@ export class TxSender {
   }
 }
 
+/**
+ * Sends one ordinary transaction (for example a transfer) and waits until the network confirms it.
+ * `build` is called with a fresh blockhash, again if the first attempt expires.
+ */
+export async function sendAndConfirm(pool: RpcPool, build: (blockhash: Buffer) => { signature: string; raw: Buffer }, timeoutMs = 90_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "the network did not confirm the transaction in time";
+  while (Date.now() < deadline) {
+    const bh = await pool.call<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [{ commitment: "confirmed" }], { urgent: true });
+    const tx = build(b58decodeFixed(bh.value.blockhash, 32, "blockhash"));
+    try {
+      await pool.call("sendTransaction", [tx.raw.toString("base64"), { encoding: "base64", skipPreflight: false, maxRetries: 3 }], { attempts: 4, timeoutMs: 15_000 });
+    } catch (e) {
+      // a simulation failure (no funds, bad account) will not get better by trying again
+      if (/simulation failed|insufficient|invalid/i.test((e as Error).message)) throw new Error(`the network rejected the transaction: ${(e as Error).message}`);
+      lastError = (e as Error).message;
+    }
+    for (let i = 0; i < 60 && Date.now() < deadline; i++) {
+      await sleep(500);
+      const st = (await pool.call<{ value: (SigStatus | null)[] }>("getSignatureStatuses", [[tx.signature]], { urgent: true }).catch(() => ({ value: [null] }))).value[0];
+      if (st?.err) throw new Error(`the transaction failed on chain: ${JSON.stringify(st.err)}`);
+      if (st?.confirmationStatus === "confirmed" || st?.confirmationStatus === "finalized") return tx.signature;
+      if (!st && i > 10) {
+        const height = await pool.call<number>("getBlockHeight", [{ commitment: "confirmed" }], { urgent: true }).catch(() => 0);
+        if (height > bh.value.lastValidBlockHeight) break; // expired: sign again with a new blockhash
+      }
+    }
+  }
+  throw new Error(lastError);
+}
+
 interface SigStatus { slot: number; err: unknown; confirmationStatus?: "processed" | "confirmed" | "finalized" }

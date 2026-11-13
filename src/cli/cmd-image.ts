@@ -6,7 +6,7 @@ import { buildImage } from "../image/build.ts";
 import { decompressAuto, readTar } from "../image/tar.ts";
 import { serializeManifest, type ImageManifest } from "../image/manifest.ts";
 import { hostArch, loadConfig, openStore, paths, resolvePublisher, type Config } from "../local/home.ts";
-import { parseImageName, publishImage, pullImage, readCatalog, unlistImage, type ImageRef, type PulledImage } from "../registry/registry.ts";
+import { parseImageName, publishImage, pullImage, readCatalog, unlistImage, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
 import { Keypair } from "../solana/keys.ts";
 import { ChainStore } from "../store/store.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
@@ -46,14 +46,14 @@ export async function resolveImage(store: ChainStore, c: Config, text: string, a
 }
 
 /** Downloads an image into the local cache (or finds it there) with a progress line. */
-export async function pull(store: ChainStore, publisher: string, ref: ImageRef, label: string): Promise<PulledImage> {
+export async function pull(store: ChainStore, publisher: string, ref: StoredRef & { digest: string }, label: string): Promise<PulledImage> {
   const line = new ProgressLine();
   line.start(`Downloading ${label}`);
   const pulled = await pullImage(store, publisher, ref, {
     cacheDir: paths.cache(),
     onProgress: (p) => { if (p.phase === "download") line.update(p.done, p.total); },
   });
-  line.done(`${label} is ready (${fmtBytes(ref.downloadSize)} verified)`);
+  line.done(`${label} is ready (${fmtBytes(ref.size + pulled.manifest.packs.reduce((n, p) => n + p.size, 0))} verified)`);
   const dir = path.join(paths.images(), pulled.manifest.digest);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "manifest.json"), serializeManifest(pulled.manifest));
