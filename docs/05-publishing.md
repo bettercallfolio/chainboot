@@ -288,7 +288,7 @@ the list needs. Tags that name a version do not move and are not affected.
   places are left out automatically.
 - **Honest metadata.** Fill in `--description` and `--source-url`. The manifest also records
   the SHA-256 of the archive you published from.
-- **Reproducible.** The image's digest depends only on its files. Tell people how you built
+- **Reproducible.** The image's digest depends only on its files and its start command. Tell people how you built
   the archive, and they can rebuild it and compare digests with `chainboot publish --dry-run`.
 
 ## Showing your catalog to others

@@ -12,9 +12,8 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const docsDir = path.join(root, "docs"), outDir = path.join(root, "site", "docs");
 const REPO = "https://github.com/bettercallfolio/chainboot";
-// Pre-release mode hides the links into the repository and leaves the reader out of the site.
-// It was on while the repository was private; set it to true (and add class="prelaunch" to the
-// body of site/index.html) to go back to it.
+// Pre-release mode builds the documentation pages without links into the repository and
+// leaves the reader out of the site. It was on while the repository was private.
 const PRELAUNCH = false;
 
 // The reader for browsers (web/reader + the bundled src/browser/reader.ts) becomes site/reader.
@@ -39,6 +38,8 @@ async function staleReader() {
     return [...names].filter((n) => !fs.existsSync(path.join(live, n)) || !fs.existsSync(path.join(fresh, n)) || !fs.readFileSync(path.join(live, n)).equals(fs.readFileSync(path.join(fresh, n)))).map((n) => `reader/${n}`);
   } finally { fs.rmSync(fresh, { recursive: true, force: true }); }
 }
+
+const GITHUB_MARK = '<svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (text) => text.toLowerCase().replace(/`/g, "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
@@ -189,7 +190,7 @@ function page({ title, description, body, current }) {
 </head>
 <body class="docs-page${PRELAUNCH ? " prelaunch" : ""}">
 <a class="skip" href="#main">Skip to content</a>
-<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
+${PRELAUNCH ? '<p class="soon" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>' : ""}
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -198,10 +199,13 @@ function page({ title, description, body, current }) {
       <a href="../index.html#systems">systems</a>
       <a href="../index.html#save">save</a>
       <a href="../index.html#publish">publish</a>
-      <a href="../index.html#sdk">sdk</a>
+      <a href="../index.html#sdk">sdk</a>${PRELAUNCH ? "" : '\n      <a href="../reader/">reader</a>'}
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
+    <div class="bar-end">${PRELAUNCH ? "" : `
+      <a class="btn small" href="${REPO}" rel="noopener" aria-label="chainboot on GitHub">${GITHUB_MARK}<span>GitHub</span></a>`}
+      <a class="btn primary small" href="../index.html#install">${PRELAUNCH ? "coming soon" : "install"}</a>
+    </div>
   </div>
 </header>
 <div class="wrap docs">

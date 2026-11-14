@@ -12,7 +12,7 @@
 </head>
 <body class="docs-page">
 <a class="skip" href="#main">Skip to content</a>
-<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
+
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -22,9 +22,13 @@
       <a href="../index.html#save">save</a>
       <a href="../index.html#publish">publish</a>
       <a href="../index.html#sdk">sdk</a>
+      <a href="../reader/">reader</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
+    <div class="bar-end">
+      <a class="btn small" href="https://github.com/bettercallfolio/chainboot" rel="noopener" aria-label="chainboot on GitHub"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+      <a class="btn primary small" href="../index.html#install">install</a>
+    </div>
   </div>
 </header>
 <div class="wrap docs">
@@ -53,7 +57,7 @@
 <p><strong>Is the operating system really on the blockchain?</strong> Yes. Every byte of every file is inside Solana transactions. There is no link to a file server, no IPFS, no cloud bucket. You can check: <code>chainboot pull solinux</code> talks only to the RPC endpoints you configured.</p>
 <p><strong>Then what do I download when I install chainboot?</strong> The program that reads the chain: one JavaScript file of under 500 kB, plus Node.js if you do not have it. On Windows and macOS also a small Linux environment to run machines in. The systems you run come from the chain.</p>
 <p><strong>Why do I need my own RPC endpoint?</strong> Because there is no chainboot server, and that is the point. An endpoint is your door to the network. Free plans are enough.</p>
-<p><strong>Is it slow?</strong> No. Programs run directly on your processor. Download speed depends on your endpoints: about a second for Ubuntu minimal with one keyed endpoint.</p>
+<p><strong>Is it slow?</strong> No. Programs run directly on your processor. Download speed depends on your endpoints: one to three seconds for Ubuntu minimal (22 MB) through one endpoint with an API key, and about a hundred seconds through the public endpoint alone.</p>
 <p><strong>What does it cost?</strong> Running and reading: nothing. Publishing or saving: 0.000005 SOL per transaction, about 0.0013 SOL per megabyte. See <a href="08-networks-and-costs.html">Networks and costs</a>.</p>
 <p><strong>Can I delete something I published or saved?</strong> You can remove it from your catalog or stop pointing at it. You cannot erase it from the ledger. Saves are encrypted, and so are the images you publish unless you publish them with <code>--public</code>: what is encrypted stays unreadable for everyone else, also after you stop pointing at it.</p>
 <p><strong>Is Solinux an official Ubuntu?</strong> No. It is Canonical's official Ubuntu base archive, unchanged, plus for the larger edition packages installed from Ubuntu's own repositories. The packaging on chain is this project's and is not affiliated with Canonical.</p>

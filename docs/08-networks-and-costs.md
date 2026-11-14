@@ -143,19 +143,22 @@ for this; it uses the SPL Record program, which is on devnet and mainnet.
 
 Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):
 
-| Endpoints | Time to download and verify |
+| Endpoints | Time to download |
 |---|---|
-| 13 endpoints of several providers | about 1 second |
-| one endpoint of a provider with an API key (two were tried) | 0.7 to 1.5 seconds |
+| 14 endpoints of several providers | 1.3 seconds |
+| one endpoint of a provider with an API key (four providers were tried) | 1 to 3 seconds with three of them, 6 to 14 with the fourth |
 | only the public `api.devnet.solana.com` | about 100 seconds |
+
+Checking the download (unpacking it and hashing every file) takes another 1.6 seconds, and
+connecting to 14 endpoints about 2 seconds the first time.
 
 The public endpoints are meant for light use and limit requests strictly. A free account at
 any provider is the single biggest speed-up.
 
 A [lazy machine](03-machines.md#lazy-machines-start-before-the-download-is-done) does not
 wait for the download at all: the full Solinux (114 MB on chain, 504 MB of files) answers
-its first command 6.7 seconds after `chainboot run solinux:lazy --lazy` on a computer that
-has nothing yet, against 18.4 seconds the ordinary way.
+its first command about 4 seconds after `chainboot run solinux:lazy --lazy` on a computer that
+has nothing yet, against about 15 seconds the ordinary way.
 
 Finding the newest pointer (the first step of every `list`, `run` and `restore`) takes one
 request when its owner keeps it in an account, instead of a history lookup and a second

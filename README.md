@@ -33,7 +33,7 @@ Sit down at another computer, sign in, type the same command, and continue where
 - **No trust in the middle.** RPC endpoints only deliver bytes. chainboot verifies signatures
   and hashes, so a wrong or dishonest endpoint cannot change what you run.
 - **Fast.** One request can return hundreds of transactions (a whole block). Ubuntu minimal
-  (22 MB) downloads in about one second, even through a single free endpoint.
+  (22 MB) downloads in one to three seconds through a single endpoint with an API key.
 - **Yours.** Your machines are encrypted with a key that only your wallet can make. No
   account, no company, no server that can be switched off.
 - **Private by default.** `chainboot publish` stores a whole system that only your wallet can
@@ -113,8 +113,9 @@ chainboot run solinux         # brings your machine back and opens it
 | `solinux-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
 | `alpine` | Alpine Linux 3.24 (amd64, arm64) | 3 MB | 8 MB | 0.004 SOL |
 
-Measured on a cloud machine with 13 RPC endpoints, from an empty cache to a shell prompt:
-Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
+Measured on a cloud machine with 14 RPC endpoints, from an empty cache to a running system:
+Alpine 3 s, Solinux minimal 4 s, Solinux 15 s (4 s as a lazy machine, `--lazy`). Every later
+start takes 0.2 s.
 
 ## What works today
 

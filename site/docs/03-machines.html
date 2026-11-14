@@ -12,7 +12,7 @@
 </head>
 <body class="docs-page">
 <a class="skip" href="#main">Skip to content</a>
-<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon; commands in these guides start working then.</p>
+
 <header class="nav">
   <div class="wrap bar">
     <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
@@ -22,9 +22,13 @@
       <a href="../index.html#save">save</a>
       <a href="../index.html#publish">publish</a>
       <a href="../index.html#sdk">sdk</a>
+      <a href="../reader/">reader</a>
       <a href="index.html" aria-current="page">docs</a>
     </nav>
-    <a class="btn primary small" href="../index.html#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
+    <div class="bar-end">
+      <a class="btn small" href="https://github.com/bettercallfolio/chainboot" rel="noopener" aria-label="chainboot on GitHub"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+      <a class="btn primary small" href="../index.html#install">install</a>
+    </div>
   </div>
 </header>
 <div class="wrap docs">
@@ -94,7 +98,7 @@ root@server:~# journalctl -u nginx</code></pre><button class="copy" type="button
 <div class="code-wrap"><pre><code>chainboot run solinux:lazy --lazy --name quick</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>How it works: beside the machine runs a small server process that shows the image as a file system (through the kernel's FUSE interface, which needs no extra software). When something reads a file, the server fetches the pack that holds it, checks it against the manifest and keeps it in the cache; from then on that file is read from disk. Nothing is unpacked, so a large system does not spend ten seconds writing thirty thousand files it may never use.</p>
 <p>Measured on a computer that had nothing yet, from typing the command to the output of the first command inside the machine (devnet, a dozen endpoints):</p>
-<div class="table-wrap"><table><thead><tr><th></th><th>ordinary</th><th>lazy</th></tr></thead><tbody><tr><td>Solinux (504 MB of files)</td><td>18.4 s</td><td>6.7 s</td></tr><tr><td>Solinux minimal (90 MB of files)</td><td>7.8 s</td><td>5.6 s</td></tr><tr><td>disk used after a shell, git, python and <code>apt-get update</code> (Solinux)</td><td>665 MB</td><td>76 MB</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th></th><th>ordinary</th><th>lazy</th></tr></thead><tbody><tr><td>Solinux (504 MB of files)</td><td>15 s</td><td>4 s</td></tr><tr><td>Solinux minimal (90 MB of files)</td><td>4 s</td><td>2.4 s</td></tr><tr><td>disk used after a shell, git, python and <code>apt-get update</code> (Solinux)</td><td>665 MB</td><td>76 MB</td></tr></tbody></table></div>
 <p>On a computer that has the image already, an ordinary machine starts in 0.2 s and a lazy one in under a second; lazy pays off on the first start, and for systems much larger than what you use of them.</p>
 <ul><li><strong>Use an image stored for it.</strong> Any image can be run with <code>--lazy</code>, but an ordinary image is stored in a few large packs, and reading one file means fetching the pack it is in. Images published with <code>--lazy</code> are stored in many small packs, with the files that a start needs first; those are fetched ahead while the machine comes up. The official images have such a variant under the tag <code>lazy</code> (<code>solinux:lazy</code>, <code>solinux-minimal:lazy</code>; amd64).</li><li><strong>The first use of a program can pause</strong> for a moment while its files arrive. After that it is as fast as in any machine, and nothing is fetched twice.</li><li><strong>It needs the network while files are still missing.</strong> A machine that has read everything it uses works offline; <code>chainboot pull &lt;image&gt;</code> fetches the rest.</li><li><strong>Everything else is the same</strong>: changes, saving, restoring, sharing, <code>--boot</code>, with or without administrator rights. The server runs outside the machine; programs in the machine neither see it nor can they stop it.</li><li><strong>What it reads is written down.</strong> When a lazy machine stops, the list of files it read, in order, is in <code>~/.chainboot/machines/&lt;name&gt;/lazy-files.txt</code>. A publisher uses that list to store those files first (<a href="05-publishing.html#images-for-lazy-machines">Publishing</a>).</li></ul>
 <p>Needs <code>/dev/fuse</code>, which every mainstream Linux has.</p>

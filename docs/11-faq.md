@@ -18,7 +18,8 @@ network. Free plans are enough.
 
 **Is it slow?**
 No. Programs run directly on your processor. Download speed depends on your endpoints:
-about a second for Ubuntu minimal with one keyed endpoint.
+one to three seconds for Ubuntu minimal (22 MB) through one endpoint with an API key, and
+about a hundred seconds through the public endpoint alone.
 
 **What does it cost?**
 Running and reading: nothing. Publishing or saving: 0.000005 SOL per transaction, about

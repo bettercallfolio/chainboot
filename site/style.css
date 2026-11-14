@@ -40,6 +40,9 @@ b { font-weight: 700; color: var(--text); }
 .btn.quiet { border-color: transparent; color: var(--dim); }
 .btn.quiet:hover { color: var(--text); }
 .btn.small { height: 34px; padding: 0 14px; font-size: 14px; }
+.btn .gh { flex: none; margin-right: 9px; }
+.btn.small .gh { margin-right: 7px; width: 15px; height: 15px; }
+.bar-end { display: flex; align-items: center; gap: 10px; }
 
 /* hero */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; padding-top: 72px; padding-bottom: 64px; }
@@ -80,7 +83,22 @@ h3 { font-size: 15px; margin: 0 0 6px; }
 .step { display: grid; grid-template-columns: 32px 1fr; gap: 16px; }
 .step .n { width: 32px; height: 32px; border: 1px solid var(--line-strong); border-radius: 50%; display: grid; place-items: center; color: var(--accent); font-size: 14px; }
 .step p { margin: 0; color: var(--dim); }
-.diagram { margin: 0; background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 22px 22px; font: 12.5px/1.75 var(--mono); color: var(--text); overflow-x: auto; }
+.diagram { margin: 0; background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 26px 28px; display: grid; gap: 26px; }
+.diagram svg { display: block; width: 100%; height: auto; font-family: var(--mono); overflow: visible; }
+.diagram svg + svg { border-top: 1px solid var(--line); padding-top: 26px; }
+.diagram text { fill: var(--text); font-size: 12.5px; }
+.diagram text.s { font-size: 9.5px; fill: var(--accent); }
+.diagram text.d { fill: var(--dim); font-size: 10.5px; }
+.diagram text.t { fill: var(--accent); font-size: 11px; }
+.diagram text.b { font-weight: 700; font-size: 13.5px; }
+.diagram .bx { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; }
+.diagram .bx.a { stroke: var(--accent); fill: rgba(134, 199, 164, 0.07); }
+.diagram .bx.chain { fill: rgba(134, 199, 164, 0.05); stroke: var(--accent); stroke-dasharray: 3 4; }
+.diagram .lf { fill: rgba(134, 199, 164, 0.13); stroke: var(--accent); stroke-width: 1; }
+.diagram .ln { stroke: var(--line-strong); stroke-width: 1.2; fill: none; }
+.diagram .ln.dash { stroke-dasharray: 2 4; }
+.diagram .ar { stroke: var(--dim); stroke-width: 1.2; fill: none; marker-end: url(#ah); }
+.diagram .ah { fill: var(--dim); }
 
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .grid article { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 20px 22px; }
@@ -166,7 +184,8 @@ footer { margin-top: 96px; border-top: 1px solid var(--line); padding: 28px 0 36
   .next span { grid-column: 2; }
   .term-body { font-size: 12.5px; padding: 14px 14px 16px; }
   .hero .term-body { min-height: 300px; }
-  .diagram { font-size: 9.8px; padding: 16px 12px; }
+  .diagram { padding: 18px 16px; gap: 18px; }
+  .diagram svg + svg { padding-top: 18px; }
   .install { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -85,7 +85,8 @@ of a Linux system. chainboot stores an image as two kinds of objects:
 - **A manifest.** A list with one line per file, directory and link: its path, owner,
   permissions, time, hash, and where its content sits inside the packs.
 
-The manifest has a **digest**: a hash over all those lines. It depends only on the files,
+The manifest has a **digest**: a hash over all those lines (and over the command the system
+starts with, if the image sets one). It depends only on the files and that command,
 not on how they were packed. Anyone who packages the same system gets the same digest, and
 anyone can recompute it from an unpacked system.
 
@@ -104,8 +105,11 @@ publisher's pointer  ->  catalog  ->  manifest  ->  packs
 ```
 
 Only the publisher can move their pointer, because readers ignore pointer transactions that
-were not signed by the publisher's key. The name `solinux` without a publisher means "from
-the official chainboot publisher". For anybody else you write `<their-address>/<image>`.
+were not signed by the publisher's key. Each pointer also carries a number that the
+publisher signed with it, and the highest number is the newest: an endpoint can therefore
+neither invent a pointer nor pass off an old one as the current one. The name `solinux`
+without a publisher means "from the official chainboot publisher". For anybody else you
+write `<their-address>/<image>`.
 
 ## Part 3: running it
 

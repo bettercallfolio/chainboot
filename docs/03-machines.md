@@ -152,8 +152,8 @@ first command inside the machine (devnet, a dozen endpoints):
 
 | | ordinary | lazy |
 |---|---|---|
-| Solinux (504 MB of files) | 18.4 s | 6.7 s |
-| Solinux minimal (90 MB of files) | 7.8 s | 5.6 s |
+| Solinux (504 MB of files) | 15 s | 4 s |
+| Solinux minimal (90 MB of files) | 4 s | 2.4 s |
 | disk used after a shell, git, python and `apt-get update` (Solinux) | 665 MB | 76 MB |
 
 On a computer that has the image already, an ordinary machine starts in 0.2 s and a lazy one

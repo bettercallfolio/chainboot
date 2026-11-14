@@ -14,11 +14,8 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
-<!-- <body class="prelaunch"> would hide the links to the repository and mark the installer as not yet available
-     (see PRELAUNCH in scripts/build-site.mjs). -->
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<p class="soon prelaunch-only" role="note">Preview: chainboot is not released yet. The repository and the installer open soon. Questions: <a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a></p>
 
 <header class="nav">
   <div class="wrap bar">
@@ -29,10 +26,13 @@
       <a href="#save">save</a>
       <a href="#publish">publish</a>
       <a href="#sdk">sdk</a>
-      <a href="reader/" data-public>reader</a>
+      <a href="reader/">reader</a>
       <a href="docs/index.html">docs</a>
     </nav>
-    <a class="btn primary small" href="#install"><span data-public>install</span><span class="prelaunch-only">coming soon</span></a>
+    <div class="bar-end">
+      <a class="btn small" href="https://github.com/bettercallfolio/chainboot" rel="noopener" aria-label="chainboot on GitHub"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+      <a class="btn primary small" href="#install">install</a>
+    </div>
   </div>
 </header>
 
@@ -44,10 +44,9 @@
     <h1>Boot an operating system from a blockchain.</h1>
     <p class="lead">chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer, in your own terminal, at native speed. There is no server in between: it reads the chain through the RPC endpoints you give it and checks every byte.</p>
     <div class="cta">
-      <a class="btn primary" href="#install" data-public>Install</a>
-      <a class="btn" href="#how">How it works</a>
-      <a class="btn" href="docs/index.html">Read the docs</a>
-      <a class="btn quiet" href="https://github.com/bettercallfolio/chainboot" data-public>GitHub</a>
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn" href="https://github.com/bettercallfolio/chainboot" rel="noopener"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>View on GitHub</span></a>
+      <a class="btn" href="docs/index.html">Docs</a>
     </div>
   </div>
 
@@ -58,7 +57,7 @@
 </section>
 
 <section class="wrap stats" aria-label="Measured numbers">
-  <div><b>~1 s</b><span>to download and verify Ubuntu base (22 MB) through one RPC endpoint</span></div>
+  <div><b>1 to 3 s</b><span>to download Ubuntu base (22 MB) through one RPC endpoint with an API key</span></div>
   <div><b>0.2 s</b><span>to open a machine you already have</span></div>
   <div><b>0.0013 SOL</b><span>to store one megabyte, forever</span></div>
   <div><b>0</b><span>servers between you and the chain</span></div>
@@ -71,24 +70,45 @@
     <div class="steps">
       <div class="step"><span class="n">1</span><div><h3>Files become transactions</h3><p>A Solana transaction can carry 3,912 bytes of free data for a fixed fee of 0.000005 SOL. chainboot cuts a file into pieces and puts each piece into a transaction.</p></div></div>
       <div class="step"><span class="n">2</span><div><h3>One signature is the address</h3><p>Lists of signatures are stored the same way, forming a small tree. The signature of the top transaction is all you need to find a file of any size, with its size and SHA-256.</p></div></div>
-      <div class="step"><span class="n">3</span><div><h3>Whole blocks, not single requests</h3><p>One request returns a whole block with hundreds of the file's transactions. That is why a single free endpoint downloads Ubuntu in about a second.</p></div></div>
+      <div class="step"><span class="n">3</span><div><h3>Whole blocks, not single requests</h3><p>One request returns a whole block with hundreds of the file's transactions. That is why a single endpoint with an API key downloads Ubuntu base in one to three seconds.</p></div></div>
       <div class="step"><span class="n">4</span><div><h3>Verified, then run natively</h3><p>Signatures and hashes are checked before anything is used. The system is unpacked once and runs directly on your processor: no emulation.</p></div></div>
     </div>
-    <pre class="diagram" aria-label="Diagram: a head transaction points to branch transactions, which point to leaf transactions that carry the file. Publishing turns a root file system into transactions on the Solana ledger; running fetches blocks, verifies them and unpacks the system once.">
-              head              <span class="c">the file's address</span>
-            /  |  \             <span class="c">size + SHA-256</span>
-      branch branch branch      <span class="c">61 signatures each</span>
-      / | \     ...
-   leaf leaf leaf               <span class="c">3,912 bytes each</span>
-
- <span class="c">publish</span>                     <span class="c">run</span>
- root file system            chainboot run solinux
-      | pack + xz                 | pointer, catalog,
-      v                           v manifest
- transactions --> <b>Solana</b> --> blocks, verified
-      |           ledger          | unpack once
-      v                           v
- catalog + pointer           image + changes = machine</pre>
+    <figure class="diagram" role="img" aria-label="Diagram. Top: one file on chain is a small tree. A head transaction, which is the file's address and holds its size and SHA-256, points to branch transactions with 61 signatures each, which point to leaf transactions that carry 3,912 bytes of the file each. Bottom: publishing packs a root file system into transactions on the Solana ledger and lists it in a catalog; running fetches pointer, catalog and manifest, downloads and verifies whole blocks, unpacks once and adds your changes, which gives your machine.">
+      <svg viewBox="0 0 460 208" aria-hidden="true">
+        <text class="t" x="0" y="11">one file on chain</text>
+        <path class="ln" d="M150 60 L52 96 M150 60 L150 96 M150 60 L248 96"/>
+        <path class="ln" d="M52 128 L22 164 M52 128 L52 164 M52 128 L82 164"/>
+        <path class="ln dash" d="M150 128 L150 158 M248 128 L248 158"/>
+        <rect class="bx a" x="106" y="28" width="88" height="32" rx="6"/><text x="150" y="48.5" text-anchor="middle">head</text>
+        <rect class="bx" x="8" y="96" width="88" height="32" rx="6"/><text x="52" y="116.5" text-anchor="middle">branch</text>
+        <rect class="bx" x="106" y="96" width="88" height="32" rx="6"/><text x="150" y="116.5" text-anchor="middle">branch</text>
+        <rect class="bx" x="204" y="96" width="88" height="32" rx="6"/><text x="248" y="116.5" text-anchor="middle">branch</text>
+        <rect class="lf" x="8" y="164" width="28" height="26" rx="5"/><text class="s" x="22" y="181" text-anchor="middle">leaf</text>
+        <rect class="lf" x="38" y="164" width="28" height="26" rx="5"/><text class="s" x="52" y="181" text-anchor="middle">leaf</text>
+        <rect class="lf" x="68" y="164" width="28" height="26" rx="5"/><text class="s" x="82" y="181" text-anchor="middle">leaf</text>
+        <text class="d" x="150" y="181" text-anchor="middle">· · ·</text><text class="d" x="248" y="181" text-anchor="middle">· · ·</text>
+        <text x="316" y="42">the file's address</text><text class="d" x="316" y="58">its size and SHA-256</text>
+        <text x="316" y="110">61 signatures each</text><text class="d" x="316" y="126">a list of the pieces</text>
+        <text x="316" y="175">3,912 bytes each</text><text class="d" x="316" y="191">the file itself</text>
+      </svg>
+      <svg viewBox="0 0 460 232" aria-hidden="true">
+        <defs><marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0 L8 4 L0 8 Z"/></marker></defs>
+        <text class="t" x="0" y="11">publish</text><text class="t" x="304" y="11">run</text>
+        <rect class="bx" x="0" y="26" width="152" height="34" rx="6"/><text x="76" y="47.5" text-anchor="middle">root file system</text>
+        <path class="ar" d="M22 60 L22 102"/><text class="d" x="34" y="85">pack + xz</text>
+        <rect class="bx a" x="0" y="104" width="152" height="34" rx="6"/><text x="76" y="125.5" text-anchor="middle">transactions</text>
+        <path class="ar" d="M22 138 L22 180"/><text class="d" x="34" y="163">listed in</text>
+        <rect class="bx" x="0" y="182" width="152" height="34" rx="6"/><text x="76" y="203.5" text-anchor="middle">catalog + pointer</text>
+        <rect class="bx chain" x="186" y="26" width="88" height="190" rx="8"/>
+        <text class="b" x="230" y="118" text-anchor="middle">Solana</text><text class="d" x="230" y="135" text-anchor="middle">ledger</text>
+        <path class="ar" d="M152 121 L184 121"/><path class="ar" d="M274 121 L306 121"/>
+        <rect class="bx" x="308" y="26" width="152" height="34" rx="6"/><text x="384" y="47.5" text-anchor="middle">chainboot run</text>
+        <path class="ar" d="M330 60 L330 102"/><text class="d" x="342" y="78">pointer, catalog,</text><text class="d" x="342" y="92">manifest</text>
+        <rect class="bx a" x="308" y="104" width="152" height="34" rx="6"/><text x="384" y="125.5" text-anchor="middle">blocks, verified</text>
+        <path class="ar" d="M330 138 L330 180"/><text class="d" x="342" y="156">unpack once,</text><text class="d" x="342" y="170">add your changes</text>
+        <rect class="bx" x="308" y="182" width="152" height="34" rx="6"/><text x="384" y="203.5" text-anchor="middle">your machine</text>
+      </svg>
+    </figure>
   </div>
 </section>
 
@@ -105,6 +125,22 @@
   </div>
 </section>
 
+<section class="wrap" id="more">
+  <p class="label"># and more</p>
+  <h2>A machine is only the beginning.</h2>
+  <div class="grid">
+    <article><h3><span class="mark">[~]</span> No administrator rights</h3><p>Machines run in a user namespace: no <code>sudo</code>, no password. Where a computer does not allow that, they run through <code>sudo</code>.</p></article>
+    <article><h3><span class="mark">[@]</span> Boots like a server</h3><p>With <code>--boot</code> the system's own systemd starts: services, timers, logs, and a network of its own for the machine.</p></article>
+    <article><h3><span class="mark">[z]</span> Starts before the download</h3><p>A lazy machine fetches each file from the chain when it is first read. Solinux opens in about 4 seconds instead of 15.</p></article>
+    <article><h3><span class="mark">[&amp;]</span> Shared between wallets</h3><p>Give one other wallet a saved machine or a private image. Nothing is uploaded again: they receive the keys of exactly that.</p></article>
+    <article><h3><span class="mark">[=]</span> Catalogs kept together</h3><p><code>list:2:A,B,C</code>: a system counts when two of three publishers have the very same one. No single key can change it.</p></article>
+    <article><h3><span class="mark">[1]</span> Found with one request</h3><p>The pointer to your newest catalog or save can also live in an account: one request reads it, and nobody else can write there.</p></article>
+    <article><h3><span class="mark">[o]</span> Onto a real disk</h3><p><code>chainboot disk</code> writes a machine out with its own kernel, as a UEFI disk for a PC or a virtual machine.</p></article>
+    <article><h3><span class="mark">[w]</span> Read in a browser</h3><p>A 30 kB script finds, downloads and verifies a system with nothing but <code>fetch</code> and WebCrypto. <a href="reader/">Try the reader.</a></p></article>
+    <article><h3><span class="mark">[x]</span> Other chains</h3><p>Any chain that answers Solana's RPC is added by name. Where the Noop program is missing, the Memo program carries the data.</p></article>
+  </div>
+</section>
+
 <section class="wrap" id="systems">
   <p class="label"># chainboot list</p>
   <h2>On chain right now.</h2>
@@ -114,7 +150,7 @@
     <div class="tr" role="row"><span role="cell"><b>solinux-minimal</b></span><span role="cell">Ubuntu 26.04.1 LTS base system</span><span role="cell">amd64, arm64</span><span role="cell">22 MB</span><span role="cell">0.028 SOL</span></div>
     <div class="tr" role="row"><span role="cell"><b>alpine</b></span><span role="cell">Alpine Linux 3.24</span><span role="cell">amd64, arm64</span><span role="cell">3 MB</span><span role="cell">0.004 SOL</span></div>
   </div>
-  <p class="note">Measured on Solana devnet. From an empty cache to a shell prompt with 13 endpoints: Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start: 0.2 s.</p>
+  <p class="note">Measured on Solana devnet, on a cloud computer with 14 endpoints. From an empty cache to a running system: Alpine 3 s, Solinux minimal 4 s, Solinux 15 s (4 s as a lazy machine). Every later start: 0.2 s.</p>
 </section>
 
 <section class="wrap" id="save">
@@ -167,7 +203,7 @@
       <ul class="ticks">
         <li><b>Private by default.</b> A ledger never forgets, so the safe choice is the default. Only your wallet can list, fetch or read what you publish.</li>
         <li><b>Pay only for what is new.</b> Files that are already on chain, like the Ubuntu base, are referenced, not uploaded again.</li>
-        <li><b>Reproducible.</b> An image's digest depends only on its files. Anyone can rebuild and compare.</li>
+        <li><b>Reproducible.</b> An image's digest depends only on its files and its start command. Anyone can rebuild and compare.</li>
         <li><b>No program to deploy.</b> Everything uses ordinary transactions and the existing Noop program.</li>
       </ul>
     </div>
@@ -206,7 +242,6 @@
 <section class="wrap" id="install">
   <p class="label"># install</p>
   <h2>One line. No administrator rights.</h2>
-  <p class="soon-note prelaunch-only">Not available yet. These commands start working when the repository is opened to the public.</p>
   <div class="install">
     <div class="tabs" role="tablist" aria-label="Operating system">
       <button role="tab" aria-selected="true" aria-controls="cmd" data-cmd="curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh">Linux · macOS · WSL</button>
@@ -231,11 +266,12 @@
       <h3 class="ok">works today</h3>
       <ul class="plain">
         <li>Publish, list, download and verify images</li>
-        <li>Run machines on Linux, amd64 and arm64</li>
+        <li>Run machines on Linux, with or without administrator rights</li>
         <li>Encrypted saves, restore, history, automatic saving</li>
-        <li>Private images for one wallet</li>
-        <li>Web interface and wallet sign-in</li>
-        <li>Tested end to end on Solana devnet</li>
+        <li>Private images, and sharing with another wallet</li>
+        <li>systemd machines, lazy machines, bootable disks</li>
+        <li>Web interface, wallet sign-in, reader for browsers</li>
+        <li>Tested end to end on Solana devnet, on every push</li>
       </ul>
     </div>
     <div class="box">
@@ -244,7 +280,8 @@
         <li>A machine is not a security sandbox: run images you trust</li>
         <li>It uses your kernel; systemd boots only with <code>--boot</code></li>
         <li>Ledger data cannot be erased; saves are encrypted but stay</li>
-        <li>Windows and macOS engines are new and little tested</li>
+        <li>Windows and macOS are not yet tried on real computers</li>
+        <li>Not yet tried with a real browser wallet or on real hardware</li>
         <li>No official images on mainnet yet</li>
         <li>Devnet is a test network and can be reset</li>
       </ul>
@@ -269,7 +306,7 @@
       <a href="docs/09-security.html">security</a>
       <a href="docs/10-ideas-and-roadmap.html">roadmap</a>
       <a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a>
-      <a href="https://github.com/bettercallfolio/chainboot" data-public>github</a>
+      <a href="https://github.com/bettercallfolio/chainboot" rel="noopener">github</a>
     </nav>
   </div>
   <p class="wrap legal">Solinux is this project's packaging of Ubuntu on Solana and is not affiliated with or endorsed by Canonical. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds. Solana and all other names belong to their owners.</p>
