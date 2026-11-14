@@ -74,12 +74,55 @@ Its output goes to `~/.chainboot/machines/<name>/start.log` on your computer.
 
 What a machine is **not**:
 
-- **Not a security sandbox.** Root inside a machine is root on your computer (on Windows and
-  macOS: root inside the chainboot engine). Run only images you trust, like you would only
-  install software you trust.
+- **Not a security sandbox.** Root inside a machine is you (without administrator rights),
+  root on your computer (through `sudo`), or root inside the chainboot engine (Windows and
+  macOS). Run only images you trust, like you would only install software you trust.
 - **Not a virtual machine.** It cannot load kernel modules or run a different kernel.
 - **Not booted by systemd.** `systemctl` cannot start services; use `service <name> start`
   or call the program directly.
+
+## With or without administrator rights
+
+Building a machine means mounting file systems and giving files their owners. On Linux there
+are two ways to be allowed to do that, and `chainboot engine` shows which one your computer
+uses:
+
+```sh
+chainboot engine              # show the current way
+chainboot engine rootless     # run machines without administrator rights
+chainboot engine sudo         # run machines through sudo
+```
+
+**Without administrator rights ("rootless").** chainboot stays an ordinary program of yours
+and uses a Linux feature named *user namespaces*: inside the machine you are root and every
+user of the system (`root`, `_apt`, `www-data`, your own accounts) has its own files; outside,
+all of it belongs to you. No password is asked, and root inside the machine can do nothing on
+your computer that you cannot do yourself. A new installation chooses this way by itself when
+the computer has what it needs:
+
+- the tools `newuidmap` and `newgidmap` (package `uidmap` on Debian and Ubuntu, part of
+  `shadow-utils` or `shadow` elsewhere),
+- a range of 65,536 user IDs reserved for you in `/etc/subuid` and `/etc/subgid` (most
+  systems add one when your account is created),
+- on Ubuntu 23.10 and later, permission from AppArmor, which by default stops ordinary
+  programs from using user namespaces.
+
+`chainboot engine rootless` checks these, tells you what is missing and adds it. That takes
+your administrator password once: to install the package, to reserve the IDs, or to add a
+small AppArmor profile that allows one program, chainboot's own copy of `unshare` in
+`~/.chainboot/bin/userns`, to create user namespaces.
+
+Two things differ from running through `sudo`: programs inside a machine cannot listen on
+ports below 1024 (use 8080 instead of 80, 2222 instead of 22), and a machine has the user IDs
+0 to 65,536, which is all a normal system uses.
+
+**Through `sudo`.** Every start and stop of a machine runs as the administrator. `sudo` asks
+for your password and remembers it for a few minutes. This works on every Linux system.
+
+**Switching.** The two ways store file owners differently, so a home directory uses one of
+them. To switch, the home directory must hold no machines: save the ones you want to keep
+(`chainboot save <machine>`), remove them (`chainboot rm <machine>`), switch, and run them
+again. They come back from the chain exactly as they were, whichever way they were saved.
 
 ## Other processor types
 

@@ -7,8 +7,9 @@
 // network. It is a convenience boundary like `chroot`, not a security sandbox: root inside a
 // machine is root on this computer.
 //
-// Everything here needs root (mounting, chroot, file owners), so the CLI re-runs itself
-// through sudo for the `_engine` commands in this file.
+// Everything here needs the rights of user 0 (mounting, chroot, file owners), so the CLI re-runs
+// itself for the `_engine` commands in this file: through sudo, or, without administrator
+// rights, inside a user namespace (see rootless.ts).
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -18,6 +19,7 @@ import { extractImage } from "../image/extract.ts";
 import { parseManifest, type ImageManifest } from "../image/manifest.ts";
 import { loadConfig, paths } from "../local/home.ts";
 import { loadVault, open } from "../state/vault.ts";
+import { inUserNs } from "./rootless.ts";
 
 export interface MachineInfo {
   name: string;
@@ -96,7 +98,7 @@ export function ensureExtracted(home: EngineHome, digest: string, say: (text: st
     return raw;
   };
   const result = extractImage(manifest, pack, tmp, progress);
-  for (const s of result.skipped.slice(0, 5)) say(`note: could not create ${s}`);
+  for (const s of result.skipped.slice(0, 5)) say(`note: could not set up ${s}`);
   fs.renameSync(tmp, path.join(dir, "rootfs"));
   fs.writeFileSync(path.join(dir, "complete"), `${new Date().toISOString()}\n`);
 }
@@ -127,7 +129,7 @@ fail() { echo "$1" > "$CB_DIR/failed"; exit 1; }
 trap 'fail "machine setup failed (see above)"' EXIT
 mount --make-rprivate /
 M="$CB_DIR/merged"
-mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work" "$M"
+mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$M"
 mkdir -p "$M/proc" "$M/sys" "$M/dev" "$M/run" "$M/tmp" "$M/etc"
 mount -t proc -o nosuid,nodev,noexec proc "$M/proc"
 mount -t sysfs -o ro,nosuid,nodev,noexec sysfs "$M/sys" 2>/dev/null || mount --rbind /sys "$M/sys"
@@ -216,9 +218,12 @@ export function startMachine(home: EngineHome, name: string, say: (text: string)
     fs.writeFileSync(path.join(dir, "etc", "hosts"), `127.0.0.1 localhost ${name}\n::1 localhost ip6-localhost ip6-loopback\n`);
 
     const log = fs.openSync(path.join(dir, "init.log"), "w");
-    const child = spawn("unshare", ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", "-c", INIT_SCRIPT], {
+    // from a file, so that the process list inside the machine shows a short line for PID 1
+    fs.writeFileSync(path.join(dir, "init.sh"), INIT_SCRIPT);
+    const child = spawn("unshare", ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", path.join(dir, "init.sh")], {
       detached: true, stdio: ["ignore", log, log],
-      env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name },
+      // inside a user namespace the overlay keeps its own notes in "user." attributes, the only kind allowed there
+      env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: inUserNs() ? ",userxattr" : "" },
     });
     child.unref();
     fs.closeSync(log);
@@ -290,6 +295,20 @@ export function removeMachine(home: EngineHome, name: string): void {
   stopMachine(home, name);
   sleepMs(200); // let the kernel drop the machine's mounts
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/**
+ * Deletes the unpacked copy of every image (not the downloads): the next start unpacks them again.
+ * Used when the home directory changes between running with and without administrator rights,
+ * which store file owners differently.
+ */
+export function dropUnpacked(home: EngineHome): void {
+  let dirs: string[];
+  try { dirs = fs.readdirSync(home.images); } catch { return; }
+  for (const d of dirs) {
+    fs.rmSync(path.join(home.images, d, "complete"), { force: true });
+    for (const sub of ["rootfs", "rootfs.tmp"]) fs.rmSync(path.join(home.images, d, sub), { recursive: true, force: true });
+  }
 }
 
 export function removeImage(home: EngineHome, digest: string): void {

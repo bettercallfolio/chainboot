@@ -129,7 +129,8 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 
 Known limits, so nothing surprises you:
 
-- A machine is not a security sandbox. Root inside a machine is root on your computer.
+- A machine is not a security sandbox. Root inside a machine is you (when machines run
+  without administrator rights) or root on your computer (through `sudo`).
 - A machine uses your computer's Linux kernel. It cannot load its own kernel modules, and it
   does not start systemd as its first process. Services are started by hand or by a start-up
   script ([Machines](docs/03-machines.md)).

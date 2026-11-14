@@ -103,7 +103,6 @@ and on Linux. The list below is in rough order of importance.
 
 - Try and fix everything on real Windows and macOS computers and with real browser wallets.
 - An official catalog on mainnet.
-- Run machines without administrator rights on Linux (user namespaces).
 - Start systemd as the first process of a machine, with the machine's own network, so that
   services behave exactly as on a server.
 

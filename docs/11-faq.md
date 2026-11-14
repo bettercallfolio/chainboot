@@ -70,8 +70,19 @@ Check the name with `chainboot list`. Images of other publishers need the addres
 Install `util-linux` and `coreutils` with your package manager.
 
 **`sudo` asks for my password every time**
-Starting a machine mounts a file system, which needs administrator rights. `sudo` remembers
-the password for a few minutes. Running chainboot as root avoids the question.
+Starting a machine mounts a file system, which normally needs administrator rights. Run
+`chainboot engine rootless` once: it sets your computer up to run machines without them, and
+no password is asked after that ([Machines](03-machines.md#with-or-without-administrator-rights)).
+If you stay with `sudo`, it remembers the password for a few minutes.
+
+**A server inside the machine cannot use port 80 or 22**
+Without administrator rights, programs cannot listen on ports below 1024. Use a higher port
+(8080, 2222), or run machines through `sudo` (`chainboot engine sudo`).
+
+**I have no administrator rights on this computer at all**
+Machines then need the rootless way to be ready: `chainboot engine` tells you what is
+missing. On most distributions nothing is; on Debian and Ubuntu an administrator has to
+install the `uidmap` package once (and, on recent Ubuntu, allow user namespaces).
 
 **A server inside the machine does not start**
 The machine shares your computer's network. If the port is already used by your computer

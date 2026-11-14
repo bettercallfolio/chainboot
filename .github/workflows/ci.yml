@@ -37,6 +37,15 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: sudo -E env "PATH=$PATH" node --test --test-reporter=spec "test/e2e/**/*.test.ts"
+      - name: The same without administrator rights (in a user namespace)
+        run: |
+          export CHAINBOOT_HOME="$RUNNER_TEMP/cb-rootless"
+          node src/cli/main.ts engine rootless --yes
+          node src/cli/main.ts engine
+          test "$(cat "$CHAINBOOT_HOME/engine-mode")" = rootless
+          node src/cli/main.ts _userns node --test --test-reporter=spec "test/e2e/**/*.test.ts" | tee "$RUNNER_TEMP/rootless.log"
+          grep -q "^ℹ pass 1" "$RUNNER_TEMP/rootless.log"
+          grep -q "^ℹ skipped 0" "$RUNNER_TEMP/rootless.log"
   installer:
     name: Installer (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

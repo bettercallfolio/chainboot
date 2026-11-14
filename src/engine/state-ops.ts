@@ -195,13 +195,14 @@ export async function restoreInner(home: EngineHome, name: string, seq: number |
   const local = (n: FileNode) => inImage.has(n[7]);
   const pack = await loadPacks(store, vault, snap, home.cache, (d, t) => progress("downloading", d, t), local);
   progress("applying", 0, 1);
-  applySnapshot(snap, path.join(dir, "merged"), (n) => {
+  const applied = applySnapshot(snap, path.join(dir, "merged"), (n) => {
     if (local(n)) {
       const data = fs.readFileSync(path.join(lower, inImage.get(n[7])!));
       if (toHex(sha256(data)) === n[7]) return data;
     }
     return pack(n[8]).subarray(n[9], n[9] + n[6]);
   });
+  if (applied.unmappedOwners.length) say(`note: files of owner ${applied.unmappedOwners.slice(0, 3).join(", ")} belong to root here: without administrator rights a machine has the user IDs 0 to 65536`);
   const scan = scanMachine({ upper: path.join(dir, "upper"), merged: path.join(dir, "merged"), base, cacheFile: path.join(dir, "scan-cache.json") });
   // going back to an older save keeps the newest sequence number: the next save continues the same history
   writeSaveStatus(dir, { state: "saved", seq: head.seq, fingerprint: picked === head.seq ? scan.fingerprint : "", time: snap.time });

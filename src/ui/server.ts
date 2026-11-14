@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
+import { engineMode } from "../engine/rootless.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, resolvePublisher, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
@@ -105,7 +106,7 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     const job: Job = { id, title, command: args, lines: [], status: "running", code: null, started: Date.now() };
     jobs.set(id, job);
     let cmd = [...self(), ...args];
-    if (needsRoot && process.getuid?.() !== 0) {
+    if (needsRoot && process.getuid?.() !== 0 && engineMode(homeDir()) === "root") {
       // without a terminal sudo cannot ask for a password: use it only when it does not need one
       if (spawnSync("sudo", ["-n", "true"], { stdio: "ignore" }).status === 0) cmd = [...self(), ...args];
       else {

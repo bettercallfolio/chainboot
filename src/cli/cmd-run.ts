@@ -3,11 +3,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import readline from "node:readline/promises";
 import {
-  checkMachineName, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
+  checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
 import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
+import { engineMode, inUserNs, runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
 import { loadVault } from "../state/vault.ts";
@@ -25,12 +26,24 @@ function requireLinux(): void {
   if (process.platform !== "linux") throw new Error(`running machines on ${process.platform} is not available in this build yet (Linux only for now)`);
 }
 
-/** Runs an engine command as root: directly when we are root, through sudo otherwise. Returns the exit status. */
+/**
+ * Runs an engine command with the rights it needs and returns its exit status:
+ * directly when we are root; inside a user namespace when this home runs without administrator
+ * rights; through sudo otherwise.
+ */
 export function asRoot(args: string[]): number {
-  const self = [process.execPath, ...process.execArgv, process.argv[1]!, "_engine", homeDir(), process.env.TERM ?? "", ...args];
+  const home = homeDir();
+  const self = [process.execPath, ...process.execArgv, process.argv[1]!, "_engine", home, process.env.TERM ?? "", ...args];
   if (process.getuid?.() === 0) return spawnSync(self[0]!, self.slice(1), { stdio: "inherit" }).status ?? 1;
+  if (engineMode(home) === "rootless") {
+    const s = support(home);
+    if (!s.ready || !s.ids) throw new Error(`this computer no longer allows running machines without administrator rights. See what is missing with: chainboot engine`);
+    // a running machine's namespaces belong to the user namespace it was started in: go there
+    const machine = MACHINE_OPS.has(args[0]!) && args[1] ? initPid(machineDir(engineHome(home), args[1])) : null;
+    return runInUserNs(home, s.ids, self, machine).status;
+  }
   if (spawnSync("sh", ["-c", "command -v sudo"], { stdio: "ignore" }).status !== 0) {
-    throw new Error("this step needs administrator rights, but `sudo` is not installed. Run chainboot as root instead.");
+    throw new Error("this step needs administrator rights, but `sudo` is not installed. Run chainboot as root, or see `chainboot engine` for running without administrator rights.");
   }
   if (spawnSync("sudo", ["-n", "true"], { stdio: "ignore" }).status !== 0) {
     info(dim("Machines are mounted by the system, which needs administrator rights. sudo may ask for your password."));
@@ -39,6 +52,9 @@ export function asRoot(args: string[]): number {
   if (r.error) throw new Error(`could not run sudo: ${r.error.message}`);
   return r.status ?? 1;
 }
+
+/** Engine operations whose second argument is a machine name. */
+const MACHINE_OPS = new Set(["enter", "save", "restore", "export", "autosave", "start", "stop", "rm"]);
 
 export const RUN_HELP = `Usage:
   chainboot run <image> [--name <machine>] [--arch <arch>] [-- <command> ...]
@@ -177,8 +193,8 @@ export function cmdExport(a: Args): void {
   const target = path.resolve(file);
   if (fs.existsSync(target)) throw new Error(`${target} already exists`);
   const status = asRoot(["export", name, target]);
-  // the engine runs as root: hand the archive to the user who asked for it
-  if (status === 0 && process.getuid?.() !== 0) spawnSync("sudo", ["chown", `${process.getuid!()}:${process.getgid!()}`, target], { stdio: "ignore" });
+  // through sudo the engine runs as root: hand the archive to the user who asked for it
+  if (status === 0 && process.getuid?.() !== 0 && engineMode(homeDir()) === "root") spawnSync("sudo", ["chown", `${process.getuid!()}:${process.getgid!()}`, target], { stdio: "ignore" });
   process.exitCode = status;
 }
 
@@ -200,11 +216,13 @@ export async function cmdRmi(a: Args): Promise<void> {
   process.exitCode = asRoot(["rmi", img.digest]);
 }
 
-/** Internal: `chainboot _engine <home> <term> <operation> ...`, always run as root. */
+/** Internal: `chainboot _engine <home> <term> <operation> ...`, always run as user 0 (root, or user 0 of a user namespace). */
 export function cmdEngine(argv: string[]): void | Promise<void> {
   const [homePath, term, op, name, ...rest] = argv;
   if (!homePath || !op || !name) throw new Error("internal engine command used incorrectly");
   if (process.getuid?.() !== 0) throw new Error("the engine must run as root");
+  // in a user namespace the groups of the person who started it show up as "nobody": a machine's root has none of them
+  if (inUserNs()) { try { process.setgroups?.([0]); } catch { /* not allowed here: harmless */ } }
   if (term) process.env.TERM = term;
   const home = engineHome(homePath);
   process.env.CHAINBOOT_HOME = homePath;
@@ -274,5 +292,6 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   if (op === "stop") { if (stopMachine(home, name)) ok(`stopped ${name}`); else info(`${name} is not running`); return; }
   if (op === "rm") { removeMachine(home, name); ok(`deleted machine ${name}`); return; }
   if (op === "rmi") { removeImage(home, name); ok(`deleted image ${name.slice(0, 12)}`); return; }
+  if (op === "drop-unpacked") { dropUnpacked(home); return; }
   throw new Error(`unknown engine operation "${op}"`);
 }

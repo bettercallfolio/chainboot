@@ -254,7 +254,15 @@ export async function loadPacks(store: ChainStore, v: Vault, snap: Snapshot, cac
  * Applies a snapshot on top of a freshly started machine (its merged view shows the plain image).
  * Works through ordinary file operations, so the result is exactly what the user had.
  */
-export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileNode) => Buffer): void {
+export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileNode) => Buffer): { unmappedOwners: string[] } {
+  // without administrator rights a machine has user IDs 0..65536; a file of an owner beyond that stays root's
+  const unmapped = new Set<string>();
+  const own = (p: string, uid: number, gid: number) => {
+    try { fs.lchownSync(p, uid, gid); } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EINVAL") throw e;
+      unmapped.add(`${uid}:${gid}`);
+    }
+  };
   const at = (p: string) => {
     if (!p || p.startsWith("/") || p.split("/").some((s) => s === "" || s === "." || s === "..")) throw new Error(`unsafe path in snapshot: ${p}`);
     // every parent must be a real directory inside the machine: a symlink could lead outside of it
@@ -285,20 +293,20 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
         const data = n[6] === 0 ? Buffer.alloc(0) : content(n);
         if (data.length !== n[6]) throw new Error(`content of ${n[0]} has the wrong size`);
         fs.writeFileSync(p, data, { mode: 0o600 });
-        fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]);
+        own(p, n[3], n[4]); fs.chmodSync(p, n[2]);
         if (n[10]) writeXattrs(p, n[10]); // after chown, which clears file capabilities
         fs.utimesSync(p, n[5], n[5]);
         break;
       }
       case "l":
         if (st) clear(p);
-        fs.symlinkSync(n[6], p); fs.lchownSync(p, n[3], n[4]); fs.lutimesSync(p, n[5], n[5]);
+        fs.symlinkSync(n[6], p); own(p, n[3], n[4]); fs.lutimesSync(p, n[5], n[5]);
         break;
       case "h": links.push(n); break;
       case "c": case "b": case "p": {
         if (st) clear(p);
         const r = spawnSync("mknod", ["-m", (n[2] & 0o7777).toString(8), p, n[1], ...(n[1] === "p" ? [] : [String(n[6]), String(n[7])])]);
-        if (r.status === 0) { fs.lchownSync(p, n[3], n[4]); fs.utimesSync(p, n[5], n[5]); }
+        if (r.status === 0) { own(p, n[3], n[4]); fs.utimesSync(p, n[5], n[5]); }
         break;
       }
     }
@@ -308,8 +316,9 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
     const n = dirs[i]!;
     if (n[1] !== "d") continue;
     const p = at(n[0]);
-    fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]);
+    own(p, n[3], n[4]); fs.chmodSync(p, n[2]);
     if (n[6]) writeXattrs(p, n[6]);
     fs.utimesSync(p, n[5], n[5]);
   }
+  return { unmappedOwners: [...unmapped] };
 }

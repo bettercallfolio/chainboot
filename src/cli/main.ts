@@ -4,7 +4,9 @@ import { Keypair } from "../solana/keys.ts";
 import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } from "../engine/remote.ts";
-import { loadConfig } from "../local/home.ts";
+import { runInUserNs, support } from "../engine/rootless.ts";
+import { homeDir, loadConfig } from "../local/home.ts";
+import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { FEE_HELP, RPC_HELP, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
 import { EXPORT_HELP, RUN_HELP, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
@@ -49,12 +51,20 @@ ${bold("Settings")}
   network [name]                 Show or switch the network (devnet, testnet, mainnet-beta)
   priority-fee [lamports|off]    Tip added to every transaction, for busy times
   keygen <file>                  Create a new Solana keypair file
+  engine [rootless|sudo]         How machines run: without administrator rights, or through sudo
 
 Run "chainboot <command> --help" for details.`;
 
 async function cmdEngineInfo(rest: string[]): Promise<void> {
   const kind = engineKind();
-  if (!kind) { out("This is Linux: machines run directly on this computer, no separate engine is used."); return; }
+  if (rest.includes("--help") || rest.includes("-h")) { out(ENGINE_HELP); return; }
+  if (!kind) {
+    if (process.platform !== "linux") { out("Machines need Linux; this computer has no engine for them yet."); return; }
+    const args = parseArgs(rest, ["yes"]);
+    allow(args, ["yes"]);
+    await cmdEngineLinux(args);
+    return;
+  }
   const names = { wsl: "a WSL 2 distribution named \"chainboot\"", docker: "a Docker container named \"chainboot\"", podman: "a Podman container named \"chainboot\"", lima: "a Lima virtual machine named \"chainboot\"" };
   if (rest[0] === "reset") {
     const args = parseArgs(rest.slice(1), ["yes"]);
@@ -136,6 +146,13 @@ async function main(): Promise<void> {
   if (name === "--version" || name === "version") { out(VERSION); return; }
   if (name === "_engine") { await cmdEngine(rest); return; }
   if (name === "engine") { await cmdEngineInfo(rest); return; }
+  if (name === "_userns") {
+    // internal (used by the tests): runs a command the way the engine runs without administrator rights
+    const s = support(homeDir());
+    if (!s.ready || !s.ids || !rest.length) throw new Error("running without administrator rights is not set up: chainboot engine rootless");
+    process.exitCode = runInUserNs(homeDir(), s.ids, rest).status;
+    return;
+  }
   // private images need the login, which lives in the engine: listing and unlisting run there,
   // publishing runs here (it reads a local file) with a copy of the login
   const privateHere = name === "publish" && !rest.includes("--public");

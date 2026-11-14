@@ -55,8 +55,12 @@ if [ "$UNINSTALL" = 1 ]; then
   ok "removed the chainboot program"
   if [ "$PURGE" = 1 ]; then
     if [ -d "$HOME_DIR/machines" ] && [ "$(id -u)" != 0 ]; then
-      say "Machines are owned by the system. Removing them needs administrator rights:"
+      say "Machines hold files of the system's users. Removing them needs administrator rights:"
       say "  sudo rm -rf \"$HOME_DIR\""
+      if [ -e "$HOME_DIR/bin/userns" ]; then
+        say "An AppArmor profile was added for running machines without administrator rights:"
+        say "  sudo rm -f /etc/apparmor.d/chainboot-userns-$(id -u)-*"
+      fi
     else
       rm -rf "$HOME_DIR"; ok "removed $HOME_DIR"
     fi

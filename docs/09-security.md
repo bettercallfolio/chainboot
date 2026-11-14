@@ -54,6 +54,21 @@ A machine separates processes and files for convenience, not for defence. Root i
 machine can reach your computer's network, and with some effort its files. Treat an image
 like any software you install.
 
+How far root inside a machine reaches depends on how machines run on your Linux computer
+(`chainboot engine` shows it):
+
+- **Without administrator rights:** root inside a machine is you. A program in it can do
+  what you can do (read your files, use your network), but it cannot administer the
+  computer, read other people's files or load kernel modules.
+- **Through `sudo`:** root inside a machine is root on your computer.
+
+Running without administrator rights is the safer of the two and the default where the
+computer allows it. On Ubuntu it needs a small AppArmor profile that lets one program in your
+home directory (`~/.chainboot/bin/userns`, a copy of `unshare`) create user namespaces.
+Because that file is yours, the profile in effect lifts Ubuntu's restriction on user
+namespaces for your account; chainboot adds it only when you run `chainboot engine rootless`
+and tells you where it is.
+
 On Windows and macOS, machines run inside the chainboot engine (a WSL distribution, a
 privileged container, or a Lima virtual machine). That adds a layer between a machine and
 your own files, but chainboot does not promise isolation there either.

@@ -7,6 +7,7 @@ import path from "node:path";
 import { b58decode, b58encode } from "../src/util/base58.ts";
 import { decodeShortU16, encodeShortU16 } from "../src/util/bytes.ts";
 import { Keypair, verifySignature } from "../src/solana/keys.ts";
+import { SUB_IDS, freeRange, subRange } from "../src/engine/rootless.ts";
 import { RpcPool, maskRpcUrl } from "../src/solana/rpc.ts";
 import { MAX_TX_SIZE_LEGACY, MAX_TX_SIZE_V1, buildNoopTransaction, buildTransaction, noopCapacity, noopInstruction, parseTransaction, transferInstruction, verifyPayerSignature } from "../src/solana/tx.ts";
 import { ChainStore, capacity, decodeSlots, encodeSlots, tagAddress } from "../src/store/store.ts";
@@ -329,4 +330,19 @@ test("priority fee: the store's default tip is on every transaction it sends", a
   before = chain.fees; count = chain.txs.size;
   await tipped.put(payer, crypto.randomBytes(100), { pollMs: 20, priorityFeeLamports: 0 });
   assert.equal(chain.fees - before, 5000);
+});
+
+test("rootless: the reserved ID range of a user is found by name or number, and a free one is proposed", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-subid-"));
+  const file = path.join(dir, "subuid");
+  fs.writeFileSync(file, "alice:100000:65536\n# comment\nbob:165536:1000\n1002:231072:65536\ncarol:296608:131072\n\n");
+  assert.deepEqual(subRange(file, "alice", 1000), { start: 100000, count: 65536 });
+  assert.equal(subRange(file, "bob", 1001), null, "a range that is too small does not count");
+  assert.deepEqual(subRange(file, "dave", 1002), { start: 231072, count: 65536 }, "an entry may name the user by number");
+  assert.deepEqual(subRange(file, "carol", 1003), { start: 296608, count: 131072 });
+  assert.equal(subRange(file, "erin", 1004), null);
+  assert.equal(subRange(path.join(dir, "missing"), "alice", 1000), null);
+  assert.equal(freeRange(file), 296608 + 131072, "a new range starts after every existing one");
+  assert.equal(freeRange(path.join(dir, "missing")), 100000);
+  assert.equal(SUB_IDS, 65536);
 });

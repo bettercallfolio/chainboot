@@ -6,7 +6,7 @@ This page takes you from nothing to a running system. It should take about five 
 
 | Your computer | What chainboot needs | Notes |
 |---|---|---|
-| Linux (x86-64 or ARM64) | `sudo`, and the tools `unshare`, `nsenter`, `mount`, `chroot`, `flock` | These are part of the `util-linux` and `coreutils` packages that every mainstream distribution installs by default. |
+| Linux (x86-64 or ARM64) | The tools `unshare`, `nsenter`, `mount`, `chroot`, `flock` | These are part of the `util-linux` and `coreutils` packages that every mainstream distribution installs by default. Machines run without administrator rights where the computer allows it, and through `sudo` otherwise ([Machines](03-machines.md#with-or-without-administrator-rights)). |
 | Windows 10 or 11 | WSL 2 | If it is not enabled yet, run `wsl --install --no-distribution` once in an administrator PowerShell and restart. |
 | macOS (Intel or Apple silicon) | One Linux engine: OrbStack, Docker Desktop, Podman, or Lima | macOS cannot run Linux programs by itself. Any one of these is enough. |
 
@@ -115,8 +115,10 @@ What happens:
 2. It downloads the system and checks every file against its SHA-256.
 3. It unpacks the system once and creates a **machine**: the system plus a place for
    everything you will change.
-4. It opens a shell inside the machine. On Linux this step asks for your password (`sudo`),
-   because mounting a file system is something only the administrator may do.
+4. It opens a shell inside the machine. On some Linux computers this step asks for your
+   password (`sudo`), because mounting a file system is normally something only the
+   administrator may do. `chainboot engine` shows which way your computer uses, and
+   `chainboot engine rootless` sets it up to work without the password.
 
 You are now root in a real Ubuntu. `apt update`, `apt install`, edit files, use the network.
 Type `exit` to leave. Run the same command again and you are back in the same machine, with
@@ -155,6 +157,7 @@ live inside it.
 
 On Windows and macOS, `chainboot engine` shows where machines run, and `chainboot engine
 reset` removes that environment with all machines in it (saves on chain are not affected).
+On Linux, `chainboot engine` shows whether machines run with or without administrator rights.
 
 ## Where things are
 

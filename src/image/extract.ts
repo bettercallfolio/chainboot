@@ -18,7 +18,15 @@ export function extractImage(manifest: ImageManifest, rawPack: (index: number) =
   const at = (p: string) => path.join(dest, p);
   const skipped: string[] = [];
   const isRoot = process.getuid?.() === 0;
-  const own = (p: string, uid: number, gid: number) => { if (isRoot) fs.lchownSync(p, uid, gid); };
+  const unmapped = new Set<string>();
+  const own = (p: string, uid: number, gid: number) => {
+    if (!isRoot) return;
+    try { fs.lchownSync(p, uid, gid); } catch (e) {
+      // without administrator rights a machine has user IDs 0..65536; an owner beyond that cannot be given
+      if ((e as NodeJS.ErrnoException).code !== "EINVAL") throw e;
+      if (!unmapped.has(`${uid}:${gid}`)) { unmapped.add(`${uid}:${gid}`); skipped.push(`owner ${uid}:${gid} (those files belong to root instead)`); }
+    }
+  };
   const dirs: TreeNode[] = [], links: TreeNode[] = [];
   let done = 0;
   const total = manifest.tree.length;

@@ -176,7 +176,7 @@ export async function ensureEngine(kind: EngineKind): Promise<void> {
     const node = await download(`https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-${arch}.tar.gz`, NODE_SHA[arch]!, `Node.js ${NODE_VERSION} for the engine (from nodejs.org)`);
     must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_APP}/app ${ENGINE_HOME} && tar -xz -C ${ENGINE_APP} --strip-components=2 node-${NODE_VERSION}-linux-${arch}/bin/node`], node), "installing Node.js in the engine");
     // optional speed-up for unpacking large systems; the built-in decoder is used when this fails
-    inEngine(kind, ["sh", "-c", "command -v xz >/dev/null 2>&1 || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils) >/dev/null 2>&1 || true"]);
+    inEngine(kind, ["sh", "-c", "{ command -v xz && command -v getfattr; } >/dev/null 2>&1 || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xz-utils attr) >/dev/null 2>&1 || true"]);
     state.node = NODE_VERSION;
   }
   const app = ownApp();
