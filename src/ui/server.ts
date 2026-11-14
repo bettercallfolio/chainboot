@@ -16,9 +16,9 @@ import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
 import { engineMode } from "../engine/rootless.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
-import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, resolvePublisher, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
+import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, resolveSource, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
+import { readSource } from "../cli/cmd-image.ts";
 import { readPrivateCatalog } from "../registry/private.ts";
-import { readCatalog } from "../registry/registry.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { GENESIS, RpcPool, type Cluster } from "../solana/rpc.ts";
 import { compileMessage, parseTransaction, transferInstruction, verifyPayerSignature } from "../solana/tx.ts";
@@ -187,8 +187,10 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
       const mine = b.publisher === "me";
       const vault = mine ? loadVault(paths.vault(), c.cluster) : null;
       if (mine && !vault) throw new Error("sign in to see your private images");
-      const publisher = mine ? "me" : resolvePublisher(c, b.publisher || undefined);
-      const cat = vault ? await readPrivateCatalog(await store(), vault) : await readCatalog(await store(), publisher, path.join(paths.cache(), "objects"));
+      if (!mine && typeof b.publisher === "string" && b.publisher.startsWith("list:")) throw new Error("save the list under a name first (chainboot publisher add <name> <list>), then enter that name here");
+      const source = mine ? null : resolveSource(c, b.publisher || undefined);
+      const publisher = mine ? "me" : source!.kind === "publisher" ? source!.address : source!.label;
+      const cat = vault ? await readPrivateCatalog(await store(), vault) : await readSource(await store(), source!);
       const arch = hostArch();
       return {
         publisher, arch, private: mine,

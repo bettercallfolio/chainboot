@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GENESIS, RpcPool, maskRpcUrl, type Cluster, type ProbeCache } from "../solana/rpc.ts";
+import { isList, parseList, type ListSpec } from "../registry/lists.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { ChainStore } from "../store/store.ts";
 
@@ -93,16 +94,27 @@ export async function openStore(c: Config, onNote?: (text: string) => void): Pro
   return new ChainStore(pool, c.priorityFeeLamports ? { priorityFeeLamports: c.priorityFeeLamports } : {});
 }
 
-/** Turns "official", an alias or an address into a publisher address. */
-export function resolvePublisher(c: Config, who: string | undefined): string {
+/** Where images come from: one publisher's catalog, or a list that several publishers keep together. */
+export type Source = { kind: "publisher"; address: string; label: string } | { kind: "list"; spec: ListSpec; label: string };
+
+/** Turns "official", a saved name, an address or a list into a source of images. */
+export function resolveSource(c: Config, who: string | undefined): Source {
+  let value: string, label: string;
   if (!who || who === "official") {
     const p = OFFICIAL_PUBLISHER[c.cluster];
     if (!p) throw new Error(`there is no official publisher on ${c.cluster} yet; name one explicitly: <publisher-address>/<image>`);
-    return p;
-  }
-  const address = c.publishers[who] ?? who;
-  try { addressToBytes(address); } catch { throw new Error(`"${who}" is neither a known publisher alias nor a Solana address`); }
-  return address;
+    value = p; label = "official";
+  } else { value = c.publishers[who] ?? who; label = c.publishers[who] ? who : value; }
+  if (isList(value)) return { kind: "list", spec: parseList(value), label };
+  try { addressToBytes(value); } catch { throw new Error(`"${who}" is neither a saved publisher name, a Solana address nor a list`); }
+  return { kind: "publisher", address: value, label: label === value ? value : `${label} (${value})` };
+}
+
+/** Turns "official", a saved name or an address into a publisher address. (A list has no single address.) */
+export function resolvePublisher(c: Config, who: string | undefined): string {
+  const s = resolveSource(c, who);
+  if (s.kind === "list") throw new Error(`"${who ?? "official"}" is a list of ${s.spec.members.length} publishers, not one publisher`);
+  return s.address;
 }
 
 export function hostArch(): string {

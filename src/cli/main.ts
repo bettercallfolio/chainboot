@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { Keypair } from "../solana/keys.ts";
 import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
-import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
+import { LIST_HELP, PUBLISHER_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdEndorse, cmdList, cmdPublish, cmdPublisher, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } from "../engine/remote.ts";
 import { runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, loadConfig } from "../local/home.ts";
@@ -49,6 +49,8 @@ ${bold("Images")}
   publish <archive> ...          Put your own Linux system on chain (private; --public for everyone)
   export <machine> <file.tar>    Turn a machine into an archive you can publish
   unlist <image>                 Remove an image from your catalog
+  publisher add|list|remove      Short names for publishers, and lists that several publishers keep together
+  endorse <image> ...            Add an image that is already on chain to your catalog (for lists)
 
 ${bold("Settings")}
   rpc add|list|remove|test       Manage RPC endpoints
@@ -128,6 +130,8 @@ const COMMANDS: Record<string, Command> = {
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
   publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public"], booleans: ["dry-run", "yes", "private", "public"] },
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
+  publisher: { run: cmdPublisher, help: PUBLISHER_HELP, options: [] },
+  endorse: { run: cmdEndorse, help: PUBLISHER_HELP, options: ["keypair", "as", "arch", "yes"], booleans: ["yes"] },
   keygen: {
     help: "Usage:\n  chainboot keygen <file>    Create a new Solana keypair file (never overwrites)",
     options: [],
@@ -145,7 +149,7 @@ const COMMANDS: Record<string, Command> = {
 };
 
 // Commands that never need Linux: they run on this computer even where machines live in an engine.
-const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine"]);
+const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine", "endorse", "publisher"]);
 
 async function main(): Promise<void> {
   const [name, ...rest] = process.argv.slice(2);

@@ -199,6 +199,52 @@ Machines made from a private image are saved and restored like all others; resto
 needs the same wallet, because the image itself has to be fetched again. A public image
 cannot reuse files of a private one (`--reuse`): that would publish their keys.
 
+## Lists: a catalog that several publishers keep together
+
+A catalog is signed by one key. Everybody who runs images from it trusts whoever holds that
+key. A **list** spreads this over several keys. It names its publishers and how many of
+them must agree:
+
+```
+list:2:<address of A>,<address of B>,<address of C>        two of these three
+```
+
+An image is part of the list when that many of its publishers have the same image (the same
+content, compared by its digest) under the same name, tag and architecture in their own
+catalogs. Nothing extra is stored for a list; it is a way of reading catalogs that exist.
+More than half of the publishers must agree, so two different images can never both
+qualify, and one lost or stolen key can neither add an image nor replace one.
+
+Using a list:
+
+```sh
+chainboot publisher add team list:2:9xQe...,4Zb7...,Hk3P...   # save it under a short name
+chainboot list team                                           # what it contains, and who agreed
+chainboot run team/solinux
+```
+
+Keeping a list, as one of its publishers:
+
+```sh
+# publisher A uploads the image as usual
+chainboot publish rootfs.tar --name mydistro --version 1.0 --public --keypair a.json
+
+# publishers B and C look at it, then add it to their own catalogs. Nothing is uploaded again.
+chainboot pull 9xQe.../mydistro:1.0             # download and verify, inspect it as you see fit
+chainboot endorse 9xQe.../mydistro:1.0 --keypair b.json
+chainboot endorse 9xQe.../mydistro --keypair b.json           # the "latest" tag, separately
+```
+
+`chainboot list team` shows each publisher's catalog, the images enough of them agree on,
+and the ones still waiting for more publishers.
+
+Updates need the same agreement. A tag that moves, such as `latest`, changes for the users
+of the list only when enough publishers have moved it to the same new image. While they
+disagree, the tag is held back, so move it in a set order, or keep one publisher more than
+the list needs. Tags that name a version do not move and are not affected.
+
+`chainboot publisher add <name> <address>` also saves a single publisher under a short name.
+
 ## What makes a good image
 
 - **No secrets.** No private keys, passwords or tokens. `chainboot export` already leaves

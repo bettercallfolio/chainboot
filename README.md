@@ -127,6 +127,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
 | Sharing a saved machine or a private image with another wallet | Works. Tested on devnet with two wallets. |
 | Reader for browsers (`dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
+| Lists that several publishers keep together (`list:2:A,B,C`, `chainboot endorse`) | Works. Tested on devnet with three keys. |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |

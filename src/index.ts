@@ -28,7 +28,8 @@ export { readTar, writeTar, decompressAuto, type Entry } from "./image/tar.ts";
 export { buildImage, normalizeEntries, entriesFromImage, verifyPack, type BuiltImage, type ImageMeta } from "./image/build.ts";
 export { parseManifest, serializeManifest, validateManifest, treeDigest, type ImageManifest, type TreeNode, type PackInfo } from "./image/manifest.ts";
 export { extractImage } from "./image/extract.ts";
-export { publishImage, pullImage, readCatalog, unlistImage, parseImageName, type Catalog, type ImageRef } from "./registry/registry.ts";
+export { publishImage, pullImage, readCatalog, unlistImage, endorseImage, parseImageName, type Catalog, type ImageRef } from "./registry/registry.ts";
+export { parseList, formatList, isList, readList, type ListSpec, type ListView, type ListEntry } from "./registry/lists.ts";
 export { publishPrivateImage, readPrivateCatalog, unlistPrivateImage, type PrivateCatalog } from "./registry/private.ts";
 
 // Saving machines: wallet-derived keys, encrypted snapshots

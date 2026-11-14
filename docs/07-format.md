@@ -133,6 +133,17 @@ The catalog is a JSON document (compressed as its reference says):
 
 Each architecture entry is the stored reference of an image manifest plus information for display.
 
+An entry may also carry `"publisher": "<address>"`: the account that stored the image, when
+that is not the catalog's owner. This is how a publisher **endorses** an image somebody else
+uploaded: their catalog, which they sign, names the same manifest object. Readers check the
+manifest's transactions against that account; the content is bound by the entry's hashes.
+
+**Lists.** A list is not stored anywhere. It is written `list:<k>:<address>,<address>,…`
+(2 to 16 distinct addresses, `k` more than half of them) and read by fetching each member's
+catalog: an entry (name, tag, architecture) belongs to the list when at least `k` members
+have an entry there with the same `digest`. Any of the agreeing entries may be used to fetch
+the image. A reader needs at least `k` readable catalogs; with fewer there is no list.
+
 ## 5. Image manifest
 
 A JSON document. The tree is written one node per line, in path order.

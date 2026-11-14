@@ -135,6 +135,22 @@ export async function unlistImage(store: ChainStore, payer: Keypair, name: strin
   return true;
 }
 
+/**
+ * Adds an image that is already on chain to the payer's catalog, without storing it again:
+ * "I vouch for exactly this image under this name". `publisher` is the account that stored
+ * it. Used by lists, where several publishers must agree on an image.
+ */
+export async function endorseImage(store: ChainStore, payer: Keypair, e: { name: string; tags: string[]; arch: string; ref: ImageRef; publisher: string; description?: string }, commitment?: Commitment): Promise<void> {
+  if (e.ref.private || e.ref.key) throw new Error("a private image cannot be endorsed");
+  const cat = await readCatalog(store, payer.address);
+  const image = (cat.images[e.name] ??= { tags: {} });
+  if (e.description && !image.description) image.description = e.description;
+  const { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize } = e.ref;
+  const entry: ImageRef = { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize, ...(e.publisher !== payer.address && { publisher: e.publisher }) };
+  for (const tag of e.tags) (image.tags[tag] ??= {})[e.arch] = entry;
+  await writeCatalog(store, payer, cat, commitment);
+}
+
 export interface ImageName { publisher?: string; name: string; tag: string }
 
 /** Parses "[publisher/]name[:tag]". The publisher is an alias or a base58 address. */

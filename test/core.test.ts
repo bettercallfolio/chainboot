@@ -416,3 +416,91 @@ test("browser reader: finds, downloads and verifies an image with web APIs only,
   await assert.rejects(reader.manifest(stranger.address, ref), /not published by a trusted key/);
   await assert.rejects(reader.object({ sig: ref.sig, sha256: "0".repeat(64) }), /SHA-256 differs/);
 });
+
+test("lists: an image counts when enough publishers have the same content; one key alone changes nothing", async () => {
+  const { publishImage, pullImage, readCatalog, endorseImage } = await import("../src/registry/registry.ts");
+  const { parseList, formatList, readList } = await import("../src/registry/lists.ts");
+  const { buildImage } = await import("../src/image/build.ts");
+  const { Reader } = await import("../src/browser/reader.ts");
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 }));
+  const [a, b, c, outsider] = [Keypair.generate(), Keypair.generate(), Keypair.generate(), Keypair.generate()];
+  const spec = parseList(`list:2:${a.address},${b.address},${c.address}`);
+  assert.equal(formatList(spec), `list:2:${a.address},${b.address},${c.address}`);
+  assert.throws(() => parseList(`list:1:${a.address},${b.address}`), /more than half/);
+  assert.throws(() => parseList(`list:2:${a.address},${b.address},${c.address},${outsider.address}`), /more than half/);
+  assert.throws(() => parseList(`list:3:${a.address},${b.address}`), /cannot need 3/);
+  assert.throws(() => parseList(`list:2:${a.address},${a.address},${b.address}`), /each member once/);
+  assert.throws(() => parseList(`list:2:${a.address},nonsense`), /not a list|not a Solana address/);
+  assert.throws(() => parseList(a.address), /not a list/);
+
+  const own = { uid: 0, gid: 0, mtime: 1_700_000_000 };
+  const image = (text: string, version: string) => buildImage([{ path: "etc", type: "d", mode: 0o755, ...own }, { path: "etc/os-release", type: "f", mode: 0o644, ...own, data: Buffer.from(text) }, { path: "etc/blob", type: "f", mode: 0o644, ...own, data: crypto.randomBytes(9000) }], { name: "demo", version, arch: "amd64", description: "kept by three" });
+  const opts = { commitment: "confirmed" as const };
+
+  // one publisher alone: nothing is in the list
+  const v1 = image("VERSION=1\n", "1.0");
+  await publishImage(store, a, v1, opts);
+  let view = await readList(store, spec);
+  assert.deepEqual(view.images, {});
+  assert.deepEqual(view.waiting.map((w) => `${w.name}:${w.tag} ${w.agreed.length}`), ["demo:1.0 1", "demo:latest 1"]);
+  assert.deepEqual(view.members.map((m) => [m.ok, m.images]), [[true, 1], [true, 0], [true, 0]]);
+
+  // a second one endorses it: no upload, one catalog entry that points at what is on chain
+  const entry = (await readCatalog(store, a.address)).images.demo!.tags.latest!.amd64!;
+  const txBefore = chain.txs.size;
+  await endorseImage(store, b, { name: "demo", tags: ["1.0", "latest"], arch: "amd64", ref: entry, publisher: a.address }, "confirmed");
+  assert.ok(chain.txs.size - txBefore <= 3, "endorsing stores a catalog and a pointer, not the image");
+  assert.equal((await readCatalog(store, b.address)).images.demo!.tags.latest!.amd64!.publisher, a.address);
+  view = await readList(store, spec);
+  const listed = view.images.demo!.tags.latest!.amd64!;
+  assert.deepEqual(listed.agreed, [a.address, b.address]);
+  assert.equal(listed.publisher, a.address);
+  assert.equal(view.images.demo!.description, "kept by three");
+  const pulled = await pullImage(store, listed.publisher, listed, { cacheDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-list-")) });
+  assert.equal(pulled.manifest.digest, v1.manifest.digest);
+  // an endorsed entry also works on its own, from the endorser's catalog
+  const viaB = (await readCatalog(store, b.address)).images.demo!.tags.latest!.amd64!;
+  assert.equal((await pullImage(store, b.address, viaB, { cacheDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-list-")) })).manifest.digest, v1.manifest.digest);
+
+  // the third member (a stolen key, say) puts a different system under the same name: it does not get in
+  await publishImage(store, c, image("VERSION=evil\n", "1.0"), opts);
+  view = await readList(store, spec);
+  assert.equal(view.images.demo!.tags.latest!.amd64!.digest, v1.manifest.digest);
+  assert.ok(view.waiting.some((w) => w.tag === "latest" && w.agreed.length === 1 && w.agreed[0] === c.address));
+  // somebody who is not a member has no say at all
+  await endorseImage(store, outsider, { name: "demo", tags: ["latest"], arch: "amd64", ref: (await readCatalog(store, c.address)).images.demo!.tags.latest!.amd64!, publisher: c.address }, "confirmed");
+  assert.equal((await readList(store, spec)).images.demo!.tags.latest!.amd64!.digest, v1.manifest.digest);
+
+  // an update: "latest" moves only when a second member follows; version tags stay
+  const v2 = image("VERSION=2\n", "2.0");
+  await publishImage(store, a, v2, opts);
+  const between = await readList(store, spec);
+  assert.equal(between.images.demo!.tags["1.0"]!.amd64!.digest, v1.manifest.digest, "1.0 is still agreed by two");
+  assert.ok(!("latest" in between.images.demo!.tags), "a and b now disagree about latest: nobody gets either until one follows");
+  const e2 = (await readCatalog(store, a.address)).images.demo!.tags.latest!.amd64!;
+  await endorseImage(store, b, { name: "demo", tags: ["2.0", "latest"], arch: "amd64", ref: e2, publisher: a.address }, "confirmed");
+  const moved = await readList(store, spec);
+  assert.equal(moved.images.demo!.tags.latest!.amd64!.digest, v2.manifest.digest);
+  assert.equal(moved.images.demo!.tags.latest!.amd64!.version, "2.0");
+
+  // a member whose catalog cannot be read does not stop the list, as long as enough others can
+  await store.putPointer(c, tagAddress("catalog", c.publicKey), Buffer.from("not a catalog"), { commitment: "confirmed" });
+  const partial = await readList(store, spec);
+  assert.equal(partial.members[2]!.ok, false);
+  assert.equal(partial.images.demo!.tags.latest!.amd64!.digest, v2.manifest.digest);
+
+  // the browser reader sees the same list
+  const web = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch });
+  const seen = await web.list(spec.members, spec.threshold);
+  assert.deepEqual(seen.unreadable, [c.address]);
+  assert.deepEqual(seen.agreed["demo:latest:amd64"], [a.address, b.address]);
+  const viaWeb = seen.images.demo!.tags.latest!.amd64!;
+  assert.equal((await web.manifest(viaWeb.publisher!, viaWeb)).digest, v2.manifest.digest);
+  await assert.rejects(web.list([a.address, b.address], 1), /more than half/);
+
+  // with too few readable catalogs there is no list at all, rather than a smaller one
+  await store.putPointer(b, tagAddress("catalog", b.publicKey), Buffer.from("not a catalog either"), { commitment: "confirmed" });
+  await assert.rejects(readList(store, spec), /only 1 of the list's 3 catalogs could be read/);
+  await assert.rejects(web.list(spec.members, spec.threshold), /only 1 of the list's 3 catalogs could be read/);
+});

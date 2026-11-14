@@ -48,6 +48,12 @@ of the name.
 When you run an image of a publisher you do not know, you are trusting a stranger with root
 on your computer. chainboot shows the publisher address in `chainboot list <address>`; check it.
 
+A catalog depends on one key. A **list** ([Publishing](05-publishing.md#lists-a-catalog-that-several-publishers-keep-together))
+depends on several: an image counts only when more than half of the list's publishers have
+the same content under the same name. Someone who steals one of the keys can then neither
+add a system nor swap one. What a list does not protect against is its publishers agreeing
+on something bad, or enough of their keys being taken at once.
+
 ## Machines are not sandboxes
 
 A machine separates processes and files for convenience, not for defence. Root inside a

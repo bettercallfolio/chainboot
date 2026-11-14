@@ -95,6 +95,8 @@
   }
 }</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>Each architecture entry is the stored reference of an image manifest plus information for display.</p>
+<p>An entry may also carry <code>&quot;publisher&quot;: &quot;&lt;address&gt;&quot;</code>: the account that stored the image, when that is not the catalog's owner. This is how a publisher <strong>endorses</strong> an image somebody else uploaded: their catalog, which they sign, names the same manifest object. Readers check the manifest's transactions against that account; the content is bound by the entry's hashes.</p>
+<p><strong>Lists.</strong> A list is not stored anywhere. It is written <code>list:&lt;k&gt;:&lt;address&gt;,&lt;address&gt;,…</code> (2 to 16 distinct addresses, <code>k</code> more than half of them) and read by fetching each member's catalog: an entry (name, tag, architecture) belongs to the list when at least <code>k</code> members have an entry there with the same <code>digest</code>. Any of the agreeing entries may be used to fetch the image. A reader needs at least <code>k</code> readable catalogs; with fewer there is no list.</p>
 <h2 id="5-image-manifest"><a class="anchor" href="#5-image-manifest" aria-hidden="true" tabindex="-1">#</a>5. Image manifest</h2>
 <p>A JSON document. The tree is written one node per line, in path order.</p>
 <div class="code-wrap"><pre><code>{ &quot;chainboot&quot;: 1, &quot;kind&quot;: &quot;image&quot;, &quot;name&quot;: &quot;…&quot;, &quot;version&quot;: &quot;…&quot;, &quot;arch&quot;: &quot;amd64&quot;, &quot;os&quot;: &quot;linux&quot;,

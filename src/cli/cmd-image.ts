@@ -5,8 +5,9 @@ import readline from "node:readline/promises";
 import { buildImage } from "../image/build.ts";
 import { decompressAuto, readTar } from "../image/tar.ts";
 import { serializeManifest, type ImageManifest } from "../image/manifest.ts";
-import { hostArch, loadConfig, openStore, paths, resolvePublisher, type Config } from "../local/home.ts";
-import { parseImageName, publishImage, pullImage, readCatalog, unlistImage, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
+import { hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource, saveConfig, type Config, type Source } from "../local/home.ts";
+import { formatList, isList, parseList, readList, type ListView } from "../registry/lists.ts";
+import { endorseImage, parseImageName, publishImage, pullImage, readCatalog, unlistImage, type Catalog, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
 import { publishPrivateImage, readPrivateCatalog, unlistPrivateImage } from "../registry/private.ts";
 import { Keypair } from "../solana/keys.ts";
 import { loadVault, type Vault } from "../state/vault.ts";
@@ -36,19 +37,35 @@ export async function resolveImage(store: ChainStore, c: Config, text: string, a
   // "me/<image>" names a private image of the signed-in wallet
   const mine = n.publisher === PRIVATE_PREFIX;
   const vault = mine ? requireLogin(c) : null;
-  const publisher = vault ? vault.signer.address : resolvePublisher(c, n.publisher);
-  const cat = vault ? await readPrivateCatalog(store, vault) : await readCatalog(store, publisher, path.join(paths.cache(), "objects"));
+  const source = vault ? null : resolveSource(c, n.publisher);
+  const publisher = vault ? vault.signer.address : source!.kind === "publisher" ? source!.address : "";
+  const cat = vault ? await readPrivateCatalog(store, vault) : await readSource(store, source!);
   const image = cat.images[n.name];
   if (!image) {
     const names = Object.keys(cat.images);
     if (mine) throw new Error(`you have no private image named "${n.name}".` + (names.length ? ` Yours: ${names.join(", ")}` : " Publish one with: chainboot publish <archive> --name <name> --version <version>"));
+    if (source!.kind === "list") {
+      const waiting = (cat as ListCatalog).view.waiting.filter((w) => w.name === n.name);
+      throw new Error(`image "${n.name}" is not in the list ${source!.label}.` + (waiting.length ? ` ${waiting[0]!.agreed.length} of its ${source!.spec.members.length} publishers have it; ${source!.spec.threshold} must agree.` : names.length ? ` Available: ${names.join(", ")}` : " Its publishers agree on no image yet."));
+    }
     throw new Error(`image "${n.name}" was not found in the catalog of ${publisher}.` + (names.length ? ` Available: ${names.join(", ")}` : " That publisher has no images on this network."));
   }
   const tag = image.tags[n.tag];
   if (!tag) throw new Error(`image "${n.name}" has no tag "${n.tag}". Available: ${Object.keys(image.tags).join(", ")}`);
   const ref = tag[arch];
   if (!ref) throw new Error(`image "${n.name}:${n.tag}" is not published for ${arch}. Available: ${Object.keys(tag).join(", ")}`);
-  return { publisher, name: n.name, tag: n.tag, ref, private: mine };
+  // an entry may name the account that stored the image (a shared image, an endorsed one, a list's)
+  return { publisher: ref.publisher ?? publisher, name: n.name, tag: n.tag, ref, private: mine };
+}
+
+type ListCatalog = Pick<Catalog, "images"> & { view: ListView };
+
+/** The images of a source, shaped like a catalog: a publisher's own, or what a list's publishers agree on. */
+export async function readSource(store: ChainStore, source: Source): Promise<Pick<Catalog, "images"> | ListCatalog> {
+  const cache = path.join(paths.cache(), "objects");
+  if (source.kind === "publisher") return readCatalog(store, source.address, cache);
+  const view = await readList(store, source.spec, cache);
+  return { images: view.images, view };
 }
 
 /** Publisher part of the name of a private image: `chainboot run me/<image>`. */
@@ -178,20 +195,105 @@ export async function cmdList(a: Args): Promise<void> {
   const c = loadConfig();
   const mine = a._[0] === PRIVATE_PREFIX;
   const vault = mine ? requireLogin(c) : null;
-  const publisher = vault ? `wallet ${vault.wallet} (private)` : resolvePublisher(c, a._[0]);
+  const source = vault ? null : resolveSource(c, a._[0]);
+  const publisher = vault ? `wallet ${vault.wallet} (private)` : source!.label;
   const store = await openStore(c, note);
-  const cat = vault ? await readPrivateCatalog(store, vault) : await readCatalog(store, publisher, path.join(paths.cache(), "objects"));
+  const cat = vault ? await readPrivateCatalog(store, vault) : await readSource(store, source!);
+  const view: ListView | null = "view" in cat ? (cat as ListCatalog).view : null;
   const rows: string[][] = [];
   for (const [name, image] of Object.entries(cat.images).sort()) {
     for (const [tag, arches] of Object.entries(image.tags).sort()) {
       for (const [arch, ref] of Object.entries(arches).sort()) {
-        rows.push([bold(name), tag, arch, fmtBytes(ref.downloadSize), fmtBytes(ref.unpackedSize), image.description ?? ""]);
+        rows.push([bold(name), tag, arch, fmtBytes(ref.downloadSize), fmtBytes(ref.unpackedSize), ...(view ? [`${(ref as ListView["images"][string]["tags"][string][string]).agreed.length} of ${view.spec.members.length}`] : []), image.description ?? ""]);
       }
     }
   }
-  if (!rows.length) { info(mine ? `You have no private images on ${c.cluster}. Publish one with: chainboot publish <archive> --name <name> --version <version>` : `${publisher} has not published any images on ${c.cluster}.`); return; }
-  out(table(rows, ["image", "tag", "arch", "download", "on disk", "description"]));
-  info(dim(`publisher ${publisher} on ${c.cluster}`));
+  if (view) {
+    info(`List ${bold(publisher)} on ${c.cluster}: an image counts when ${view.spec.threshold} of these ${view.spec.members.length} publishers have it.`);
+    out(table(view.members.map((m) => [m.address, m.ok ? `${m.images} image(s)` : `could not be read: ${m.error}`]), ["publisher", "catalog"]));
+  }
+  if (!rows.length) { info(mine ? `You have no private images on ${c.cluster}. Publish one with: chainboot publish <archive> --name <name> --version <version>` : view ? "Its publishers agree on no image yet." : `${publisher} has not published any images on ${c.cluster}.`); }
+  else out(table(rows, ["image", "tag", "arch", "download", "on disk", ...(view ? ["agreed"] : []), "description"]));
+  if (view?.waiting.length) {
+    info(dim("Waiting for more publishers to agree:"));
+    out(table(view.waiting.slice(0, 12).map((w) => [w.name, w.tag, w.arch, w.version, `${w.agreed.length} of ${view.spec.members.length}`, w.digest.slice(0, 12)]), ["image", "tag", "arch", "version", "agreed", "digest"]));
+    if (view.waiting.length > 12) info(dim(`and ${view.waiting.length - 12} more`));
+  }
+  if (!view && rows.length) info(dim(`publisher ${publisher} on ${c.cluster}`));
+}
+
+export const PUBLISHER_HELP = `Usage:
+  chainboot publisher list                        Show the saved names
+  chainboot publisher add <name> <address>        Save a publisher under a short name
+  chainboot publisher add <name> <list>           Save a list of publishers under a short name
+  chainboot publisher remove <name>
+
+  chainboot endorse <image> --keypair <file> [--as <name>[:<tag>]] [--arch <arch>]
+
+A saved name stands for a publisher in every command: "chainboot run alice/alpine".
+
+A list is a catalog that several publishers keep together:
+
+  list:2:<address>,<address>,<address>            two of these three must agree
+
+An image belongs to a list when that many of its publishers have the same image (the same
+content) under the same name, tag and architecture in their own catalogs. More than half
+must agree, so no single key can add an image or replace one.
+
+  chainboot publisher add team list:2:9xQe...,4Zb7...,Hk3P...
+  chainboot list team                             what the list contains, and who agreed
+  chainboot run team/solinux
+
+A publisher agrees to an image by publishing it, or by endorsing one that is already on
+chain. Endorsing stores nothing again; it adds one entry to the endorser's catalog:
+
+  chainboot endorse 9xQe.../solinux:26.04 --keypair me.json
+  chainboot endorse team/solinux --keypair me.json           (an image the list already has)`;
+
+export function cmdPublisher(a: Args): void {
+  const c = loadConfig();
+  const [sub = "list", name, value] = a._;
+  if (sub === "list") {
+    const rows = Object.entries(c.publishers).sort().map(([n, v]) => [bold(n), isList(v) ? `list: ${parseList(v).threshold} of ${parseList(v).members.length} publishers` : "publisher", v]);
+    if (!rows.length) { info("No publisher names saved. Save one with: chainboot publisher add <name> <address or list>"); return; }
+    out(table(rows, ["name", "kind", "address or list"]));
+    return;
+  }
+  if (sub === "add") {
+    if (!name || !value) throw new UsageError("usage: chainboot publisher add <name> <address | list:2:<address>,<address>,...>");
+    if (!/^[A-Za-z0-9._-]{1,40}$/.test(name) || name === "official" || name === PRIVATE_PREFIX) throw new UsageError(`"${name}" cannot be used as a name: use letters, digits, ".", "_" or "-" (not "official" or "${PRIVATE_PREFIX}")`);
+    const stored = isList(value) ? formatList(parseList(value)) : resolvePublisher({ ...c, publishers: {} }, value);
+    c.publishers[name] = stored;
+    saveConfig(c);
+    ok(isList(stored) ? `saved list ${bold(name)}: ${parseList(stored).threshold} of ${parseList(stored).members.length} publishers must agree` : `saved publisher ${bold(name)}`);
+    info(dim(`Use it like this: chainboot list ${name}   chainboot run ${name}/<image>`));
+    return;
+  }
+  if (sub === "remove") {
+    if (!name || !(name in c.publishers)) throw new Error(name ? `there is no saved name "${name}"` : "say which name: chainboot publisher remove <name>");
+    delete c.publishers[name];
+    saveConfig(c);
+    ok(`removed ${name}`);
+    return;
+  }
+  throw new UsageError('use: chainboot publisher list | add <name> <address or list> | remove <name>');
+}
+
+export async function cmdEndorse(a: Args): Promise<void> {
+  const what = a._[0];
+  if (!what) throw new UsageError("say which image: chainboot endorse <publisher>/<image>[:tag] --keypair <file>");
+  const c = loadConfig();
+  const payer = loadKeypair(a);
+  const store = await openStore(c, note);
+  const arch = flag(a, "arch") ?? hostArch();
+  const found = await resolveImage(store, c, what, arch);
+  if (found.private) throw new Error("a private image cannot be endorsed: endorsing makes an image part of your public catalog");
+  const as = parseImageName(flag(a, "as") ?? `${found.name}:${found.tag}`);
+  if (as.publisher) throw new UsageError("--as takes a name and a tag, without a publisher: --as solinux:26.04");
+  if (!(await confirm(`Add ${found.name}:${found.tag} (${arch}, version ${found.ref.version}, digest ${found.ref.digest.slice(0, 12)}…) to the catalog of ${payer.address} as ${as.name}:${as.tag}?`, a))) { info("cancelled"); return; }
+  await endorseImage(store, payer, { name: as.name, tags: [as.tag], arch, ref: found.ref, publisher: found.publisher });
+  ok(`${payer.address} now lists ${bold(as.name)}:${as.tag} (${arch}) with digest ${found.ref.digest.slice(0, 12)}…`);
+  info(dim("Nothing was stored again: your catalog points at the image that is on chain."));
 }
 
 export const PULL_HELP = `Usage:

@@ -200,7 +200,7 @@ function decodeSlots(buf: Uint8Array): number[] {
 export type Codec = "xz" | "zstd" | "raw";
 export interface ObjectRef { sig: string; sha256?: string; size?: number }
 export interface StoredRef { sig: string; sha256: string; size: number; codec: Codec; rawSize: number }
-export interface ImageRef extends StoredRef { digest: string; version: string; created: number; downloadSize: number; unpackedSize: number }
+export interface ImageRef extends StoredRef { digest: string; version: string; created: number; downloadSize: number; unpackedSize: number; /** the account that stored the image, when it is not the catalog's owner */ publisher?: string }
 export interface Catalog { chainboot: 1; kind: "catalog"; publisher: string; updated: number; images: Record<string, { description?: string; tags: Record<string, Record<string, ImageRef>> }> }
 export interface PackInfo { sig: string; sha256: string; size: number; codec: Codec; rawSha256: string; rawSize: number; enc?: 0 | 1 }
 /** [path, type, ...]: "d" directory, "f" file, "l" symbolic link, "h" hard link, "c"/"b" device, "p" pipe. */
@@ -480,9 +480,43 @@ export class Reader {
     return cat;
   }
 
+  /**
+   * What a list contains: the images that at least `threshold` of its `members` have, with the
+   * same content, under the same name, tag and architecture in their own catalogs. More than
+   * half must agree. Each entry names the account that stored the image in `publisher`.
+   */
+  async list(members: string[], threshold: number, signal?: AbortSignal): Promise<{ images: Catalog["images"]; agreed: Record<string, string[]>; unreadable: string[] }> {
+    if (new Set(members).size !== members.length || members.length < 2 || threshold > members.length || threshold * 2 <= members.length) throw new Error("a list needs distinct members, and more than half of them must agree");
+    const results = await Promise.allSettled(members.map((m) => this.catalog(m, signal)));
+    const unreadable = members.filter((_, i) => results[i]!.status === "rejected");
+    if (members.length - unreadable.length < threshold) throw new Error(`only ${members.length - unreadable.length} of the list's ${members.length} catalogs could be read, and ${threshold} must agree`);
+    const votes = new Map<string, { ref: ImageRef & { publisher?: string }; by: string; description?: string }[]>();
+    results.forEach((r, i) => {
+      if (r.status !== "fulfilled") return;
+      for (const [name, image] of Object.entries(r.value.images)) for (const [tag, arches] of Object.entries(image.tags ?? {})) for (const [arch, ref] of Object.entries(arches ?? {})) {
+        if (!ref || typeof ref.digest !== "string") continue;
+        const key = JSON.stringify([name, tag, arch, ref.digest]);
+        if (!votes.has(key)) votes.set(key, []);
+        votes.get(key)!.push({ ref, by: members[i]!, description: image.description });
+      }
+    });
+    const images: Catalog["images"] = {}, agreed: Record<string, string[]> = {};
+    for (const [key, list] of votes) {
+      if (list.length < threshold) continue;
+      const [name, tag, arch] = JSON.parse(key) as [string, string, string];
+      const pick = list.find((v) => !v.ref.publisher || v.ref.publisher === v.by) ?? list[0]!;
+      const image = (images[name] ??= { tags: {} });
+      image.description ??= list.find((v) => v.description)?.description;
+      (image.tags[tag] ??= {})[arch] = { ...pick.ref, publisher: pick.ref.publisher ?? pick.by } as ImageRef;
+      agreed[`${name}:${tag}:${arch}`] = list.map((v) => v.by);
+    }
+    this.#say(`list: ${Object.keys(images).length} image(s) that ${threshold} of ${members.length} publishers agree on`);
+    return { images, agreed, unreadable };
+  }
+
   /** An image's manifest: the list of all its files, with the hash of each. */
   async manifest(publisher: string, ref: ImageRef, opts: { onProgress?: (p: Progress) => void; signal?: AbortSignal } = {}): Promise<Manifest> {
-    const raw = unpack(ref.codec, await this.object(ref, { signers: [b58decode(publisher, 32)], ...opts }), ref.rawSize);
+    const raw = unpack(ref.codec, await this.object(ref, { signers: [b58decode(ref.publisher ?? publisher, 32)], ...opts }), ref.rawSize);
     const m = JSON.parse(text.decode(raw)) as Manifest;
     if (m?.chainboot !== 1 || !Array.isArray(m.packs) || !Array.isArray(m.tree) || typeof m.name !== "string") throw new Error("the manifest is malformed");
     if (m.digest !== ref.digest) throw new Error(`the manifest of ${m.name} does not match its catalog entry`);
