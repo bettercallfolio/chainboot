@@ -38,7 +38,8 @@ esac
 # ---- what the system must contain
 pk=""
 ls /boot/vmlinuz-* >/dev/null 2>&1 || pk="$pk linux-image-virtual"
-command -v update-initramfs >/dev/null 2>&1 || pk="$pk initramfs-tools"
+# (a system that brings a finished initrd next to its kernel needs no tool that makes one)
+ls /boot/initrd.img-* >/dev/null 2>&1 || command -v update-initramfs >/dev/null 2>&1 || pk="$pk initramfs-tools"
 [ -e "/usr/lib/systemd/boot/efi/$LOADER" ] || pk="$pk systemd-boot-efi"
 command -v mcopy >/dev/null 2>&1 || pk="$pk mtools"
 command -v mkfs.vfat >/dev/null 2>&1 || pk="$pk dosfstools"
