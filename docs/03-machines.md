@@ -128,6 +128,48 @@ What it needs: an image with an init system (Solinux has systemd; `solinux-minim
 a systemd user session, which a normal login gives you. Saving, restoring and exporting work
 the same; a restore stops the machine first.
 
+## From a machine to the disk of a real computer
+
+A machine borrows the kernel of the computer it runs on. A real computer, or a virtual
+machine, needs a disk with a kernel of its own, a boot loader and a partition table.
+`chainboot disk` writes a machine out as such a disk:
+
+```sh
+chainboot run solinux --name pc
+root@pc:~# apt install -y linux-image-virtual systemd-boot-efi mtools dosfstools fdisk
+root@pc:~# passwd                     # somebody must be able to log in on the new computer
+root@pc:~# exit
+
+chainboot disk pc pc.img              # about 20 seconds
+```
+
+`pc.img` is a complete disk: a GPT partition table, an EFI system partition with systemd-boot,
+the kernel and its initrd, and an ext4 partition with the machine's whole file system. It
+boots wherever there is UEFI firmware:
+
+```sh
+# in a virtual machine (QEMU; the package "ovmf" has the firmware)
+qemu-system-x86_64 -m 2G -bios /usr/share/ovmf/OVMF.fd -drive file=pc.img,format=raw,if=virtio -nic user
+
+# on a real computer: write it to a USB stick or a disk. This erases that device.
+sudo dd if=pc.img of=/dev/sdX bs=4M conv=fsync status=progress
+```
+
+Good to know:
+
+- **Nothing is installed on your computer.** The disk is put together inside the machine,
+  with the distribution's own tools (`mke2fs`, `mtools`, `sfdisk`). If something is missing
+  there, chainboot names the packages. It needs no administrator rights.
+- **It is a copy of the machine as it is now.** The disk gets its own machine ID and its own
+  SSH host keys, its own `/etc/fstab`, and takes its network settings by DHCP. Nothing links
+  it back to the chain or to the machine.
+- **Size.** By default the disk is as small as the system allows (about 2.3 GB for Solinux
+  with a kernel). `--size 8G` makes it larger; on the new computer the root partition can be
+  grown to fill a bigger disk (`growpart` and `resize2fs`).
+- **Which kernel.** `linux-image-virtual` is small and right for virtual machines.
+  `linux-image-generic` brings the drivers for real hardware.
+- **Firmware.** UEFI only. Computers that can only boot in the old BIOS way are not supported.
+
 ## With or without administrator rights
 
 Building a machine means mounting file systems and giving files their owners. On Linux there

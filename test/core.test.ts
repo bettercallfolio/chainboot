@@ -587,3 +587,15 @@ test("accounts: a pointer kept in an account is read with one request, cannot be
   got = (await plain.getPointer(tag, [owner.publicKey]))!;
   assert.deepEqual([got.payload.toString(), got.account], ["v4", undefined]);
 });
+
+test("disk: the script that builds a bootable disk is valid shell", { skip: process.platform === "win32" && "needs a POSIX shell" }, async () => {
+  const { DISK_SCRIPT, DISK_FILE, DISK_WORK } = await import("../src/engine/disk.ts");
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync("sh", ["-n", "-c", DISK_SCRIPT], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!DISK_SCRIPT.includes('"$"') && DISK_SCRIPT.includes("${K#/boot/vmlinuz-}"), "shell variables arrive in the script as the shell wants them");
+  assert.ok(DISK_SCRIPT.includes(`--exclude=./${DISK_WORK}`) && DISK_FILE.startsWith(DISK_WORK), "the work directory is not copied into the disk");
+  // the directory it works in is one that saves leave out
+  const { isUnsaved } = await import("../src/state/scan.ts");
+  assert.ok(isUnsaved(DISK_FILE));
+});

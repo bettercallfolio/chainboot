@@ -4,11 +4,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import readline from "node:readline/promises";
 import {
-  checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
+  bootKind, checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
 import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInProgress, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
+import { DISK_FILE, DISK_NEEDS_PACKAGES, DISK_NEEDS_PASSWORD, DISK_NO_SPACE, DISK_SCRIPT, DISK_WORK } from "../engine/disk.ts";
 import { engineMode, inUserNs, runInUserNs, scopeCommand, support } from "../engine/rootless.ts";
 import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
@@ -38,7 +39,7 @@ export function asRoot(args: string[]): number {
   const dir = MACHINE_OPS.has(args[0]!) && args[1] ? machineDir(engineHome(home), args[1]) : null;
   const running = dir ? initPid(dir) : null;
   // a machine that boots is started inside a control group that its systemd may manage
-  const boots = (args[0] === "enter" || args[0] === "start") && !running && !!readMachine(engineHome(home), args[1] ?? "")?.boot;
+  const boots = (args[0] === "enter" || args[0] === "start" || args[0] === "disk") && !running && !!readMachine(engineHome(home), args[1] ?? "")?.boot;
   if (process.getuid?.() === 0) {
     const cmd = [...((boots && scopeCommand(false)) || []), ...self];
     return spawnSync(cmd[0]!, cmd.slice(1), { stdio: "inherit" }).status ?? 1;
@@ -70,7 +71,7 @@ Log in on this computer in the usual way (or let an administrator run: loginctl 
 }
 
 /** Engine operations whose second argument is a machine name. */
-const MACHINE_OPS = new Set(["enter", "save", "restore", "export", "autosave", "start", "stop", "rm"]);
+const MACHINE_OPS = new Set(["enter", "save", "restore", "export", "autosave", "start", "stop", "rm", "disk"]);
 
 export const RUN_HELP = `Usage:
   chainboot run <image> [--name <machine>] [--arch <arch>] [-- <command> ...]
@@ -258,6 +259,55 @@ export function cmdExport(a: Args): void {
   process.exitCode = status;
 }
 
+export const DISK_HELP = `Usage:
+  chainboot disk <machine> <file.img> [--size <size>]
+
+Writes a machine out as the disk of a real computer: with its own kernel, a boot loader and
+a partition table. The disk boots on a PC or in a virtual machine with UEFI firmware.
+
+  chainboot run solinux --name pc
+  root@pc:~# apt install -y linux-image-virtual systemd-boot-efi mtools dosfstools fdisk
+  root@pc:~# passwd                              # somebody must be able to log in
+  root@pc:~# exit
+  chainboot disk pc pc.img                       # takes about 20 seconds
+
+  # try it in a virtual machine (QEMU with UEFI firmware):
+  qemu-system-x86_64 -m 2G -bios /usr/share/ovmf/OVMF.fd -drive file=pc.img,format=raw,if=virtio -nic user
+  # or put it on a USB stick or a disk (this erases that device):
+  sudo dd if=pc.img of=/dev/sdX bs=4M conv=fsync status=progress
+
+The disk is put together inside the machine, with the system's own tools, so nothing has to
+be installed on your computer. chainboot says which packages are missing.
+
+  --size <size>   Size of the disk, for example 8G (default: as small as the system allows).
+                  On the new computer, growing the root partition gives it the rest of a bigger disk.
+
+The disk is the machine as it is now: a copy. It has its own machine ID and SSH host keys,
+gets its network settings by DHCP, and nothing links it back to the chain.`;
+
+function parseSize(text: string): number {
+  const m = /^(\d+(?:\.\d+)?)\s*([MG])i?B?$/i.exec(text.trim());
+  if (!m) throw new UsageError(`"${text}" is not a size. Examples: 4G, 8G, 3000M`);
+  return Math.round(Number(m[1]) * (m[2]!.toUpperCase() === "G" ? 1024 : 1));
+}
+
+export function cmdDisk(a: Args): void {
+  requireLinux();
+  const [name, file] = a._;
+  if (!name || !file) throw new UsageError("usage: chainboot disk <machine> <file.img>");
+  const machine = readMachine(engineHome(), name);
+  if (!machine) throw new Error(`there is no machine named "${name}"`);
+  const target = path.resolve(file);
+  if (fs.existsSync(target)) throw new Error(`${target} already exists`);
+  if (!fs.existsSync(path.dirname(target))) throw new Error(`${path.dirname(target)} does not exist`);
+  const sizeMb = flag(a, "size") ? parseSize(flag(a, "size")!) : 0;
+  info(`Building a bootable disk from ${bold(name)} (${machine.image.name}:${machine.image.tag}).`);
+  // the system's own tools do the work, inside the machine; a machine that boots is not needed for that
+  const status = asRoot(["disk", name, target, String(sizeMb)]);
+  if (status === 0 && process.getuid?.() !== 0 && engineMode(homeDir()) === "root") spawnSync("sudo", ["chown", `${process.getuid!()}:${process.getgid!()}`, target], { stdio: "ignore" });
+  process.exitCode = status;
+}
+
 export function cmdImages(): void {
   const list = localImages(engineHome());
   if (!list.length) { info("No images downloaded yet. Try: chainboot pull solinux"); return; }
@@ -341,6 +391,37 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     const r = exportInner(home, name, rest[0]!, progress);
     line.done();
     ok(`exported ${name}: ${r.entries} entries, ${fmtBytes(r.bytes)}`);
+    return;
+  }
+  if (op === "disk") {
+    const [target, sizeMb] = rest;
+    const dir = machineDir(home, name);
+    const pid = initPid(dir) ?? startMachine(home, name);
+    // what the script does appears as it happens (its error output is ours); its standard output is for us
+    const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--uts", "--ipc", "--pid", ...(bootKind(dir) ? ["--cgroup"] : []), ...(fs.existsSync(path.join(dir, "netns")) ? ["--net"] : []), "--",
+      "chroot", path.join(dir, "merged"), "/usr/bin/env", "-i", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", `CB_SIZE_MB=${Number(sizeMb) || 0}`, `CB_NAME=${name}`, "/bin/sh", "-c", DISK_SCRIPT],
+      { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 1 << 20 });
+    const out = (r.stdout ?? "").split("\n");
+    const missing = out.find((l) => l.startsWith("MISSING:"))?.slice(8).trim();
+    if (r.status === DISK_NEEDS_PACKAGES && missing) {
+      throw new Error(`the system in "${name}" needs a kernel, a boot loader and the tools that make a disk. Install them and try again:\n  chainboot run ${name} -- apt-get install -y ${missing}`);
+    }
+    if (r.status === DISK_NEEDS_PASSWORD) {
+      throw new Error(`nobody could log in on a computer started from this disk: no account in "${name}" has a password. Set one and try again:\n  chainboot run ${name} -- passwd`);
+    }
+    if (r.status === DISK_NO_SPACE) {
+      throw new Error(`there is not enough free space on this computer to build the disk (about ${out.find((l) => l.startsWith("NOSPACE:"))?.slice(8) ?? "?"} MiB are needed)`);
+    }
+    const done = /^DONE:(\d+):(.*)$/.exec(out.find((l) => l.startsWith("DONE:")) ?? "");
+    const reason = out.filter((l) => l.trim() && !/^(MISSING|NOSPACE|DONE):/.test(l)).pop();
+    if (r.status !== 0 || !done) throw new Error(`the disk could not be built${reason ? `: ${reason}` : ""}`);
+    // the finished disk lies in the machine's own layer: move it to where it was asked for
+    const built = path.join(dir, "upper", DISK_FILE);
+    if (fs.realpathSync(built) !== path.join(fs.realpathSync(path.join(dir, "upper")), DISK_FILE)) throw new Error("the disk file is not where it should be");
+    try { fs.renameSync(built, target!); } catch { fs.copyFileSync(built, target!); fs.rmSync(built); }
+    fs.rmSync(path.join(dir, "upper", DISK_WORK), { recursive: true, force: true });
+    ok(`wrote ${target}: ${fmtBytes(Number(done[1]) * 1048576)}, kernel ${done[2]}, boots with UEFI firmware`);
+    info(dim("Try it: qemu-system-x86_64 -m 2G -bios /usr/share/ovmf/OVMF.fd -drive file=" + path.basename(target!) + ",format=raw,if=virtio -nic user"));
     return;
   }
   if (op === "autosave") {

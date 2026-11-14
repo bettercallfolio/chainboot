@@ -9,7 +9,7 @@ import { homeDir, loadConfig } from "../local/home.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { SHARE_HELP, cmdShare, cmdShared } from "./cmd-share.ts";
 import { ACCOUNTS_HELP, FEE_HELP, RPC_HELP, cmdAccounts, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
-import { BOOT_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
+import { BOOT_HELP, DISK_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdDisk, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
 
@@ -48,6 +48,7 @@ ${bold("Images")}
   rmi <image>                    Delete a downloaded image
   publish <archive> ...          Put your own Linux system on chain (private; --public for everyone)
   export <machine> <file.tar>    Turn a machine into an archive you can publish
+  disk <machine> <file.img>      Write a machine out as a bootable disk, with its own kernel
   unlist <image>                 Remove an image from your catalog
   publisher add|list|remove      Short names for publishers, and lists that several publishers keep together
   endorse <image> ...            Add an image that is already on chain to your catalog (for lists)
@@ -98,6 +99,7 @@ const COMMANDS: Record<string, Command> = {
   rm: { run: cmdRm, help: RUN_HELP, options: ["yes"], booleans: ["yes"] },
   images: { run: cmdImages, help: RUN_HELP, options: [] },
   export: { run: cmdExport, help: EXPORT_HELP, options: [] },
+  disk: { run: cmdDisk, help: DISK_HELP, options: ["size"] },
   rmi: { run: cmdRmi, help: RUN_HELP, options: [] },
   login: { run: cmdLogin, help: LOGIN_HELP, options: ["keypair"] },
   logout: { run: cmdLogout, help: LOGIN_HELP, options: [] },

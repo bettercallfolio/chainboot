@@ -112,7 +112,6 @@ and on Linux. The list below is in rough order of importance.
 **Later**
 
 - Other chains.
-- Bootable images for real hardware and virtual machines, including the kernel.
 
 If one of these matters to you, open an issue or send a pull request. The code is small on
 purpose.

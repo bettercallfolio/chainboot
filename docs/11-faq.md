@@ -89,6 +89,11 @@ An ordinary machine starts with a shell only. Create one that boots
 (`chainboot run solinux --boot --name server`), or turn it on for an existing machine with
 `chainboot boot <machine> on` ([Machines](03-machines.md#machines-that-boot)).
 
+**Can I run it on a real computer, without chainboot?**
+Yes. `chainboot disk <machine> disk.img` writes a machine out as a bootable disk with its own
+kernel, for a PC or a virtual machine with UEFI firmware
+([Machines](03-machines.md#from-a-machine-to-the-disk-of-a-real-computer)).
+
 **A server inside the machine does not start**
 The machine shares your computer's network. If the port is already used by your computer
 (port 22 by its own SSH server, for example), choose another port inside the machine.
