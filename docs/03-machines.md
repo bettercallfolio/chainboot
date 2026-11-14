@@ -59,6 +59,12 @@ chmod +x /etc/chainboot/start
 
 Its output goes to `~/.chainboot/machines/<name>/start.log` on your computer.
 
+A service with a page for your browser should listen on the address in the environment
+variable `CHAINBOOT_BIND`, on a port from 7654 to 7673. On Linux a machine shares your
+computer's network and the variable says `127.0.0.1`. On macOS and Windows with Docker or
+Podman, machines run inside a container; there it says `0.0.0.0`, and those twenty ports are
+passed through, so `http://127.0.0.1:7654` in your browser reaches the machine either way.
+
 ## What a machine is, exactly
 
 - **Your processor, your kernel.** Programs run natively. There is no emulation and no

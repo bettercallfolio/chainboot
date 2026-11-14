@@ -23,6 +23,12 @@ const NAME = "chainboot";
 const ENGINE_HOME = "/var/lib/chainboot";
 const ENGINE_APP = "/opt/chainboot";
 export const UI_PORT = 7717;
+/**
+ * Ports for what machines serve (a web interface, a desktop). Where machines run inside an
+ * engine container, these are passed through to this computer, so a browser here reaches a
+ * service that listens on one of them inside a machine.
+ */
+export const MACHINE_PORTS = { first: 7654, last: 7673 };
 
 const NODE_VERSION = "v24.22.3";
 const NODE_SHA: Record<string, string> = {
@@ -166,7 +172,8 @@ async function create(kind: EngineKind): Promise<void> {
   const image = `${NAME}-engine:${base.sha256.slice(0, 12)}`;
   if (!works(kind, ["image", "inspect", image])) must(run(kind, ["import", "-", image], { input: rootfs }), "importing the engine image");
   must(run(kind, ["run", "-d", "--name", NAME, "--hostname", NAME, "--privileged", "--restart", "unless-stopped",
-    "-v", `${NAME}-data:${ENGINE_HOME}`, "-p", `127.0.0.1:${UI_PORT}:${UI_PORT}`, image, "sleep", "infinity"]), "creating the engine container");
+    "-v", `${NAME}-data:${ENGINE_HOME}`, "-p", `127.0.0.1:${UI_PORT}:${UI_PORT}`,
+    "-p", `127.0.0.1:${MACHINE_PORTS.first}-${MACHINE_PORTS.last}:${MACHINE_PORTS.first}-${MACHINE_PORTS.last}`, image, "sleep", "infinity"]), "creating the engine container");
 }
 
 interface EngineState { kind: EngineKind; app: string; node: string; config: string }
