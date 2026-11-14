@@ -300,14 +300,15 @@ test("two machines of one image can start at the same moment, and a session neve
     const first = initPid(dir)!;
     const parent = Number(/^PPid:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${first}/status`, "utf8"))![1]);
     const startOf = (p: number) => { const stat = fs.readFileSync(`/proc/${p}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]; };
-    const gone = (p: number) => { try { const st = fs.readFileSync(`/proc/${p}/stat`, "utf8"); return /\) [ZX] /.test(st); } catch { return true; } };
+    const state = (p: number) => { try { const st = fs.readFileSync(`/proc/${p}/stat`, "utf8"); return st.slice(0, st.lastIndexOf(")") + 1) + st.slice(st.lastIndexOf(")") + 1).split(" ").slice(0, 5).join(" "); } catch { return "gone"; } };
+    const gone = (p: number) => state(p) === "gone" || /\) [ZX] /.test(state(p));
     fs.writeFileSync(path.join(dir, "starting"), `${parent} ${startOf(parent)}\n`);
     fs.rmSync(path.join(dir, "pid"));
     assert.equal(initPid(dir), null, "no command knows this machine as running");
     // the next start ends what was left and starts the machine once
     const second = startMachine(home, "a");
     assert.notEqual(second, first);
-    assert.ok(gone(first) && gone(parent), "the process of the interrupted start is gone");
+    assert.ok(gone(first) && gone(parent), `the processes of the interrupted start are gone (first: ${state(first)}; its parent: ${state(parent)})`);
     assert.ok(!fs.existsSync(path.join(dir, "starting")));
     assert.equal(enterMachine(home, "a", second, ["/bin/sh", "-c", "cat /data/d0/f0"]), 0);
     // and "stop" ends such a leftover too, although nothing says that the machine runs
@@ -315,7 +316,7 @@ test("two machines of one image can start at the same moment, and a session neve
     fs.writeFileSync(path.join(dir, "starting"), `${parent2} ${startOf(parent2)}\n`);
     fs.rmSync(path.join(dir, "pid"));
     assert.equal(stopMachine(home, "a"), true);
-    assert.ok(gone(second) && gone(parent2));
+    assert.ok(gone(second) && gone(parent2), `stop ended the leftover (first: ${state(second)}; its parent: ${state(parent2)})`);
     assert.equal(stopMachine(home, "a"), false);
   } finally {
     for (const n of ["a", "b"]) removeMachine(home, n);

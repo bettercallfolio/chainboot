@@ -447,6 +447,21 @@ function lockStart(dir: string, name: string, file = "start.lock"): () => void {
   return () => { fs.rmSync(lock, { recursive: true, force: true }); };
 }
 
+/** True while a process of the process group `group` is alive (one that has ended and only waits to be collected does not count). */
+function groupAlive(group: number): boolean {
+  let names: string[];
+  try { names = fs.readdirSync("/proc"); } catch { return false; }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const stat = fs.readFileSync(`/proc/${name}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // state, parent, process group, ...
+      if (Number(fields[2]) === group && fields[0] !== "Z" && fields[0] !== "X") return true;
+    } catch { /* it ended while we looked */ }
+  }
+  return false;
+}
+
 /**
  * Ends what a start left behind that never finished: the command that was starting the
  * machine was interrupted (Ctrl+C, a closed terminal) after the machine's first process was
@@ -461,7 +476,8 @@ function endInterrupted(dir: string): void {
   if (left) {
     // the process leads a group of its own (it was started detached): everything it started goes with it
     try { process.kill(-left, "SIGKILL"); } catch { try { process.kill(left, "SIGKILL"); } catch { /* already gone */ } }
-    for (let i = 0; i < 100 && readPid(note); i++) sleepMs(50);
+    // until every process of that group is gone, not only its leader: the machine's files stay mounted as long as one of them lives
+    for (let i = 0; i < 200 && (readPid(note) || groupAlive(left)); i++) sleepMs(50);
     sleepMs(200); // let the kernel drop its mounts
   }
   fs.rmSync(note, { force: true });
