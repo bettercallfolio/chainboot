@@ -150,6 +150,11 @@ Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal 
 The public endpoints are meant for light use and limit requests strictly. A free account at
 any provider is the single biggest speed-up.
 
+A [lazy machine](03-machines.md#lazy-machines-start-before-the-download-is-done) does not
+wait for the download at all: the full Solinux (114 MB on chain, 504 MB of files) answers
+its first command 6.7 seconds after `chainboot run solinux:lazy --lazy` on a computer that
+has nothing yet, against 18.4 seconds the ordinary way.
+
 Finding the newest pointer (the first step of every `list`, `run` and `restore`) takes one
 request when its owner keeps it in an account, instead of a history lookup and a second
 request: on devnet about 0.3 seconds instead of 0.6.

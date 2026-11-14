@@ -149,7 +149,7 @@ chainboot publish rootfs.tar --name mydistro --version 1.0 --lazy
 ```
 
 The image gets a little larger, because each small pack is compressed on its own (Solinux
-minimal: 23.3 MB instead of 21.6 MB). It is the same image, with the same digest, and
+minimal: 23.3 MB instead of 21.6 MB; Solinux: 117 MB instead of 113 MB). It is the same image, with the same digest, and
 everybody can still run it the ordinary way.
 
 Better still, tell chainboot which files a start of your system reads. They are then stored

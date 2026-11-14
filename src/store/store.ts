@@ -250,16 +250,17 @@ export class ChainStore {
 
     // An account that mirrors this pointer must never be left showing an older one: once it
     // exists it is kept up to date with every write, whatever the settings say now.
-    const mirror = await this.#account(payer.publicKey, tag).catch(() => null);
+    // (so a write that cannot find out whether there is one does not go ahead)
+    const mirror = await this.#account(payer.publicKey, tag).catch((e: Error) => { throw new Error(`could not check whether this pointer is also kept in an account: ${e.message}`); });
     const wanted = options.account ?? this.defaults.accounts ?? false;
-    if (mirror?.exists || wanted) {
+    if (mirror.exists || wanted) {
       const fits = payload.length <= ACCOUNT_PAYLOAD_MAX;
       const budget = (opts.priorityFeeLamports ?? 0) > 0 ? computeBudgetInstructions(ACCOUNT_TX_UNITS, Math.ceil(((opts.priorityFeeLamports ?? 0) * 1e6) / ACCOUNT_TX_UNITS)) : [];
       const send = (instructions: Instruction[]) => sendAndConfirm(this.pool, (bh) => buildTransaction(payer, [...budget, ...instructions], bh, { version: "legacy" }));
       // later than anything written before, also when this computer's clock is behind the last writer's
-      const seq = (() => { const now = BigInt(Date.now()); return mirror?.record && mirror.record.seq >= now ? mirror.record.seq + 1n : now; })();
+      const seq = (() => { const now = BigInt(Date.now()); return mirror.record && mirror.record.seq >= now ? mirror.record.seq + 1n : now; })();
       if (fits) {
-        if (!mirror?.exists) {
+        if (!mirror.exists) {
           const rent = await this.pool.call<number>("getMinimumBalanceForRentExemption", [ACCOUNT_SPACE]);
           await send(createInstructions(payer.publicKey, tag, rent));
         }
@@ -267,7 +268,7 @@ export class ChainStore {
         return send([...dataInstructions(opts.carrier ?? "noop", payer.publicKey, data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))]);
       }
       // too long for the account: it is told to send readers to the transactions, then the pointer is written as usual
-      if (mirror?.exists) await send([writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, null, seq))]);
+      if (mirror.exists) await send([writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, null, seq))]);
     }
 
     // the key includes the time so that publishing the same pointer twice still creates a new, newer transaction

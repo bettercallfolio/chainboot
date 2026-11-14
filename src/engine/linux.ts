@@ -631,6 +631,8 @@ export function dropUnpacked(home: EngineHome): void {
     fs.rmSync(path.join(home.images, d, "complete"), { force: true });
     for (const sub of ["rootfs", "rootfs.tmp"]) fs.rmSync(path.join(home.images, d, sub), { recursive: true, force: true });
   }
+  // the decompressed packs that lazy machines read from belong to whoever ran the engine: made again when needed
+  fs.rmSync(path.join(home.cache, "raw"), { recursive: true, force: true });
 }
 
 export function removeImage(home: EngineHome, digest: string): void {

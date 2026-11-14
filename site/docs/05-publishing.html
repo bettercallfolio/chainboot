@@ -103,7 +103,7 @@ chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch a
 <h2 id="images-for-lazy-machines"><a class="anchor" href="#images-for-lazy-machines" aria-hidden="true" tabindex="-1">#</a>Images for lazy machines</h2>
 <p>A lazy machine (<a href="03-machines.html#lazy-machines-start-before-the-download-is-done">Machines</a>) fetches a file when it is first opened. For that to be quick, the image has to be stored differently: in many small packs instead of a few large ones, with files of one directory together.</p>
 <div class="code-wrap"><pre><code>chainboot publish rootfs.tar --name mydistro --version 1.0 --lazy</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
-<p>The image gets a little larger, because each small pack is compressed on its own (Solinux minimal: 23.3 MB instead of 21.6 MB). It is the same image, with the same digest, and everybody can still run it the ordinary way.</p>
+<p>The image gets a little larger, because each small pack is compressed on its own (Solinux minimal: 23.3 MB instead of 21.6 MB; Solinux: 117 MB instead of 113 MB). It is the same image, with the same digest, and everybody can still run it the ordinary way.</p>
 <p>Better still, tell chainboot which files a start of your system reads. They are then stored first, in packs of their own, and a lazy machine fetches those ahead instead of stumbling over them one by one:</p>
 <div class="code-wrap"><pre><code>chainboot run mydistro --lazy --name probe      <span class="c"># use it the way people will: a shell, the package manager, ...</span>
 chainboot stop probe

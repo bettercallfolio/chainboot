@@ -144,6 +144,19 @@ reads a file, the server fetches the pack that holds it, checks it against the m
 keeps it in the cache; from then on that file is read from disk. Nothing is unpacked, so a
 large system does not spend ten seconds writing thirty thousand files it may never use.
 
+Measured on a computer that had nothing yet, from typing the command to the output of the
+first command inside the machine (devnet, a dozen endpoints):
+
+| | ordinary | lazy |
+|---|---|---|
+| Solinux (504 MB of files) | 18.4 s | 6.7 s |
+| Solinux minimal (90 MB of files) | 7.8 s | 5.6 s |
+| disk used after a shell, git, python and `apt-get update` (Solinux) | 665 MB | 76 MB |
+
+On a computer that has the image already, an ordinary machine starts in 0.2 s and a lazy one
+in under a second; lazy pays off on the first start, and for systems much larger than what
+you use of them.
+
 - **Use an image stored for it.** Any image can be run with `--lazy`, but an ordinary image
   is stored in a few large packs, and reading one file means fetching the pack it is in.
   Images published with `--lazy` are stored in many small packs, with the files that a start
