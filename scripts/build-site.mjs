@@ -16,6 +16,18 @@ const REPO = "https://github.com/bettercallfolio/chainboot";
 // Set to false (and remove class="prelaunch" from site/index.html) when the repository is public.
 const PRELAUNCH = true;
 
+// The reader for browsers (web/reader + the bundled src/browser/reader.ts) becomes site/reader
+// once the site is public. In pre-release mode it is not part of the site at all.
+async function buildReader() {
+  const out = path.join(root, "site", "reader");
+  if (PRELAUNCH) return false;
+  const { build } = await import("esbuild");
+  fs.mkdirSync(out, { recursive: true });
+  await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, "src/browser/reader.ts")], outfile: path.join(out, "chainboot-reader.js") });
+  for (const f of fs.readdirSync(path.join(root, "web/reader"))) fs.copyFileSync(path.join(root, "web/reader", f), path.join(out, f));
+  return true;
+}
+
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (text) => text.toLowerCase().replace(/`/g, "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
 
@@ -229,4 +241,5 @@ if (process.argv.includes("--check")) {
   fs.mkdirSync(outDir, { recursive: true });
   for (const [name, html] of pages) fs.writeFileSync(path.join(outDir, name), html);
   console.log(`wrote ${pages.size} pages to site/docs`);
+  if (await buildReader()) console.log("wrote the reader to site/reader");
 }

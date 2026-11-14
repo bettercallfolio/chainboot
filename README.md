@@ -126,6 +126,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | Save, restore, history, automatic saving, continue on another computer | Works. Tested on devnet. |
 | Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
 | Sharing a saved machine or a private image with another wallet | Works. Tested on devnet with two wallets. |
+| Reader for browsers (`dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |
@@ -148,7 +149,7 @@ Known limits, so nothing surprises you:
 3. [Machines](docs/03-machines.md): running, keeping one up, services, booting systemd, exporting
 4. [Saving to chain](docs/04-saving.md): wallet, vault, encryption, restore, sharing, conflicts, cost
 5. [Publishing your own system](docs/05-publishing.md): any distribution, step by step
-6. [The SDK](docs/06-sdk.md): store files, build your own tools
+6. [The SDK](docs/06-sdk.md): store files, build your own tools, read images in a browser
 7. [The on-chain format](docs/07-format.md): every byte, so anyone can write a reader
 8. [Networks and costs](docs/08-networks-and-costs.md): devnet, mainnet, what it costs
 9. [Security](docs/09-security.md): what you trust and what you do not have to

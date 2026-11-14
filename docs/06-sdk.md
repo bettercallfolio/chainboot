@@ -168,7 +168,46 @@ const got = openFrom(theirKeys, letter, "my-app");           // { plain, sender 
 `shareImage`, `shareMachine`, `listShares`, `acceptImage` and `acceptMachine` are the
 functions behind `chainboot share` and `chainboot shared`.
 
-## 7. Compression
+## 7. In a browser
+
+The SDK above is for Node. For web pages there is a separate reader: one script of about
+20 kB without dependencies, built on `fetch` and WebCrypto, that finds, downloads and
+verifies public images. It is the same format and the same checks, written a second time,
+which is also the proof that the format can be read by anyone.
+
+```html
+<script type="module">
+  import { Reader, entries, fileContent } from "./chainboot-reader.js";
+
+  const reader = new Reader({ endpoints: ["https://api.devnet.solana.com"], onStep: console.log });
+  const publisher = "HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu";
+
+  const catalog = await reader.catalog(publisher);                    // signed by the publisher
+  const ref = catalog.images.alpine.tags.latest.amd64;
+  const manifest = await reader.manifest(publisher, ref);             // SHA-256 from the catalog
+  const pack = await reader.pack(manifest, 0, { onProgress: (p) => console.log(p.bytes, "of", p.size) });
+  const file = entries(manifest).find((e) => e.path === "etc/hostname");
+  console.log(new TextDecoder().decode(await fileContent(file, pack)));   // checked against the manifest
+</script>
+```
+
+`npm run build` writes it to `dist/reader/` together with a small page that lets you browse
+a publisher's catalog and look into the files of an image. `reader.object(ref)` and
+`reader.pointer(tag, signers)` read any object and any pointer, so your own data works too.
+
+What to know:
+
+- It needs a browser that can check Ed25519 signatures: Chrome and Edge 137, Firefox 129,
+  Safari 17, or later. `canVerify()` tells you.
+- The page's visitors use the endpoints you name. The public endpoints allow requests from
+  web pages but are slow (a 3 MB system takes about half a minute); a keyed endpoint is far
+  faster, but a key inside a public page can be used by anyone who reads the page.
+- It reads public images. Private images and saved machines need a wallet's key and stay
+  with the program.
+- Everything is held in memory, so it suits small systems and single files, not a 500 MB
+  image on a phone.
+
+## 8. Compression
 
 ```js
 import { compress, decompress, xzDecode } from "chainboot";

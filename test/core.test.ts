@@ -346,3 +346,73 @@ test("rootless: the reserved ID range of a user is found by name or number, and 
   assert.equal(freeRange(path.join(dir, "missing")), 100000);
   assert.equal(SUB_IDS, 65536);
 });
+
+test("browser reader: finds, downloads and verifies an image with web APIs only, also when endpoints misbehave", async () => {
+  const { Reader, entries, fileContent, canVerify, tagAddress: webTag, b58encode: webEncode, b58decode: webDecode } = await import("../src/browser/reader.ts");
+  const { publishImage } = await import("../src/registry/registry.ts");
+  const { buildImage } = await import("../src/image/build.ts");
+  assert.equal(await canVerify(), true);
+  // the reader's own helpers agree with the SDK's
+  const sample = crypto.randomBytes(32);
+  assert.equal(webEncode(sample), b58encode(sample));
+  assert.deepEqual(Buffer.from(webDecode(b58encode(sample), 32)), sample);
+  assert.deepEqual(Buffer.from(await webTag("catalog", sample)), tagAddress("catalog", sample));
+
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 }));
+  const publisher = Keypair.generate();
+  const T = 1_700_000_000, own = { uid: 0, gid: 0, mtime: T };
+  const big = crypto.randomBytes(180_000), lib = Buffer.alloc(120_000, "abc");
+  const built = buildImage([
+    { path: "etc", type: "d", mode: 0o755, ...own }, { path: "etc/os-release", type: "f", mode: 0o644, ...own, data: Buffer.from("NAME=demo\n") },
+    { path: "usr", type: "d", mode: 0o755, ...own }, { path: "usr/big.bin", type: "f", mode: 0o755, ...own, data: big }, { path: "usr/lib.so", type: "f", mode: 0o644, ...own, data: lib },
+    { path: "usr/link", type: "l", mode: 0o777, ...own, link: "lib.so" }, { path: "etc/empty", type: "f", mode: 0o600, ...own, data: Buffer.alloc(0) },
+  ], { name: "demo", version: "1.0", arch: "amd64", description: "for the browser" });
+  await publishImage(store, publisher, built, { commitment: "confirmed" });
+
+  const steps: string[] = [];
+  const read = async (reader: InstanceType<typeof Reader>) => {
+    const cat = await reader.catalog(publisher.address);
+    assert.deepEqual(Object.keys(cat.images), ["demo"]);
+    assert.equal(cat.images.demo!.description, "for the browser");
+    const ref = cat.images.demo!.tags.latest!.amd64!;
+    const manifest = await reader.manifest(publisher.address, ref);
+    assert.equal(manifest.digest, built.manifest.digest);
+    const list = entries(manifest);
+    assert.deepEqual(list.map((e) => `${e.path} ${e.type}`).sort(), ["etc d", "etc/empty f", "etc/os-release f", "usr d", "usr/big.bin f", "usr/lib.so f", "usr/link l"]);
+    assert.equal(list.find((e) => e.path === "usr/link")!.target, "lib.so");
+    const packs = await Promise.all(manifest.packs.map((_, i) => reader.pack(manifest, i)));
+    const content = async (p: string) => { const e = list.find((x) => x.path === p)!; return Buffer.from(await fileContent(e, e.size ? packs[e.pack!]! : new Uint8Array(0))); };
+    assert.ok((await content("usr/big.bin")).equals(big));
+    assert.ok((await content("usr/lib.so")).equals(lib));
+    assert.equal((await content("etc/os-release")).toString(), "NAME=demo\n");
+    assert.equal((await content("etc/empty")).length, 0);
+    // a file cut from the wrong place is noticed
+    const e = list.find((x) => x.path === "usr/lib.so")!;
+    await assert.rejects(fileContent({ ...e, offset: e.offset! + 1 }, packs[e.pack!]!), /does not match its hash/);
+    return manifest;
+  };
+
+  // healthy endpoints: block mode keeps the number of requests far below the number of transactions
+  const good = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch, onStep: (l) => steps.push(l) });
+  await read(good);
+  assert.ok(steps.some((l) => l.startsWith("catalog pointer: signed by")) && steps.some((l) => l.startsWith("pack 1/")));
+  assert.ok(good.requests < chain.txs.size / 2, `${good.requests} requests for ${chain.txs.size} transactions`);
+
+  // one endpoint returns other or altered transactions, hides the newest catalog and is sometimes busy: the result is the same
+  chain.faults.set(chain.urls(2)[0]!, { corrupt: 0.4, hideNewest: 1, rateLimit: 0.15, missing: 0.1 });
+  await read(new Reader({ endpoints: chain.urls(2), fetch: chain.fetch }));
+  chain.faults.clear();
+  // endpoints without getBlock: transaction by transaction
+  for (const u of chain.urls(2)) chain.faults.set(u, { noBlocks: true });
+  await read(new Reader({ endpoints: chain.urls(2), fetch: chain.fetch }));
+  chain.faults.clear();
+
+  // somebody else's key: their catalog is empty, and the real manifest is not accepted as theirs
+  const stranger = Keypair.generate();
+  const reader = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch });
+  assert.deepEqual((await reader.catalog(stranger.address)).images, {});
+  const ref = (await reader.catalog(publisher.address)).images.demo!.tags.latest!.amd64!;
+  await assert.rejects(reader.manifest(stranger.address, ref), /not published by a trusted key/);
+  await assert.rejects(reader.object({ sig: ref.sig, sha256: "0".repeat(64) }), /SHA-256 differs/);
+});

@@ -37,7 +37,7 @@
         <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
         <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
         <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
-        <li class="here"><a href="06-sdk.html" aria-current="page"><span class="num">06</span>The SDK</a><ul><li><a href="#1-store-a-file-read-it-back">1. Store a file, read it back</a></li><li><a href="#2-a-name-that-always-points-to-the-newest-version">2. A name that always points to the newest version</a></li><li><a href="#3-many-endpoints-one-pool">3. Many endpoints, one pool</a></li><li><a href="#4-transactions-by-hand">4. Transactions by hand</a></li><li><a href="#5-images">5. Images</a></li><li><a href="#6-encrypted-state-for-a-wallet">6. Encrypted state for a wallet</a></li><li><a href="#7-compression">7. Compression</a></li><li><a href="#reference-at-a-glance">Reference at a glance</a></li></ul></li>
+        <li class="here"><a href="06-sdk.html" aria-current="page"><span class="num">06</span>The SDK</a><ul><li><a href="#1-store-a-file-read-it-back">1. Store a file, read it back</a></li><li><a href="#2-a-name-that-always-points-to-the-newest-version">2. A name that always points to the newest version</a></li><li><a href="#3-many-endpoints-one-pool">3. Many endpoints, one pool</a></li><li><a href="#4-transactions-by-hand">4. Transactions by hand</a></li><li><a href="#5-images">5. Images</a></li><li><a href="#6-encrypted-state-for-a-wallet">6. Encrypted state for a wallet</a></li><li><a href="#7-in-a-browser">7. In a browser</a></li><li><a href="#8-compression">8. Compression</a></li><li><a href="#reference-at-a-glance">Reference at a glance</a></li></ul></li>
         <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
         <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
         <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
@@ -148,7 +148,25 @@ console.log(shareAddress(mine.publicKey));                   <span class="c">// 
 const letter = sealTo(parseShareAddress(theirAddress), mine, Buffer.from(key), &quot;my-app&quot;);
 const got = openFrom(theirKeys, letter, &quot;my-app&quot;);           <span class="c">// { plain, sender } or null; sender is proven</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p><code>shareImage</code>, <code>shareMachine</code>, <code>listShares</code>, <code>acceptImage</code> and <code>acceptMachine</code> are the functions behind <code>chainboot share</code> and <code>chainboot shared</code>.</p>
-<h2 id="7-compression"><a class="anchor" href="#7-compression" aria-hidden="true" tabindex="-1">#</a>7. Compression</h2>
+<h2 id="7-in-a-browser"><a class="anchor" href="#7-in-a-browser" aria-hidden="true" tabindex="-1">#</a>7. In a browser</h2>
+<p>The SDK above is for Node. For web pages there is a separate reader: one script of about 20 kB without dependencies, built on <code>fetch</code> and WebCrypto, that finds, downloads and verifies public images. It is the same format and the same checks, written a second time, which is also the proof that the format can be read by anyone.</p>
+<div class="code-wrap"><pre><code>&lt;script type=&quot;module&quot;&gt;
+  import { Reader, entries, fileContent } from &quot;./chainboot-reader.js&quot;;
+
+  const reader = new Reader({ endpoints: [&quot;https://api.devnet.solana.com&quot;], onStep: console.log });
+  const publisher = &quot;HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu&quot;;
+
+  const catalog = await reader.catalog(publisher);                    // signed by the publisher
+  const ref = catalog.images.alpine.tags.latest.amd64;
+  const manifest = await reader.manifest(publisher, ref);             // SHA-256 from the catalog
+  const pack = await reader.pack(manifest, 0, { onProgress: (p) =&gt; console.log(p.bytes, &quot;of&quot;, p.size) });
+  const file = entries(manifest).find((e) =&gt; e.path === &quot;etc/hostname&quot;);
+  console.log(new TextDecoder().decode(await fileContent(file, pack)));   // checked against the manifest
+&lt;/script&gt;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>npm run build</code> writes it to <code>dist/reader/</code> together with a small page that lets you browse a publisher's catalog and look into the files of an image. <code>reader.object(ref)</code> and <code>reader.pointer(tag, signers)</code> read any object and any pointer, so your own data works too.</p>
+<p>What to know:</p>
+<ul><li>It needs a browser that can check Ed25519 signatures: Chrome and Edge 137, Firefox 129, Safari 17, or later. <code>canVerify()</code> tells you.</li><li>The page's visitors use the endpoints you name. The public endpoints allow requests from web pages but are slow (a 3 MB system takes about half a minute); a keyed endpoint is far faster, but a key inside a public page can be used by anyone who reads the page.</li><li>It reads public images. Private images and saved machines need a wallet's key and stay with the program.</li><li>Everything is held in memory, so it suits small systems and single files, not a 500 MB image on a phone.</li></ul>
+<h2 id="8-compression"><a class="anchor" href="#8-compression" aria-hidden="true" tabindex="-1">#</a>8. Compression</h2>
 <div class="code-wrap"><pre><code>import { compress, decompress, xzDecode } from &quot;chainboot&quot;;
 
 const packed = compress(data, { arch: &quot;amd64&quot; });   <span class="c">// xz when the tool is installed, otherwise zstd</span>
