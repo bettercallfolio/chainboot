@@ -131,9 +131,9 @@ Known limits, so nothing surprises you:
 
 - A machine is not a security sandbox. Root inside a machine is you (when machines run
   without administrator rights) or root on your computer (through `sudo`).
-- A machine uses your computer's Linux kernel. It cannot load its own kernel modules, and it
-  does not start systemd as its first process. Services are started by hand or by a start-up
-  script ([Machines](docs/03-machines.md)).
+- A machine uses your computer's Linux kernel and cannot load its own kernel modules. It
+  starts systemd as its first process only when created with `--boot`; otherwise services
+  are started by hand or by a start-up script ([Machines](docs/03-machines.md)).
 - Data written to a ledger cannot be erased. Saves are encrypted, but they stay.
 - Devnet is a test network. It can be reset, and old data may disappear from RPC nodes.
 

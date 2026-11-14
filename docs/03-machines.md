@@ -42,9 +42,11 @@ chainboot stop web
 
 ### Starting services automatically
 
-A machine does not boot the way a physical computer does: there is no systemd running as the
-first process. If a machine contains an executable file `/etc/chainboot/start`, chainboot
-runs it every time the machine starts. Put your service starts there:
+An ordinary machine does not boot the way a physical computer does: there is no systemd
+running as the first process. (A machine can also boot for real: see
+[Machines that boot](#machines-that-boot) below.) If a machine contains an executable file
+`/etc/chainboot/start`, chainboot runs it every time the machine starts. Put your service
+starts there:
 
 ```sh
 cat > /etc/chainboot/start <<'SH'
@@ -78,8 +80,53 @@ What a machine is **not**:
   root on your computer (through `sudo`), or root inside the chainboot engine (Windows and
   macOS). Run only images you trust, like you would only install software you trust.
 - **Not a virtual machine.** It cannot load kernel modules or run a different kernel.
-- **Not booted by systemd.** `systemctl` cannot start services; use `service <name> start`
-  or call the program directly.
+- **Not booted by systemd, unless you ask.** In an ordinary machine `systemctl` cannot start
+  services; use `service <name> start` or call the program directly. A machine created with
+  `--boot` starts systemd and behaves like a server ([Machines that boot](#machines-that-boot)).
+
+## Machines that boot
+
+An ordinary machine starts with a shell and nothing else, which is fast and enough for most
+work. A machine that **boots** starts the image's own init system, systemd, as its first
+process, the way a server does:
+
+```sh
+chainboot run solinux --boot --name server
+root@server:~# systemctl status                 # a whole system is up
+root@server:~# apt install -y nginx             # the service starts by itself
+root@server:~# systemctl status nginx
+root@server:~# journalctl -u nginx
+```
+
+Services start in the right order, `systemctl` and `journalctl` work, timers run, and
+packages that bring a service have it running after installation. For an existing machine,
+`chainboot boot <machine> on` (or `off`) changes how it starts next time.
+
+What is different from an ordinary machine:
+
+- **It keeps running after you leave**, like a server, until `chainboot stop <machine>`,
+  which shuts the system down in an orderly way. `chainboot machines` shows what is up.
+- **Each session is a service of the machine's systemd.** Programs you leave in the
+  background end with the session. Make long-running work a service:
+  `systemd-run --unit myjob ./my-server`, or a unit file.
+- **The first session takes about two seconds longer**, because a whole system starts.
+- **The system log stays in memory.** `journalctl` works, but the journal is not written to
+  disk, so that saves do not upload a log again and again. `/var/log` text logs are kept.
+- **The network.** Without administrator rights and with `pasta` installed (package `passt`),
+  the machine has a network of its own: its services can use every port, also 22 and 80,
+  without getting in the way of this computer's. A port opened in the machine is opened on
+  this computer too when that is allowed (ports from 1024 up, if they are free), so a server
+  on port 8080 inside is reachable on port 8080 of your computer as before. In every other
+  case the machine shares this computer's network, as ordinary machines do.
+- **It is kept away from this computer's own settings.** The system inside cannot set the
+  clock, load kernel modules or change kernel settings, and when it shares this computer's
+  network it cannot reconfigure it. Its firewall service, for example, starts but changes
+  nothing outside.
+
+What it needs: an image with an init system (Solinux has systemd; `solinux-minimal` and
+`alpine` do not), cgroup v2 (every current distribution), and, without administrator rights,
+a systemd user session, which a normal login gives you. Saving, restoring and exporting work
+the same; a restore stops the machine first.
 
 ## With or without administrator rights
 

@@ -138,10 +138,14 @@ exec "$CB_LAUNCHER" --user sh -c '
   exec "$@"' sh "$@"
 `.replace(/@IDS@/g, String(SUB_IDS));
 
-/** Runs `command` as user 0 of a user namespace with this terminal. `joinPid`: a process whose user namespace to enter. */
-export function runInUserNs(homePath: string, ids: Ids, command: string[], joinPid: number | null = null, stdio: "inherit" | "ignore" | "pipe" = "inherit"): { status: number; output: string } {
+/**
+ * Runs `command` as user 0 of a user namespace with this terminal. `joinPid`: a process whose
+ * user namespace to enter. `prefix`: a command to run the whole thing through.
+ */
+export function runInUserNs(homePath: string, ids: Ids, command: string[], joinPid: number | null = null, stdio: "inherit" | "ignore" | "pipe" = "inherit", prefix: string[] = []): { status: number; output: string } {
   const own = launcherPath(homePath);
-  const r = spawnSync("sh", ["-c", LAUNCH, "chainboot-userns", ...command], {
+  const argv = [...prefix, "sh", "-c", LAUNCH, "chainboot-userns", ...command];
+  const r = spawnSync(argv[0]!, argv.slice(1), {
     stdio: stdio === "pipe" ? ["ignore", "pipe", "pipe"] : stdio,
     env: {
       ...process.env,
@@ -224,4 +228,16 @@ export function inUserNs(): boolean {
     const map = fs.readFileSync("/proc/self/uid_map", "utf8").trim().split(/\s+/);
     return !(map.length === 3 && map[0] === "0" && map[1] === "0" && map[2] === "4294967295");
   } catch { return false; }
+}
+
+/**
+ * The command that puts a process into a control group of its own which it may manage: what a
+ * machine that boots needs for its systemd. Null where this computer's own systemd is not there
+ * to ask (the engine then makes a control group itself, which only root can).
+ */
+export function scopeCommand(user: boolean): string[] | null {
+  const run = ["systemd-run", ...(user ? ["--user"] : []), "--scope", "--quiet", "--collect", "-p", "Delegate=yes", "--"];
+  if (!user) return fs.existsSync("/run/systemd/system") ? run : null;
+  if (!process.env.XDG_RUNTIME_DIR && fs.existsSync(`/run/user/${process.getuid!()}/bus`)) process.env.XDG_RUNTIME_DIR = `/run/user/${process.getuid!()}`;
+  return spawnSync(run[0]!, [...run.slice(1), "true"], { stdio: "ignore" }).status === 0 ? run : null;
 }

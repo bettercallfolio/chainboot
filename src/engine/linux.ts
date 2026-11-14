@@ -31,6 +31,11 @@ export interface MachineInfo {
     manifest: { sig: string; sha256: string; size: number; codec: "xz" | "zstd" | "raw"; rawSize: number };
   };
   created: number;
+  /**
+   * True for a machine that boots: its image's own init (systemd) runs as the first process and
+   * starts the system's services, like on a server. It stays up until it is stopped.
+   */
+  boot?: boolean;
 }
 
 export interface EngineHome { images: string; machines: string; cache: string }
@@ -105,21 +110,19 @@ export function ensureExtracted(home: EngineHome, digest: string, say: (text: st
 
 // ---------------------------------------------------------------- running machines
 
-/** Start time of a process in clock ticks since boot (field 22 of /proc/<pid>/stat); readable by any user. */
+/** Start time of a live process in clock ticks since boot (field 22 of /proc/<pid>/stat); readable by any user. */
 function startTime(pid: number): string | null {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null; // fields after "(comm)" start at field 3
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // the fields after "(comm)" start at field 3, the state
+    if (fields[0] === "Z" || fields[0] === "X") return null; // ended, only not collected by its parent yet
+    return fields[19] ?? null;
   } catch { return null; }
 }
 
 /** Host PID of a running machine's init process, or null. */
 export function initPid(dir: string): number | null {
-  let pid: number, started: string | undefined;
-  try { [pid, started] = fs.readFileSync(path.join(dir, "pid"), "utf8").trim().split(" ").map((x, i) => (i === 0 ? Number(x) : x)) as [number, string | undefined]; } catch { return null; }
-  if (!Number.isInteger(pid) || pid <= 1 || !started) return null;
-  // a PID can be reused by an unrelated process after the machine stopped; its start time cannot
-  return startTime(pid) === started ? pid : null;
+  return readPid(path.join(dir, "pid"));
 }
 
 // Runs as PID 1 of the machine's namespaces: builds the file system view, then waits until the last session leaves.
@@ -174,6 +177,154 @@ while [ "$free" -lt 4 ] || [ -e "$CB_DIR/keep" ]; do
 done
 `;
 
+// ---------------------------------------------------------------- machines that boot
+//
+// Two processes, because two views of the file system are needed:
+//   the holder   keeps a mount namespace in which the machine's files are at their path on this
+//                computer (saving and restoring work there), and waits for the machine to end;
+//   the init     PID 1 of the machine's own namespaces: sets up /proc, /dev and so on, then
+//                becomes the image's /sbin/init.
+
+const BOOT_HOLDER_SCRIPT = String.raw`
+set -eu
+fail() { echo "$1" > "$CB_DIR/failed"; exit 1; }
+trap 'fail "machine setup failed (see above)"' EXIT
+mount --make-rprivate /
+mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$CB_DIR/merged"
+# a control group of its own, which the machine's init manages from here on
+[ -e /sys/fs/cgroup/cgroup.controllers ] || fail "a machine that boots needs cgroup v2, which this computer does not use"
+OWN="/sys/fs/cgroup$(sed -n 's/^0:://p' /proc/self/cgroup)"
+case "$OWN" in */run-*.scope) CG="$OWN/machine" ;; *) CG="/sys/fs/cgroup/chainboot-$CB_NAME" ;; esac
+mkdir -p "$CG" 2>/dev/null || fail "could not create a control group for the machine ($CG)"
+( echo 0 > "$CG/cgroup.procs" && exec unshare --cgroup --mount --uts --ipc --pid $CB_NETFLAG --fork --kill-child sh "$CB_DIR/init.sh" ) &
+U=$!
+n=0
+while [ ! -e "$CB_DIR/booted" ]; do
+  [ ! -e "$CB_DIR/failed" ] || exit 1
+  kill -0 "$U" 2>/dev/null || fail "the machine's first process stopped during setup (see above)"
+  n=$((n+1)); [ "$n" -le 600 ] || fail "the machine's setup did not finish in time"
+  sleep 0.05
+done
+I=$(tr -d ' \n' < "/proc/$U/task/$U/children")
+[ -n "$I" ] || fail "the machine's first process was not found"
+if [ -n "$CB_NETFLAG" ]; then
+  # the machine's own network: pasta carries its traffic through ordinary sockets of this computer.
+  # Ports a program opens in the machine are opened on this computer too (where it is allowed to).
+  pasta --quiet --config-net --netns "/proc/$I/ns/net" --netns-only -t auto -u auto -T none -U none \
+    || fail "could not connect the machine's network (pasta failed, see above)"
+fi
+echo "$I" > "$CB_DIR/init.pid"
+: > "$CB_DIR/go"
+trap - EXIT
+: > "$CB_DIR/ready"
+wait "$U" || true
+find "$CG" -depth -type d -exec rmdir {} \; 2>/dev/null || true
+`;
+
+const BOOT_INIT_SCRIPT = String.raw`
+set -eu
+fail() { echo "$1" > "$CB_DIR/failed"; exit 1; }
+trap 'fail "machine setup failed (see above)"' EXIT
+mount --make-rprivate /
+M="$CB_DIR/merged"
+[ -x "$M/sbin/init" ] || [ -L "$M/sbin/init" ] || fail "this image has no /sbin/init, so it cannot boot. Run it without --boot."
+mkdir -p "$M/proc" "$M/sys" "$M/dev" "$M/run" "$M/tmp" "$M/etc"
+mount -t proc -o nosuid,nodev,noexec proc "$M/proc"
+# read-only /sys tells the system that hardware is not its to manage
+mount -t sysfs -o ro,nosuid,nodev,noexec sysfs "$M/sys" 2>/dev/null || { mount --rbind /sys "$M/sys"; mount -o remount,ro,bind "$M/sys"; }
+mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 "$M/sys/fs/cgroup"
+mount -t tmpfs -o mode=755,nosuid,size=4m tmpfs "$M/dev"
+for d in null zero full random urandom tty; do
+  [ -e "/dev/$d" ] || continue
+  : > "$M/dev/$d"; mount --bind "/dev/$d" "$M/dev/$d"
+done
+mkdir -p "$M/dev/pts" "$M/dev/shm"
+if [ -n "$CB_SYSTEMD" ]; then
+  # terminals of its own: sessions get theirs from the machine's systemd, and so does its SSH server
+  mount -t devpts -o newinstance,ptmxmode=0666,mode=620,gid=5 devpts "$M/dev/pts"
+  ln -s pts/ptmx "$M/dev/ptmx"
+else
+  : > "$M/dev/ptmx"; mount --bind /dev/ptmx "$M/dev/ptmx"
+  mount --bind /dev/pts "$M/dev/pts"
+fi
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/dev/shm"
+ln -s /proc/self/fd "$M/dev/fd"
+ln -s /proc/self/fd/0 "$M/dev/stdin"; ln -s /proc/self/fd/1 "$M/dev/stdout"; ln -s /proc/self/fd/2 "$M/dev/stderr"
+mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$M/run"
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/tmp"
+# the system log lives in memory: a log that grows on disk would be uploaded again with every save
+mkdir -p "$M/run/systemd/journald.conf.d"
+printf '[Journal]\nStorage=volatile\n' > "$M/run/systemd/journald.conf.d/chainboot.conf"
+for f in resolv.conf hosts hostname; do
+  if [ -L "$M/etc/$f" ] || [ ! -e "$M/etc/$f" ]; then rm -f "$M/etc/$f"; : > "$M/etc/$f"; fi
+  mount --bind "$CB_DIR/etc/$f" "$M/etc/$f"
+done
+# this computer's kernel settings are not the machine's to change (those of its own network are)
+mount --bind "$M/proc/sys" "$M/proc/sys"; mount -o remount,ro,bind "$M/proc/sys"
+[ -z "$CB_NETFLAG" ] || mount --bind /proc/sys/net "$M/proc/sys/net"
+if [ -e "$M/proc/sysrq-trigger" ]; then mount --bind "$M/proc/sysrq-trigger" "$M/proc/sysrq-trigger"; mount -o remount,ro,bind "$M/proc/sysrq-trigger"; fi
+hostname "$CB_NAME"
+if [ -e "$M/etc/machine-id" ] && [ ! -s "$M/etc/machine-id" ]; then
+  (cat /proc/sys/kernel/random/uuid | tr -d - > "$M/etc/machine-id") 2>/dev/null || true
+fi
+if [ -x "$M/usr/bin/ssh-keygen" ] && [ -d "$M/etc/ssh" ] && ! ls "$M"/etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+  chroot "$M" /usr/bin/ssh-keygen -A >/dev/null 2>&1 || true
+fi
+: > "$CB_DIR/booted"
+# the holder connects the network, then lets the system start
+n=0
+while [ ! -e "$CB_DIR/go" ] && [ "$n" -lt 600 ]; do sleep 0.05; n=$((n+1)); done
+trap - EXIT
+# what a system inside a machine has no business doing to this computer: its clock, its kernel
+# modules, its raw hardware; and its network settings when the machine shares its network
+DROP="-sys_module,-sys_time,-sys_rawio,-syslog,-wake_alarm,-mac_admin,-mac_override,-sys_pacct"
+[ -n "$CB_NETFLAG" ] || DROP="$DROP,-net_admin"
+if command -v setpriv >/dev/null 2>&1; then
+  exec env -i container=chainboot PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin setpriv --bounding-set "$DROP" chroot "$M" /sbin/init
+fi
+exec env -i container=chainboot PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin chroot "$M" /sbin/init
+`;
+
+/** SIGRTMIN+4: asks systemd to shut the system down in an orderly way. */
+const SIG_POWEROFF = 38;
+
+function readPid(file: string): number | null {
+  let pid: number, started: string | undefined;
+  try { [pid, started] = fs.readFileSync(file, "utf8").trim().split(" ").map((x, i) => (i === 0 ? Number(x) : x)) as [number, string | undefined]; } catch { return null; }
+  if (!Number.isInteger(pid) || pid <= 1 || !started) return null;
+  // a PID can be reused by an unrelated process after the machine stopped; its start time cannot
+  return startTime(pid) === started ? pid : null;
+}
+
+/**
+ * The process in whose mount namespace the machine's files are at their path on this computer:
+ * the holder of a machine that boots, the init process of any other.
+ */
+export function holderPid(dir: string): number | null {
+  return readPid(path.join(dir, "holder")) ?? initPid(dir);
+}
+
+/** How a running machine was started: "systemd" or "init" for one that booted, null otherwise. */
+export function bootKind(dir: string): "systemd" | "init" | null {
+  try {
+    const k = fs.readFileSync(path.join(dir, "boot"), "utf8").trim();
+    return k === "systemd" || k === "init" ? k : null;
+  } catch { return null; }
+}
+
+const hasTool = (tool: string) => spawnSync("sh", ["-c", `command -v ${tool}`], { stdio: "ignore" }).status === 0;
+
+/** Name servers a machine with its own network can reach (this computer's local resolver is not one of them). */
+function upstreamResolvConf(): string {
+  for (const file of ["/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"]) {
+    try {
+      const servers = [...fs.readFileSync(file, "utf8").matchAll(/^\s*nameserver\s+(\S+)/gm)].map((m) => m[1]!).filter((a) => !a.startsWith("127.") && a !== "::1");
+      if (servers.length) return [...new Set(servers)].map((a) => `nameserver ${a}\n`).join("");
+    } catch { /* next */ }
+  }
+  return "nameserver 1.1.1.1\nnameserver 8.8.8.8\n";
+}
+
 function hostResolvConf(): string {
   try {
     const text = fs.readFileSync("/etc/resolv.conf", "utf8");
@@ -186,68 +337,167 @@ function sleepMs(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+export interface StartOptions {
+  /** Keep the machine up after the last session leaves (machines that boot always stay up). */
+  keep?: boolean;
+  say?: (text: string) => void;
+  progress?: (done: number, total: number) => void;
+}
+
+/** Takes the lock that lets one process at a time start a machine or mount its files. */
+function lockStart(dir: string, name: string): () => void {
+  const lock = path.join(dir, "start.lock"), owner = path.join(lock, "owner");
+  for (let i = 0; ; i++) {
+    try { fs.mkdirSync(lock); break; } catch {
+      // left behind by a process that is gone: its owner is no longer alive (or it never wrote one)
+      let stale = false;
+      try {
+        const pid = Number(fs.readFileSync(owner, "utf8"));
+        try { process.kill(pid, 0); } catch (e) { stale = (e as NodeJS.ErrnoException).code === "ESRCH"; }
+      } catch {
+        try { stale = Date.now() - fs.statSync(lock).mtimeMs > 10_000; } catch { /* raced with its owner */ }
+      }
+      if (stale) { fs.rmSync(lock, { recursive: true, force: true }); continue; }
+      if (i > 2400) throw new Error(`machine "${name}" is busy in another process (starting, saving or restoring)`);
+      sleepMs(250);
+    }
+  }
+  try { fs.writeFileSync(owner, String(process.pid)); } catch { /* the lock still holds for a moment */ }
+  return () => { fs.rmSync(lock, { recursive: true, force: true }); };
+}
+
+/** Unpacks the image if needed, creates the machine's directories and returns what a mount needs. */
+function prepare(home: EngineHome, info: MachineInfo, opts: StartOptions): { dir: string; lower: string; overlay: string } {
+  const dir = machineDir(home, info.name);
+  ensureExtracted(home, info.image.digest, opts.say ?? (() => {}), opts.progress);
+  const lower = imageRootfs(home, info.image.digest);
+  if (/[,:\\]/.test(lower + dir)) throw new Error(`the chainboot directory path may not contain "," ":" or "\\" (${home.machines})`);
+  for (const d of ["upper", "work", "merged", "etc"]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  // inside a user namespace the overlay keeps its own notes in "user." attributes, the only kind allowed there
+  return { dir, lower, overlay: inUserNs() ? ",userxattr" : "" };
+}
+
+/** True when a file exists in the machine (in its own layer or in its image). */
+function machineHas(home: EngineHome, info: MachineInfo, file: string): boolean {
+  return [path.join(machineDir(home, info.name), "upper"), imageRootfs(home, info.image.digest)].some((layer) => {
+    try { const st = fs.lstatSync(path.join(layer, file)); return st.isFile() || st.isSymbolicLink(); } catch { return false; }
+  });
+}
+
+function waitReady(dir: string, name: string, pid: number, timeoutMs: number): void {
+  for (let waited = 0; waited < timeoutMs; waited += 50) {
+    if (fs.existsSync(path.join(dir, "ready"))) return;
+    let dead = false;
+    try { process.kill(pid, 0); } catch { dead = true; }
+    if (fs.existsSync(path.join(dir, "failed")) || dead) {
+      const log = fs.readFileSync(path.join(dir, "init.log"), "utf8").trim().split("\n").slice(-4).join("\n");
+      let why = "";
+      try { why = fs.readFileSync(path.join(dir, "failed"), "utf8").trim(); } catch { /* no reason was written */ }
+      throw new Error(`could not start machine "${name}":\n${[log, why].filter(Boolean).join("\n") || "the setup process stopped without a message"}`);
+    }
+    sleepMs(50);
+  }
+  throw new Error(`machine "${name}" did not come up in time`);
+}
+
 /** Starts the machine's namespaces if they are not up yet and returns the init PID. */
-export function startMachine(home: EngineHome, name: string, say: (text: string) => void, progress?: (done: number, total: number) => void, keep = false): number {
+export function startMachine(home: EngineHome, name: string, opts: StartOptions = {}): number {
   const dir = machineDir(home, name);
   const info = readMachine(home, name);
   if (!info) throw new Error(`there is no machine named "${name}"`);
   const missing = missingTools();
   if (missing.length) throw new Error(`these tools are needed but not installed: ${missing.join(", ")} (package util-linux / coreutils)`);
+  const keep = !!opts.keep;
 
-  // only one process may decide to start the machine
-  const lock = path.join(dir, "start.lock");
-  for (let i = 0; ; i++) {
-    try { fs.mkdirSync(lock); break; } catch {
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 60_000) fs.rmdirSync(lock); } catch { /* raced with its owner */ }
-      if (i > 240) throw new Error(`machine "${name}" is being started by another process`);
-      sleepMs(250);
-    }
-  }
+  const unlock = lockStart(dir, name);
   try {
     const running = initPid(dir);
     if (running) { if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); return running; }
-    ensureExtracted(home, info.image.digest, say, progress);
-    const lower = imageRootfs(home, info.image.digest);
-    if (/[,:\\]/.test(lower + dir)) throw new Error(`the chainboot directory path may not contain "," ":" or "\\" (${home.machines})`);
-    for (const d of ["upper", "work", "merged", "etc"]) fs.mkdirSync(path.join(dir, d), { recursive: true });
-    for (const f of ["ready", "failed", "attached", "pid"]) fs.rmSync(path.join(dir, f), { force: true });
+    const { lower, overlay } = prepare(home, info, opts);
+    for (const f of ["ready", "failed", "attached", "pid", "holder", "boot", "netns", "booted", "go", "init.pid"]) fs.rmSync(path.join(dir, f), { force: true });
     if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); else fs.rmSync(path.join(dir, "keep"), { force: true });
     fs.writeFileSync(path.join(dir, "lock"), "");
-    fs.writeFileSync(path.join(dir, "etc", "resolv.conf"), hostResolvConf());
     fs.writeFileSync(path.join(dir, "etc", "hostname"), `${name}\n`);
     fs.writeFileSync(path.join(dir, "etc", "hosts"), `127.0.0.1 localhost ${name}\n::1 localhost ip6-localhost ip6-loopback\n`);
-
+    const env: Record<string, string> = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: overlay };
     const log = fs.openSync(path.join(dir, "init.log"), "w");
-    // from a file, so that the process list inside the machine shows a short line for PID 1
-    fs.writeFileSync(path.join(dir, "init.sh"), INIT_SCRIPT);
-    const child = spawn("unshare", ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", path.join(dir, "init.sh")], {
-      detached: true, stdio: ["ignore", log, log],
-      // inside a user namespace the overlay keeps its own notes in "user." attributes, the only kind allowed there
-      env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: inUserNs() ? ",userxattr" : "" },
-    });
-    child.unref();
-    fs.closeSync(log);
-    const unsharePid = child.pid;
-    if (!unsharePid) throw new Error("could not start the machine (unshare did not run)");
-    for (let i = 0; i < 200; i++) {
-      if (fs.existsSync(path.join(dir, "ready"))) break;
-      let dead = false;
-      try { process.kill(unsharePid, 0); } catch { dead = true; }
-      if (fs.existsSync(path.join(dir, "failed")) || dead) {
-        const why = fs.readFileSync(path.join(dir, "init.log"), "utf8").trim().split("\n").slice(-4).join("\n");
-        throw new Error(`could not start machine "${name}":\n${why || "the setup process stopped without a message"}`);
+    let pid: number;
+    try {
+      if (info.boot) {
+        // without administrator rights a machine gets a network of its own when pasta is installed:
+        // there its services may use every port. As root it shares this computer's network.
+        const ownNet = inUserNs() && hasTool("pasta");
+        const systemd = machineHas(home, info, "usr/bin/systemd-run");
+        if (!inUserNs() && !hasTool("setpriv")) throw new Error("a machine that boots needs the `setpriv` tool (package util-linux or setpriv)");
+        fs.writeFileSync(path.join(dir, "etc", "resolv.conf"), ownNet ? upstreamResolvConf() : hostResolvConf());
+        fs.writeFileSync(path.join(dir, "holder.sh"), BOOT_HOLDER_SCRIPT);
+        fs.writeFileSync(path.join(dir, "init.sh"), BOOT_INIT_SCRIPT);
+        const child = spawn("unshare", ["--mount", "sh", path.join(dir, "holder.sh")], {
+          detached: true, stdio: ["ignore", log, log],
+          env: { ...env, CB_NETFLAG: ownNet ? "--net" : "", CB_SYSTEMD: systemd ? "1" : "" },
+        });
+        child.unref();
+        const holder = child.pid;
+        if (!holder) throw new Error("could not start the machine (unshare did not run)");
+        waitReady(dir, name, holder, 60_000);
+        pid = Number(fs.readFileSync(path.join(dir, "init.pid"), "utf8"));
+        if (!Number.isInteger(pid) || pid <= 1) throw new Error(`machine "${name}" started but its init process was not found`);
+        fs.writeFileSync(path.join(dir, "holder"), `${holder} ${startTime(holder)}\n`);
+        fs.writeFileSync(path.join(dir, "boot"), systemd ? "systemd\n" : "init\n");
+        if (ownNet) fs.writeFileSync(path.join(dir, "netns"), "");
+      } else {
+        fs.writeFileSync(path.join(dir, "etc", "resolv.conf"), hostResolvConf());
+        // from a file, so that the process list inside the machine shows a short line for PID 1
+        fs.writeFileSync(path.join(dir, "init.sh"), INIT_SCRIPT);
+        const child = spawn("unshare", ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", path.join(dir, "init.sh")], {
+          detached: true, stdio: ["ignore", log, log], env,
+        });
+        child.unref();
+        const unsharePid = child.pid;
+        if (!unsharePid) throw new Error("could not start the machine (unshare did not run)");
+        waitReady(dir, name, unsharePid, 10_000);
+        // PID 1 of the new namespace is the child of `unshare`
+        const kids = fs.readFileSync(`/proc/${unsharePid}/task/${unsharePid}/children`, "utf8").trim().split(/\s+/).filter(Boolean);
+        pid = Number(kids[0]);
+        if (!Number.isInteger(pid) || pid <= 1) throw new Error(`machine "${name}" started but its init process was not found`);
       }
-      sleepMs(50);
+    } finally {
+      fs.closeSync(log);
     }
-    if (!fs.existsSync(path.join(dir, "ready"))) throw new Error(`machine "${name}" did not come up in time`);
-    // PID 1 of the new namespace is the child of `unshare`
-    const kids = fs.readFileSync(`/proc/${unsharePid}/task/${unsharePid}/children`, "utf8").trim().split(/\s+/).filter(Boolean);
-    const pid = Number(kids[0]);
-    if (!Number.isInteger(pid) || pid <= 1) throw new Error(`machine "${name}" started but its init process was not found`);
     fs.writeFileSync(path.join(dir, "pid"), `${pid} ${startTime(pid)}\n`);
     return pid;
   } finally {
-    try { fs.rmdirSync(lock); } catch { /* already gone */ }
+    unlock();
+  }
+}
+
+/**
+ * Runs `command` (a program of this computer) where the machine's files are at their path:
+ * in the running machine's mount namespace, or, for a machine that boots and is stopped, in a
+ * mount namespace made for this one command (so that saving or restoring does not boot it).
+ */
+export function inMachineFiles(home: EngineHome, name: string, command: string[], stdio: "inherit" | "ignore" = "inherit"): number {
+  const dir = machineDir(home, name);
+  const info = readMachine(home, name);
+  if (!info) throw new Error(`there is no machine named "${name}"`);
+  const withLock = (pid: number) => {
+    fs.writeFileSync(path.join(dir, "attached"), "");
+    const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--", ...command], { stdio });
+    if (r.error) throw new Error(`could not enter machine "${name}": ${r.error.message}`);
+    return r.status ?? 1;
+  };
+  if (!info.boot) return withLock(startMachine(home, name));
+  const running = holderPid(dir);
+  if (running && initPid(dir)) return withLock(running);
+  const unlock = lockStart(dir, name);
+  try {
+    const { lower, overlay } = prepare(home, info, {});
+    const script = 'set -e; mount --make-rprivate /; mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$CB_DIR/merged"; shift; exec "$@"';
+    const r = spawnSync("unshare", ["--mount", "sh", "-c", script, "sh", "--", ...command], { stdio, env: { ...process.env, CB_DIR: dir, CB_LOWER: lower, CB_OVERLAY: overlay } });
+    if (r.error) throw new Error(`could not mount the files of machine "${name}": ${r.error.message}`);
+    return r.status ?? 1;
+  } finally {
+    unlock();
   }
 }
 
@@ -260,8 +510,7 @@ export function enterMachine(home: EngineHome, name: string, pid: number, comman
     let manifest: ImageManifest | null = null;
     try { manifest = info ? parseManifest(fs.readFileSync(path.join(home.images, info.image.digest, "manifest.json"))) : null; } catch { /* default shell */ }
     // the merged view exists only inside the machine's namespaces, so look in its two layers instead
-    const has = (p: string) => !!info && [path.join(dir, "upper"), imageRootfs(home, info.image.digest)].some((layer) => { try { return fs.statSync(path.join(layer, p)).isFile(); } catch { return false; } });
-    const shell = has("usr/bin/bash") || has("bin/bash") ? "/bin/bash" : "/bin/sh";
+    const shell = info && (machineHas(home, info, "usr/bin/bash") || machineHas(home, info, "bin/bash")) ? "/bin/bash" : "/bin/sh";
     // a login shell that starts in the home directory, like a fresh SSH session
     cmd = manifest?.config?.cmd ?? ["/bin/sh", "-c", `cd "$HOME" 2>/dev/null; exec ${shell} -l`];
   }
@@ -272,20 +521,41 @@ export function enterMachine(home: EngineHome, name: string, pid: number, comman
     TERM: process.env.TERM || "xterm-256color",
     ...extraEnv,
   };
+  const kind = bootKind(dir);
+  const spaces = ["--mount", "--uts", "--ipc", "--pid", ...(kind ? ["--cgroup"] : []), ...(fs.existsSync(path.join(dir, "netns")) ? ["--net"] : [])];
+  let inside = cmd;
+  if (kind === "systemd") {
+    // the machine's own systemd runs the command as one of its services and lends it a terminal.
+    // It waits for the system to be up far enough first.
+    // (until systemd answers, and then until the message bus that carries the request is there)
+    const wait = 'n=0; until systemctl show --property=Version >/dev/null 2>&1 || [ "$n" -ge 300 ]; do sleep 0.1; n=$((n+1)); done; '
+      + 'n=0; until [ -S /run/dbus/system_bus_socket ] || [ "$n" -ge 100 ]; do sleep 0.1; n=$((n+1)); done; exec systemd-run "$@"';
+    inside = ["/bin/sh", "-c", wait, "sh", "--quiet", "--wait", "--collect", "--pty", "--pipe", "--service-type=exec",
+      ...Object.entries(env).map(([k, v]) => `--setenv=${k}=${v}`), "--", ...cmd];
+    // newer versions colour the terminal and set its title for such sessions; a machine is entered too often for that
+    Object.assign(env, { SYSTEMD_TINT_BACKGROUND: "0", SYSTEMD_ADJUST_TERMINAL_TITLE: "0" });
+  }
   // the shared lock tells the machine's init that a session is alive; it is released even if we are killed
-  const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--uts", "--ipc", "--pid", "--", "chroot", merged, ...cmd], { stdio: "inherit", env });
+  const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), ...spaces, "--", "chroot", merged, ...inside], { stdio: "inherit", env });
   if (r.error) throw new Error(`could not enter machine "${name}": ${r.error.message}`);
   return r.status ?? (r.signal ? 128 : 1);
 }
 
 export function stopMachine(home: EngineHome, name: string): boolean {
   const dir = machineDir(home, name);
-  const pid = initPid(dir);
+  const pid = initPid(dir), holder = readPid(path.join(dir, "holder"));
   fs.rmSync(path.join(dir, "keep"), { force: true });
   if (!pid) return false;
+  if (bootKind(dir) === "systemd") {
+    // an orderly shutdown first: services stop and write what they hold in memory
+    try { process.kill(pid, SIG_POWEROFF); } catch { /* already gone */ }
+    for (let i = 0; i < 400 && initPid(dir); i++) sleepMs(50);
+  }
   try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
   for (let i = 0; i < 100 && initPid(dir); i++) sleepMs(50);
-  fs.rmSync(path.join(dir, "pid"), { force: true });
+  // the holder tidies up (control groups) once the machine's processes are gone
+  for (let i = 0; i < 100 && holder && readPid(path.join(dir, "holder")); i++) sleepMs(50);
+  for (const f of ["pid", "holder", "boot", "netns"]) fs.rmSync(path.join(dir, f), { force: true });
   return true;
 }
 

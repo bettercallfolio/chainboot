@@ -10,7 +10,7 @@ import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, sa
 import { loadVault, type Vault } from "../state/vault.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
 import { readXattrs } from "../util/xattr.ts";
-import { imageRootfs, initPid, machineDir, readMachine, startMachine, stopMachine, type EngineHome } from "./linux.ts";
+import { imageRootfs, inMachineFiles, initPid, machineDir, readMachine, stopMachine, type EngineHome } from "./linux.ts";
 
 /** What this computer knows about a machine's saved state (machines/<name>/save.json). */
 export interface SaveStatus {
@@ -39,15 +39,18 @@ function writeSaveStatus(dir: string, s: Omit<SaveStatus, "updated">): void {
   fs.renameSync(tmp, statusFile(dir));
 }
 
-/** Runs one of the *-inner operations inside the machine's mount namespace, starting the machine if needed. */
+/**
+ * Runs one of the *-inner operations where the machine's files are mounted: in the running
+ * machine, or (starting it if needed, except a machine that boots) in a mount of their own.
+ */
 export function insideMachine(home: EngineHome, homePath: string, name: string, args: string[], stdio: "inherit" | "ignore" = "inherit"): number {
-  const dir = machineDir(home, name);
-  const pid = startMachine(home, name, () => {});
-  fs.writeFileSync(path.join(dir, "attached"), "");
   const self = [process.execPath, ...process.execArgv, process.argv[1]!, "_engine", homePath, process.env.TERM ?? "", ...args];
-  const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--", ...self], { stdio });
-  if (r.error) throw new Error(`could not enter machine "${name}": ${r.error.message}`);
-  return r.status ?? 1;
+  return inMachineFiles(home, name, self, stdio);
+}
+
+/** True while a save of this machine is running on this computer (in the foreground or in the background). */
+export function saveInProgress(dir: string): boolean {
+  try { return Date.now() - fs.statSync(path.join(dir, "save.lock")).mtimeMs < 30 * 60_000; } catch { return false; }
 }
 
 function requireVault(): Vault {

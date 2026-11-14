@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import readline from "node:readline/promises";
@@ -6,9 +7,9 @@ import {
   checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
-import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInner } from "../engine/state-ops.ts";
+import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInProgress, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
-import { engineMode, inUserNs, runInUserNs, support } from "../engine/rootless.ts";
+import { engineMode, inUserNs, runInUserNs, scopeCommand, support } from "../engine/rootless.ts";
 import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
 import { loadVault } from "../state/vault.ts";
@@ -34,13 +35,28 @@ function requireLinux(): void {
 export function asRoot(args: string[]): number {
   const home = homeDir();
   const self = [process.execPath, ...process.execArgv, process.argv[1]!, "_engine", home, process.env.TERM ?? "", ...args];
-  if (process.getuid?.() === 0) return spawnSync(self[0]!, self.slice(1), { stdio: "inherit" }).status ?? 1;
+  const dir = MACHINE_OPS.has(args[0]!) && args[1] ? machineDir(engineHome(home), args[1]) : null;
+  const running = dir ? initPid(dir) : null;
+  // a machine that boots is started inside a control group that its systemd may manage
+  const boots = (args[0] === "enter" || args[0] === "start") && !running && !!readMachine(engineHome(home), args[1] ?? "")?.boot;
+  if (process.getuid?.() === 0) {
+    const cmd = [...((boots && scopeCommand(false)) || []), ...self];
+    return spawnSync(cmd[0]!, cmd.slice(1), { stdio: "inherit" }).status ?? 1;
+  }
   if (engineMode(home) === "rootless") {
     const s = support(home);
     if (!s.ready || !s.ids) throw new Error(`this computer no longer allows running machines without administrator rights. See what is missing with: chainboot engine`);
+    let scope: string[] = [];
+    if (boots) {
+      const cmd = scopeCommand(true);
+      if (!cmd) {
+        throw new Error(`a machine that boots needs a control group of its own, which your systemd user session hands out, and no such session was found here.
+Log in on this computer in the usual way (or let an administrator run: loginctl enable-linger ${os.userInfo().username}), or run machines through sudo (chainboot engine sudo).`);
+      }
+      scope = cmd;
+    }
     // a running machine's namespaces belong to the user namespace it was started in: go there
-    const machine = MACHINE_OPS.has(args[0]!) && args[1] ? initPid(machineDir(engineHome(home), args[1])) : null;
-    return runInUserNs(home, s.ids, self, machine).status;
+    return runInUserNs(home, s.ids, self, running, "inherit", scope).status;
   }
   if (spawnSync("sh", ["-c", "command -v sudo"], { stdio: "ignore" }).status !== 0) {
     throw new Error("this step needs administrator rights, but `sudo` is not installed. Run chainboot as root, or see `chainboot engine` for running without administrator rights.");
@@ -48,7 +64,7 @@ export function asRoot(args: string[]): number {
   if (spawnSync("sudo", ["-n", "true"], { stdio: "ignore" }).status !== 0) {
     info(dim("Machines are mounted by the system, which needs administrator rights. sudo may ask for your password."));
   }
-  const r = spawnSync("sudo", ["--", ...self], { stdio: "inherit" });
+  const r = spawnSync("sudo", ["--", ...((boots && scopeCommand(false)) || []), ...self], { stdio: "inherit" });
   if (r.error) throw new Error(`could not run sudo: ${r.error.message}`);
   return r.status ?? 1;
 }
@@ -69,6 +85,7 @@ changes. Several terminals can be inside one machine at once; it stops when the 
   chainboot run me/mybox                     One of your private images (needs "chainboot login")
   chainboot run solinux --no-autosave        Create the machine with automatic saving turned off
   chainboot run solinux --fresh              Do not bring back a saved machine of the same name
+  chainboot run solinux --boot               A machine that boots like a server (see: chainboot boot --help)
 
 Keeping a machine up (for services such as a web server):
   chainboot start <machine>     Start it and keep it running without an open terminal
@@ -105,7 +122,7 @@ export async function cmdRun(a: Args): Promise<void> {
       info(dim(`(To start a new, empty one, use another name: chainboot run ${text} --name <name>)`));
       if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, { ...saved.image.manifest, digest: saved.image.digest, private: saved.image.private }, `${saved.image.name}:${saved.image.tag}`);
       fs.mkdirSync(machineDir(home, name), { recursive: true });
-      fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created }, null, 2) + "\n");
+      fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created, ...((saved.boot || has(a, "boot")) && { boot: true }) }, null, 2) + "\n");
       if (asRoot(["restore", name, "latest"]) !== 0) throw new Error(`could not restore "${name}". Remove the half-made machine with "chainboot rm ${name}" and try again.`);
       process.exitCode = asRoot(["enter", name, "--", ...command]);
       return;
@@ -117,20 +134,63 @@ export async function cmdRun(a: Args): Promise<void> {
     machine = {
       name, created: Math.floor(Date.now() / 1000),
       image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, ...(found.private && { private: true }), manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize } },
+      ...(has(a, "boot") && { boot: true }),
     };
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
-    ok(`created machine ${bold(name)} from ${found.name}:${found.tag}`);
+    ok(`created machine ${bold(name)} from ${found.name}:${found.tag}${machine.boot ? " (boots its own system)" : ""}`);
     if (has(a, "no-autosave")) asRoot(["autosave", name, "off"]);
   }
+  else if (has(a, "boot") && !machine.boot) info(dim(`${name} already exists and does not boot. Change that with: chainboot boot ${name} on`));
   process.exitCode = asRoot(["enter", name, "--", ...command]);
+}
+
+export const BOOT_HELP = `Usage:
+  chainboot run <image> --boot [--name <machine>]     Create a machine that boots
+  chainboot boot <machine> [on|off]                    Show or change it for an existing machine
+
+A machine that boots starts the image's own init system (systemd) as its first process, the
+way a server does. Services start by themselves, "systemctl" and "journalctl" work, timers
+run, and a package that brings a service has it running after "apt install".
+
+  chainboot run solinux --boot --name server
+  root@server:~# systemctl status
+  root@server:~# apt install -y nginx && systemctl status nginx
+
+What is different from a machine that does not boot:
+  - It keeps running after you leave, until "chainboot stop <machine>" (an orderly shutdown).
+  - Each session is a service of the machine's systemd. Programs you leave in the background
+    end with the session: make them services ("systemd-run", or a unit file).
+  - The first start takes a few seconds longer, because a whole system starts.
+  - Without administrator rights and with "pasta" installed (package passt), the machine has
+    a network of its own: its services can use every port, also those below 1024. A port
+    opened in the machine is opened on this computer as well when that is allowed (ports
+    from 1024 up, if they are free). Otherwise the machine shares this computer's network.
+
+Needs an image with an init system (Solinux has systemd; solinux-minimal and alpine do not)
+and a computer with cgroup v2 (every current distribution).`;
+
+export function cmdBoot(a: Args): void {
+  requireLinux();
+  const [name, value] = a._;
+  if (!name) throw new UsageError("say which machine: chainboot boot <machine> [on|off]");
+  const home = engineHome();
+  const machine = readMachine(home, name);
+  if (!machine) throw new Error(`there is no machine named "${name}"`);
+  if (!value) { out(`${name} ${machine.boot ? "boots its own system (systemd) when it starts" : "does not boot: it starts with a shell only"}`); return; }
+  if (value !== "on" && value !== "off") throw new UsageError("use: chainboot boot <machine> on|off");
+  if (!!machine.boot === (value === "on")) { ok(`${name} already ${value === "on" ? "boots" : "does not boot"}`); return; }
+  if (initPid(machineDir(home, name))) throw new Error(`${name} is running. Stop it first: chainboot stop ${name}`);
+  if (value === "on") machine.boot = true; else delete machine.boot;
+  fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
+  ok(value === "on" ? `${name} boots its own system from the next start on` : `${name} starts with a shell only from the next start on`);
 }
 
 export function cmdMachines(): void {
   const list = listMachines(engineHome());
   if (!list.length) { info("No machines yet. Create one with: chainboot run solinux"); return; }
-  out(table(list.map((m) => [bold(m.name), `${m.image.name}:${m.image.tag}`, m.image.arch, m.running ? green("running") : "stopped", new Date(m.created * 1000).toISOString().slice(0, 10)]),
-    ["machine", "image", "arch", "state", "created"]));
+  out(table(list.map((m) => [bold(m.name), `${m.image.name}:${m.image.tag}`, m.image.arch, m.running ? green("running") : "stopped", m.boot ? "yes" : dim("-"), new Date(m.created * 1000).toISOString().slice(0, 10)]),
+    ["machine", "image", "arch", "state", "boots", "created"]));
 }
 
 export function cmdStart(a: Args): void {
@@ -238,25 +298,32 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   if (op === "enter") {
     line.start("Unpacking");
     let unpacked = false;
-    const wasRunning = initPid(machineDir(home, name)) !== null;
-    let pid = startMachine(home, name, () => {}, (done, total) => { unpacked = true; line.update(done, total, "count"); });
-    line.done(unpacked ? "image unpacked" : undefined);
+    const dir = machineDir(home, name);
+    const boots = !!readMachine(home, name)?.boot;
+    const wasRunning = initPid(dir) !== null;
+    const start = () => startMachine(home, name, { progress: (done, total) => { unpacked = true; line.update(done, total, "count", "Unpacking"); } });
+    // a machine that boots is looked at before it starts: restoring into a running system would pull the files from under its services
+    let pid = boots ? 0 : start();
     // signed in and this machine was saved before: continue from the newest save if another computer made one
-    if (!wasRunning && !process.env.CHAINBOOT_OFFLINE && readSaveStatus(machineDir(home, name))?.seq) {
+    // (not while this computer is still writing a save of its own: that one is the newest, and not from elsewhere)
+    if (!wasRunning && !process.env.CHAINBOOT_OFFLINE && readSaveStatus(dir)?.seq && !saveInProgress(dir)) {
       const code = insideMachine(home, homePath, name, ["check-inner", name], "ignore");
       if (code === CHECK_NEWER_CLEAN) {
         info("A newer save of this machine is on chain (made on another computer). Updating to it.");
         resetLayer(home, name);
         if (insideMachine(home, homePath, name, ["restore-inner", name, "latest"]) !== 0) info(dim("The update did not complete; starting the machine as it is."));
-        pid = startMachine(home, name, () => {});
+        pid = 0;
       } else if (code === CHECK_NEWER_CONFLICT) {
         info(`${yellow("!")} A newer save of this machine is on chain, but this copy also has changes that were not saved.`);
         info(dim(`  Take the newer one with "chainboot restore ${name}", or keep this copy with "chainboot save ${name} --force".`));
       }
     }
+    pid = initPid(dir) ?? start();
+    line.done(unpacked ? "image unpacked" : undefined);
     watchInBackground(home, homePath, name);
     process.exitCode = enterMachine(home, name, pid, rest[0] === "--" ? rest.slice(1) : rest);
     if (autosaveInBackground(home, homePath, name)) info(dim("Changes are saved to Solana in the background. Check with: chainboot status"));
+    if (boots) info(dim(`${name} keeps running. Stop it with: chainboot stop ${name}`));
     return;
   }
   if (op === "save") { process.exitCode = insideMachine(home, homePath, name, ["save-inner", name, ...rest], rest.includes("--auto") ? "ignore" : "inherit"); return; }
@@ -283,7 +350,7 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   }
   if (op === "watch") return watchLoop(home, homePath, name);
   if (op === "start") {
-    startMachine(home, name, () => {}, (done, total) => line.update(done, total, "count", "Unpacking"), true);
+    startMachine(home, name, { keep: true, progress: (done, total) => line.update(done, total, "count", "Unpacking") });
     watchInBackground(home, homePath, name);
     line.done();
     ok(`${name} is running and stays up until: chainboot stop ${name}`);

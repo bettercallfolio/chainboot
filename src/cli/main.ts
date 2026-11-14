@@ -8,7 +8,7 @@ import { runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, loadConfig } from "../local/home.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { FEE_HELP, RPC_HELP, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
-import { EXPORT_HELP, RUN_HELP, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
+import { BOOT_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
 
@@ -28,6 +28,7 @@ ${bold("Machines")}
   run <image> [-- command]       Open a shell (or run a command) in a machine
   machines                       List your machines
   start <machine>                Keep a machine running in the background
+  boot <machine> [on|off]        Let a machine boot its own system (systemd), like a server
   stop <machine>                 Stop a running machine
   rm <machine>                   Delete a machine and its changes
 
@@ -81,7 +82,8 @@ async function cmdEngineInfo(rest: string[]): Promise<void> {
 interface Command { run: (a: Args) => Promise<void> | void; help: string; options: string[]; booleans?: string[] }
 
 const COMMANDS: Record<string, Command> = {
-  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave", "fresh"], booleans: ["no-autosave", "fresh"] },
+  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave", "fresh", "boot"], booleans: ["no-autosave", "fresh", "boot"] },
+  boot: { run: cmdBoot, help: BOOT_HELP, options: [] },
   machines: { run: cmdMachines, help: RUN_HELP, options: [] },
   start: { run: cmdStart, help: RUN_HELP, options: [] },
   stop: { run: cmdStop, help: RUN_HELP, options: [] },

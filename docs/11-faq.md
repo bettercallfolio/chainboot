@@ -84,6 +84,11 @@ Machines then need the rootless way to be ready: `chainboot engine` tells you wh
 missing. On most distributions nothing is; on Debian and Ubuntu an administrator has to
 install the `uidmap` package once (and, on recent Ubuntu, allow user namespaces).
 
+**`systemctl` says "System has not been booted with systemd"**
+An ordinary machine starts with a shell only. Create one that boots
+(`chainboot run solinux --boot --name server`), or turn it on for an existing machine with
+`chainboot boot <machine> on` ([Machines](03-machines.md#machines-that-boot)).
+
 **A server inside the machine does not start**
 The machine shares your computer's network. If the port is already used by your computer
 (port 22 by its own SSH server, for example), choose another port inside the machine.
