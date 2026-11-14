@@ -58,15 +58,25 @@ export function isUnsaved(p: string): boolean {
 
 interface CacheEntry { size: number; mtimeMs: number; ctimeMs: number; ino: number; sha256: string }
 
-function hashFile(file: string): string {
+/** The hash of a file and the number of bytes that went into it (a file that is being written may be longer or shorter than it was a moment ago). */
+function hashFile(file: string): { sha256: string; size: number } {
   const h = createHash("sha256");
   const fd = fs.openSync(file, "r");
+  let size = 0;
   try {
     const buf = Buffer.allocUnsafe(1 << 20);
-    for (;;) { const n = fs.readSync(fd, buf, 0, buf.length, null); if (n <= 0) break; h.update(buf.subarray(0, n)); }
+    for (;;) { const n = fs.readSync(fd, buf, 0, buf.length, null); if (n <= 0) break; h.update(buf.subarray(0, n)); size += n; }
   } finally { fs.closeSync(fd); }
-  return h.digest("hex");
+  return { sha256: h.digest("hex"), size };
 }
+
+/** True for the error of a file that was there a moment ago and is gone now (a running system deletes files all the time). */
+const gone = (e: unknown): boolean => { const code = (e as NodeJS.ErrnoException)?.code; return code === "ENOENT" || code === "ENOTDIR"; };
+
+const sameAttrs = (a: Record<string, string> | undefined, b: Record<string, string> | undefined): boolean => {
+  const ka = Object.keys(a ?? {}), kb = Object.keys(b ?? {});
+  return ka.length === kb.length && ka.every((k) => a![k] === b?.[k]);
+};
 
 function changeToNode(c: Change): TreeNode {
   switch (c.type) {
@@ -120,7 +130,8 @@ export function scanMachine(o: ScanOptions): ScanResult {
       if (Buffer.byteLength(name) !== Buffer.from(name, "utf8").length || name.includes("�")) { skipped.push({ path: p, why: "file name is not valid UTF-8" }); continue; }
       if (isUnsaved(p)) continue;
       const abs = path.join(dir, name);
-      const st = fs.lstatSync(abs);
+      let st: fs.Stats;
+      try { st = fs.lstatSync(abs); } catch (e) { if (gone(e)) continue; throw e; }
       const mtime = Math.floor(st.mtimeMs / 1000);
       const common = { path: p, mode: st.mode & 0o7777, uid: st.uid, gid: st.gid, mtime };
       if (st.isCharacterDevice() && st.rdev === 0) { // overlay whiteout: "this path is deleted"
@@ -142,13 +153,22 @@ export function scanMachine(o: ScanOptions): ScanResult {
         if (first) { changes.push({ ...common, type: "h", link: first }); continue; }
         if (st.nlink > 1) inodes.set(id, p);
         const known = cache[p];
-        const sha256 = st.size === 0 ? EMPTY_SHA256
-          : known && known.size === st.size && known.mtimeMs === st.mtimeMs && known.ctimeMs === st.ctimeMs && known.ino === st.ino ? known.sha256
-          : hashFile(abs);
-        nextCache[p] = { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, sha256 };
-        changes.push({ ...common, type: "f", size: st.size, sha256, src: abs });
+        let sha256: string, size = st.size;
+        if (st.size === 0) sha256 = EMPTY_SHA256;
+        else if (known && known.size === st.size && known.mtimeMs === st.mtimeMs && known.ctimeMs === st.ctimeMs && known.ino === st.ino) sha256 = known.sha256;
+        else {
+          let hashed: { sha256: string; size: number };
+          try { hashed = hashFile(abs); } catch (e) { if (gone(e)) continue; throw e; }
+          // size and hash must describe the same bytes: the size is what was hashed, not what the file had a moment before
+          sha256 = hashed.sha256; size = hashed.size;
+        }
+        // (a file that changed while it was read is not remembered: the next scan reads it again)
+        if (size === st.size) nextCache[p] = { size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, ino: st.ino, sha256 };
+        changes.push({ ...common, type: "f", size, sha256: size === 0 ? EMPTY_SHA256 : sha256, src: abs });
       } else if (st.isSymbolicLink()) {
-        changes.push({ ...common, type: "l", link: fs.readlinkSync(abs) });
+        let link: string;
+        try { link = fs.readlinkSync(abs); } catch (e) { if (gone(e)) continue; throw e; }
+        changes.push({ ...common, type: "l", link });
       } else if (st.isFIFO()) {
         changes.push({ ...common, type: "p" });
       } else if (st.isCharacterDevice() || st.isBlockDevice()) {
@@ -164,19 +184,20 @@ export function scanMachine(o: ScanOptions): ScanResult {
   if (attrs?.size) for (const c of changes) { const x = (c.type === "f" || c.type === "d") && attrs.get(c.path); if (x) c.xattrs = x; }
 
   // a deleted directory already covers everything below it
-  const gone = [...deleted].sort(comparePaths).filter((p, _i, all) => !all.some((q) => q !== p && p.startsWith(q + "/")));
+  const removed = [...deleted].sort(comparePaths).filter((p, _i, all) => !all.some((q) => q !== p && p.startsWith(q + "/")));
   // drop entries that are identical to the image (overlayfs copies parents up without changing them)
   const linkTargets = new Set(changes.filter((c) => c.type === "h").map((c) => c.link!));
   const real = changes.filter((c) => {
     const b = baseNodes.get(c.path);
     if (!b || linkTargets.has(c.path)) return true;
-    if (c.type === "f" && b[1] === "f") return !(b[2] === c.mode && b[3] === c.uid && b[4] === c.gid && b[5] === c.mtime && b[7] === c.sha256);
+    // (attributes count too: a capability or an ACL set on a file of the image is a change)
+    if (c.type === "f" && b[1] === "f") return !(b[2] === c.mode && b[3] === c.uid && b[4] === c.gid && b[5] === c.mtime && b[7] === c.sha256 && sameAttrs(b[10], c.xattrs));
     return identityLine(changeToNode(c)) !== identityLine(b);
   }).sort((a, b) => comparePaths(a.path, b.path));
 
   const h = createHash("sha256");
   for (const c of real) h.update(identityLine(changeToNode(c)) + "\n");
-  for (const p of gone) h.update(`-${p}\n`);
+  for (const p of removed) h.update(`-${p}\n`);
   if (o.cacheFile) { try { fs.writeFileSync(o.cacheFile, JSON.stringify(nextCache)); } catch { /* the cache is only an optimisation */ } }
-  return { changes: real, deleted: gone, skipped, fingerprint: h.digest("hex"), bytes: real.reduce((n, c) => n + (c.size ?? 0), 0) };
+  return { changes: real, deleted: removed, skipped, fingerprint: h.digest("hex"), bytes: real.reduce((n, c) => n + (c.size ?? 0), 0) };
 }

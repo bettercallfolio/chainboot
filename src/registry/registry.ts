@@ -16,6 +16,7 @@ import type { Commitment } from "../store/sender.ts";
 import { verifyPack, type BuiltImage } from "../image/build.ts";
 import { parseManifest, serializeManifest, type ImageManifest } from "../image/manifest.ts";
 import { openEither, type Vault } from "../state/vault.ts";
+import { withLock } from "../util/lock.ts";
 
 /** Where to find one stored object and how to unpack it. */
 export interface StoredRef { sig: string; sha256: string; size: number; codec: Codec; rawSize: number }
@@ -67,6 +68,49 @@ async function getStored(store: ChainStore, ref: StoredRef, opts: { signers?: Ui
   return decompress(ref.codec, data, ref.rawSize);
 }
 
+const NAME = /^[a-z0-9][a-z0-9._-]{0,127}$/, LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const isCount = (x: unknown): x is number => Number.isSafeInteger(x) && (x as number) >= 0;
+const isHash = (x: unknown): x is string => typeof x === "string" && /^[0-9a-f]{64}$/.test(x);
+/** Text from somebody else's catalog or share, made safe to print: no control characters, no surprises in length. */
+export const plainText = (x: unknown, max: number): string => String(x ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").slice(0, max);
+
+/** One catalog entry with exactly the fields chainboot knows, or null when it is not well formed. */
+export function cleanRef(r: unknown): ImageRef | null {
+  const x = r as ImageRef | null;
+  if (!x || typeof x !== "object" || typeof x.sig !== "string" || x.sig.length > 90 || !isHash(x.sha256) || !isCount(x.size) || !isCount(x.rawSize) || !["xz", "zstd", "raw"].includes(x.codec) || !isHash(x.digest)) return null;
+  if (x.publisher !== undefined) { try { addressToBytes(x.publisher); } catch { return null; } }
+  if (x.key !== undefined && (typeof x.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(x.key))) return null;
+  return {
+    sig: x.sig, sha256: x.sha256, size: x.size, codec: x.codec, rawSize: x.rawSize, digest: x.digest,
+    version: plainText(x.version, 64), created: isCount(x.created) ? x.created : 0,
+    downloadSize: isCount(x.downloadSize) ? x.downloadSize : 0, unpackedSize: isCount(x.unpackedSize) ? x.unpackedSize : 0,
+    ...(x.private === true && { private: true }), ...(x.publisher !== undefined && { publisher: x.publisher }), ...(x.key !== undefined && { key: x.key }),
+  };
+}
+
+/**
+ * The images of a catalog with everything dropped that is not well formed. A catalog is
+ * written by its publisher; a reader (and a list that many publishers keep) must not trip
+ * over what one of them wrote.
+ */
+export function cleanImages(images: unknown): Catalog["images"] {
+  if (!images || typeof images !== "object" || Array.isArray(images)) throw new Error("its list of images is malformed");
+  const out: Catalog["images"] = {};
+  for (const [name, image] of Object.entries(images as Record<string, { description?: unknown; tags?: unknown } | null>)) {
+    if (!NAME.test(name) || !image || typeof image !== "object" || !image.tags || typeof image.tags !== "object" || Array.isArray(image.tags)) continue;
+    const tags: Catalog["images"][string]["tags"] = {};
+    for (const [tag, arches] of Object.entries(image.tags as Record<string, unknown>)) {
+      if (!LABEL.test(tag) || !arches || typeof arches !== "object" || Array.isArray(arches)) continue;
+      for (const [arch, ref] of Object.entries(arches as Record<string, unknown>)) {
+        const clean = LABEL.test(arch) ? cleanRef(ref) : null;
+        if (clean) (tags[tag] ??= {})[arch] = clean;
+      }
+    }
+    if (Object.keys(tags).length) out[name] = { ...(image.description !== undefined && { description: plainText(image.description, 300) }), tags };
+  }
+  return out;
+}
+
 /** Reads a publisher's catalog. Returns an empty catalog when they have not published anything yet. */
 export async function readCatalog(store: ChainStore, publisher: string, cacheDir?: string): Promise<Catalog> {
   const key = addressToBytes(publisher);
@@ -76,7 +120,8 @@ export async function readCatalog(store: ChainStore, publisher: string, cacheDir
   try { ref = JSON.parse(ptr.payload.toString("utf8")) as StoredRef; } catch { throw new Error(`the catalog pointer of ${publisher} is malformed`); }
   const raw = await getStored(store, ref, { signers: [key], cacheDir });
   const cat = JSON.parse(raw.toString("utf8")) as Catalog;
-  if (cat?.chainboot !== 1 || cat.kind !== "catalog" || cat.publisher !== publisher || typeof cat.images !== "object") throw new Error(`the catalog of ${publisher} is malformed`);
+  if (cat?.chainboot !== 1 || cat.kind !== "catalog" || cat.publisher !== publisher) throw new Error(`the catalog of ${publisher} is malformed`);
+  try { cat.images = cleanImages(cat.images); } catch (e) { throw new Error(`the catalog of ${publisher} is malformed: ${(e as Error).message}`); }
   return cat;
 }
 
@@ -113,17 +158,24 @@ export async function publishImage(store: ChainStore, payer: Keypair, built: Bui
     downloadSize: mref.size + m.packs.reduce((n, p) => n + p.size, 0), unpackedSize: m.rawSize,
   };
   opts.onProgress?.({ phase: "catalog", done: 0, total: 1 });
-  const cat = await readCatalog(store, payer.address);
-  const image = (cat.images[m.name] ??= { tags: {} });
-  if (opts.description ?? m.description) image.description = opts.description ?? m.description;
-  for (const tag of opts.tags ?? [m.version, "latest"]) (image.tags[tag] ??= {})[m.arch] = ref;
-  await writeCatalog(store, payer, cat, opts.commitment);
+  // (read, change and write as one step: two publishes at once must not lose each other's entry)
+  await withLock(`catalog-${payer.address}`, async () => {
+    const cat = await readCatalog(store, payer.address);
+    const image = (cat.images[m.name] ??= { tags: {} });
+    if (opts.description ?? m.description) image.description = opts.description ?? m.description;
+    for (const tag of opts.tags ?? [m.version, "latest"]) (image.tags[tag] ??= {})[m.arch] = ref;
+    await writeCatalog(store, payer, cat, opts.commitment);
+  });
   opts.onProgress?.({ phase: "catalog", done: 1, total: 1 });
   return ref;
 }
 
 /** Removes an image, a tag, or one architecture of a tag from the catalog. The data stays on the ledger. */
 export async function unlistImage(store: ChainStore, payer: Keypair, name: string, tag?: string, arch?: string): Promise<boolean> {
+  return withLock(`catalog-${payer.address}`, () => unlistLocked(store, payer, name, tag, arch));
+}
+
+async function unlistLocked(store: ChainStore, payer: Keypair, name: string, tag?: string, arch?: string): Promise<boolean> {
   const cat = await readCatalog(store, payer.address);
   const image = cat.images[name];
   if (!image) return false;
@@ -144,13 +196,16 @@ export async function unlistImage(store: ChainStore, payer: Keypair, name: strin
  */
 export async function endorseImage(store: ChainStore, payer: Keypair, e: { name: string; tags: string[]; arch: string; ref: ImageRef; publisher: string; description?: string }, commitment?: Commitment): Promise<void> {
   if (e.ref.private || e.ref.key) throw new Error("a private image cannot be endorsed");
-  const cat = await readCatalog(store, payer.address);
-  const image = (cat.images[e.name] ??= { tags: {} });
-  if (e.description && !image.description) image.description = e.description;
-  const { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize } = e.ref;
-  const entry: ImageRef = { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize, ...(e.publisher !== payer.address && { publisher: e.publisher }) };
-  for (const tag of e.tags) (image.tags[tag] ??= {})[e.arch] = entry;
-  await writeCatalog(store, payer, cat, commitment);
+  if (!NAME.test(e.name) || e.tags.some((t) => !LABEL.test(t)) || !LABEL.test(e.arch)) throw new Error("an image name is lower-case letters, digits, \".\", \"_\" or \"-\"; so are tags and architectures");
+  await withLock(`catalog-${payer.address}`, async () => {
+    const cat = await readCatalog(store, payer.address);
+    const image = (cat.images[e.name] ??= { tags: {} });
+    if (e.description && !image.description) image.description = e.description;
+    const { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize } = e.ref;
+    const entry: ImageRef = { sig, sha256, size, codec, rawSize, digest, version, created, downloadSize, unpackedSize, ...(e.publisher !== payer.address && { publisher: e.publisher }) };
+    for (const tag of e.tags) (image.tags[tag] ??= {})[e.arch] = entry;
+    await writeCatalog(store, payer, cat, commitment);
+  });
 }
 
 export interface ImageName { publisher?: string; name: string; tag: string }

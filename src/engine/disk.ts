@@ -76,8 +76,10 @@ if [ "${"$"}{CB_SIZE_MB:-0}" -gt 0 ]; then
   if [ "$want" -lt "$ROOT" ]; then echo "the system needs a disk of at least $(( ROOT + ESP + 2 )) MiB"; exit 1; fi
   ROOT=$want
 fi
+# (the file system image and the finished disk lie side by side for a moment: room for both is needed)
+need=$(( ROOT + ESP + used + ESP + 256 ))
 free=$(df -Pm /var/tmp | awk 'NR==2 { print $4 }')
-if [ "$free" -lt $(( used + ESP + 256 )) ]; then echo "NOSPACE:$(( used + ESP + 256 ))"; exit ${DISK_NO_SPACE}; fi
+if [ "$free" -lt "$need" ]; then echo "NOSPACE:$need"; exit ${DISK_NO_SPACE}; fi
 
 # ---- the root file system: every file of the machine, with the files above in place of the machine's own
 echo "copying the system ($used MiB) into an ext4 file system" >&2
@@ -106,7 +108,7 @@ mmd -i "$W/esp.img" ::/EFI ::/EFI/BOOT ::/loader ::/loader/entries
 mcopy -i "$W/esp.img" "/usr/lib/systemd/boot/efi/$LOADER" "::/EFI/BOOT/$BOOT"
 mcopy -i "$W/esp.img" "$K" ::/vmlinuz
 mcopy -i "$W/esp.img" "$I" ::/initrd.img
-title=$(. /etc/os-release 2>/dev/null; echo "${"$"}{PRETTY_NAME:-Linux}")
+title=$([ ! -r /etc/os-release ] || . /etc/os-release; echo "${"$"}{PRETTY_NAME:-Linux}")
 mkdir -p "$W/boot"
 printf 'default chainboot.conf\ntimeout 3\n' > "$W/boot/loader.conf"
 printf 'title   %s (%s)\nlinux   /vmlinuz\ninitrd  /initrd.img\noptions root=LABEL=chainboot-root rw console=ttyS0,115200 console=tty0\n' "$title" "${"$"}{CB_NAME:-chainboot}" > "$W/boot/entry.conf"

@@ -560,6 +560,17 @@ test("lists: an image counts when enough publishers have the same content; one k
   assert.equal(partial.members[2]!.ok, false);
   assert.equal(partial.images.demo!.tags.latest!.amd64!.digest, v2.manifest.digest);
 
+  // nor does a member whose catalog is a catalog, but holds things that are not images
+  const { compress } = await import("../src/codec/index.ts");
+  const odd = Buffer.from(JSON.stringify({ chainboot: 1, kind: "catalog", publisher: c.address, updated: 1, images: { demo: null, other: { tags: null }, third: { tags: { latest: { amd64: { sig: 5 } } } }, "../x": { tags: {} } } }));
+  const packedOdd = compress(odd);
+  const stored = await store.put(c, packedOdd.data, { commitment: "confirmed" });
+  await store.putPointer(c, tagAddress("catalog", c.publicKey), Buffer.from(JSON.stringify({ ...stored, codec: packedOdd.codec, rawSize: odd.length })), { commitment: "confirmed" });
+  const strange = await readList(store, spec);
+  assert.deepEqual([strange.members[2]!.ok, strange.members[2]!.images], [true, 0], "what is not an image is left out, and the rest of the catalog still counts");
+  assert.equal(strange.images.demo!.tags.latest!.amd64!.digest, v2.manifest.digest);
+  await store.putPointer(c, tagAddress("catalog", c.publicKey), Buffer.from("not a catalog"), { commitment: "confirmed" });
+
   // the browser reader sees the same list
   const web = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch });
   const seen = await web.list(spec.members, spec.threshold);

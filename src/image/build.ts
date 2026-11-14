@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { compress, decompress, type Codec } from "../codec/index.ts";
 import { sha256, toHex } from "../util/bytes.ts";
-import { EMPTY_SHA256, MANIFEST_VERSION, comparePaths, toNode, treeDigest, type FileNode, type ImageConfig, type ImageManifest, type PackInfo, type TreeNode } from "./manifest.ts";
+import { EMPTY_SHA256, MANIFEST_VERSION, comparePaths, toNode, treeDigest, validateManifest, type FileNode, type ImageConfig, type ImageManifest, type PackInfo, type TreeNode } from "./manifest.ts";
 import type { Entry } from "./tar.ts";
 
 /** Largest pack before compression. One pack is one solid stream, so this also bounds memory use. */
@@ -188,6 +188,8 @@ export function buildImage(input: Entry[], meta: ImageMeta, opts: BuildOptions =
     fileCount: entries.length,
     packs, tree,
   };
+  // what is about to be published (and paid for) must be something every reader accepts
+  try { validateManifest(manifest); } catch (e) { throw new Error(`this archive cannot become an image: ${(e as Error).message.replace(/^invalid image manifest: /, "")}`); }
   say(`${entries.length} entries, ${unique.size} unique files (${reused} already on chain), ${packs.length} pack(s)`);
   return { manifest, newPacks };
 }

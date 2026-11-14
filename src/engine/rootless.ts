@@ -70,6 +70,8 @@ function profileName(homePath: string): string {
 export function appArmorProfilePath(homePath: string): string { return `/etc/apparmor.d/${profileName(homePath)}`; }
 
 export function appArmorProfile(homePath: string): string {
+  // the path stands in the profile between quotes, where these characters mean something else (or end the name)
+  if (/["\\\[\]{}*?^\n]/.test(launcherPath(homePath))) throw new Error(`the chainboot directory (${homePath}) has a character in its path that an AppArmor profile cannot name: one of " \\ [ ] { } * ? ^. Machines run through sudo here, or use a directory without them (CHAINBOOT_HOME).`);
   return `# Lets chainboot (https://chainboot.dev) run machines without administrator rights for one user.
 # It allows this one program, a copy of "unshare", to create user namespaces.
 abi <abi/4.0>,
@@ -101,7 +103,8 @@ export function support(homePath: string): Support {
   const missing = {
     tools: !hasTool("newuidmap") || !hasTool("newgidmap"),
     subuid: !subuid, subgid: !subgid,
-    appArmor: appArmorRestricts() && !fs.existsSync(launcherPath(homePath)),
+    // (both halves must be there: the copy of unshare, and the profile that names it; a reinstalled system keeps the first and loses the second)
+    appArmor: appArmorRestricts() && (!fs.existsSync(launcherPath(homePath)) || !fs.existsSync(appArmorProfilePath(homePath))),
     userns: disabled,
   };
   const ready = !Object.values(missing).some(Boolean);
@@ -189,7 +192,9 @@ export function hasEngineData(homePath: string): boolean {
   const any = (dir: string, child: string) => {
     try { return fs.readdirSync(dir).some((n) => fs.existsSync(path.join(dir, n, child))); } catch { return false; }
   };
-  return any(path.join(homePath, "images"), "rootfs") || any(path.join(homePath, "images"), "rootfs.tmp") || any(path.join(homePath, "machines"), "upper");
+  const unpacking = (() => { try { return fs.readdirSync(path.join(homePath, "images")).some((d) => { try { return fs.readdirSync(path.join(homePath, "images", d)).some((n) => n.startsWith("rootfs.tmp")); } catch { return false; } }); } catch { return false; } })();
+  // (the decompressed packs of lazy machines count too: they belong to whoever ran the engine)
+  return any(path.join(homePath, "images"), "rootfs") || unpacking || any(path.join(homePath, "machines"), "upper") || fs.existsSync(path.join(homePath, "cache", "raw"));
 }
 
 export function writeMode(homePath: string, mode: EngineMode): void {

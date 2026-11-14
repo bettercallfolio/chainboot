@@ -6,18 +6,19 @@ import { parseManifest, type FileNode } from "../image/manifest.ts";
 import { loadConfig, openStore, paths } from "../local/home.ts";
 import { TAR_END, tarHead, tarPadding, type Entry } from "../image/tar.ts";
 import { isUnsaved, scanMachine } from "../state/scan.ts";
-import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, saveSnapshot, type Head, type SavePlan, type Snapshot } from "../state/snapshot.ts";
+import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, saveSnapshot, snapshotBySeq, type Head, type SavePlan, type Snapshot } from "../state/snapshot.ts";
 import { loadVault, type Vault } from "../state/vault.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
 import { readXattrs } from "../util/xattr.ts";
-import { inMachineFiles, initPid, machineDir, machineLower, readMachine, stopMachine, type EngineHome } from "./linux.ts";
+import { inMachineFiles, initPid, machineDir, machineLower, readMachine, readPid, startTime, stopMachine, type EngineHome } from "./linux.ts";
 
 /** What this computer knows about a machine's saved state (machines/<name>/save.json). */
 export interface SaveStatus {
   state: "saved" | "saving" | "nothing-to-save" | "needs-confirmation" | "no-funds" | "conflict" | "error";
   message?: string;
-  /** Sequence number and fingerprint of the snapshot this machine was last in sync with. */
+  /** Sequence number and fingerprint of the snapshot this machine was last in sync with, and that snapshot's address on chain. */
   seq?: number;
+  ref?: string;
   fingerprint?: string;
   time?: number;
   updated: number;
@@ -48,10 +49,27 @@ export function insideMachine(home: EngineHome, homePath: string, name: string, 
   return inMachineFiles(home, name, self, stdio);
 }
 
+/**
+ * True while the save lock of a machine is held by a process that is alive. The lock names its
+ * owner (PID and start time): one left behind by a save that was killed holds nobody up, and
+ * one of a save that simply takes long is not broken.
+ */
+function lockHeld(lock: string): boolean {
+  let age: number;
+  try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { return false; }
+  let owner: string;
+  try { owner = fs.readFileSync(path.join(lock, "owner"), "utf8"); } catch { return age < 10_000; } // being taken at this moment
+  const [pid, started] = owner.trim().split(" ");
+  return !!started && startTime(Number(pid)) === started;
+}
+
 /** True while a save of this machine is running on this computer (in the foreground or in the background). */
 export function saveInProgress(dir: string): boolean {
-  try { return Date.now() - fs.statSync(path.join(dir, "save.lock")).mtimeMs < 30 * 60_000; } catch { return false; }
+  return lockHeld(path.join(dir, "save.lock"));
 }
+
+/** A save that found the chain holding a save from somewhere else. */
+class SaveConflict extends Error {}
 
 function requireVault(): Vault {
   const c = loadConfig();
@@ -69,16 +87,21 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
   if (!info) throw new Error(`there is no machine named "${name}"`);
   const lock = path.join(dir, "save.lock");
   for (let waited = 0; ; waited++) {
-    try { fs.mkdirSync(lock); break; } catch { /* another save holds the lock */ }
-    let age = Infinity;
-    try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { continue; } // it was just released: try again
-    if (age > 30 * 60_000) { try { fs.rmdirSync(lock); } catch { /* raced */ } continue; } // left behind by a save that crashed
+    try {
+      fs.mkdirSync(lock);
+      fs.writeFileSync(path.join(lock, "owner"), `${process.pid} ${startTime(process.pid)}\n`);
+      break;
+    } catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+    if (!lockHeld(lock)) { fs.rmSync(lock, { recursive: true, force: true }); continue; } // left behind by a save that was killed, or just released
     if (flags.auto) return 0; // an automatic save is not needed while another save is running
     if (waited === 0) say(`a save of "${name}" is already running in the background; waiting for it to finish`);
     await new Promise((r) => setTimeout(r, 500));
   }
   const local = readSaveStatus(dir);
-  const keep = { seq: local?.seq, fingerprint: local?.fingerprint, time: local?.time };
+  const keep = { seq: local?.seq, ref: local?.ref, fingerprint: local?.fingerprint, time: local?.time };
+  // "in sync" means: the save on chain is the very one this computer last made or restored.
+  // (its address is compared; the number alone is not enough, two computers can both write a "#6")
+  const inSync = (head: Head | null) => !head || (local?.ref ? head.ref.sig === local.ref : head.seq === (local?.seq ?? 0));
   try {
     const vault = requireVault();
     const base = parseManifest(fs.readFileSync(path.join(home.images, info.image.digest, "manifest.json")));
@@ -91,7 +114,8 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
       }
       const store = await openStore(loadConfig());
       const head = await readHead(store, vault, name);
-      if (head && head.seq !== (local?.seq ?? 0) && !flags.force) {
+      if (!inSync(head) && !flags.force) {
+        if (!head) throw new Error("unreachable");
         const message = `"${name}" was saved from another computer (save #${head.seq}) after this one last synced` + (local?.seq ? ` (save #${local.seq})` : "") +
           `. Take that version with "chainboot restore ${name}", or overwrite it with "chainboot save ${name} --force".`;
         writeSaveStatus(dir, { ...keep, state: "conflict", message });
@@ -105,6 +129,12 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
         const result = await saveSnapshot(store, vault, info, base, scan, prev, {
           journalDir: paths.journals(), note: flags.note,
           onProgress: progress,
+          // the data is on chain now; before the pointer moves, look once more whether another computer saved in the meantime
+          beforePointer: async () => {
+            if (flags.force) return;
+            const now = await readHead(store, vault, name);
+            if ((now?.ref.sig ?? "") !== (head?.ref.sig ?? "")) throw new SaveConflict(`"${name}" was saved from another computer (save #${now?.seq ?? "?"}) while this save was running. Take that version with "chainboot restore ${name}", or overwrite it with "chainboot save ${name} --force".`);
+          },
           approve: async (plan: SavePlan) => {
             const balance = (await store.pool.call<{ value: number }>("getBalance", [vault.signer.address, { commitment: "confirmed" }])).value;
             const cost = fmtSol(plan.lamports);
@@ -131,13 +161,14 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
           say(declinedMessage);
           return declined === "no-funds" ? 4 : 5;
         }
-        writeSaveStatus(dir, { state: "saved", seq: result.head.seq, fingerprint: scan.fingerprint, time: result.head.time });
+        writeSaveStatus(dir, { state: "saved", seq: result.head.seq, ref: result.head.ref.sig, fingerprint: scan.fingerprint, time: result.head.time });
         say(`saved "${name}" as save #${result.head.seq} (${fmtBytes(result.plan.storedBytes)} uploaded, ${fmtSol(result.plan.lamports)})`);
         for (const s of scan.skipped.slice(0, 5)) say(`not saved: ${s.path} (${s.why})`);
         return 0;
       } catch (e) {
         // a file changed between scanning and reading it (the machine is in use): scan again
         if (e instanceof ChangedDuringSave && attempt < 3) { say(`${e.message}; scanning again`); continue; }
+        if (e instanceof SaveConflict) { writeSaveStatus(dir, { ...keep, state: "conflict", message: e.message }); say(e.message); return 3; }
         throw e;
       }
     }
@@ -145,7 +176,7 @@ export async function saveInner(home: EngineHome, name: string, flags: SaveFlags
     writeSaveStatus(dir, { ...keep, state: "error", message: (e as Error).message });
     throw e;
   } finally {
-    try { fs.rmdirSync(lock); } catch { /* already gone */ }
+    fs.rmSync(lock, { recursive: true, force: true });
   }
 }
 
@@ -165,7 +196,8 @@ export async function checkInner(home: EngineHome, name: string): Promise<number
     const vault = loadVault(paths.vault(), c.cluster);
     if (!vault) return 0;
     const head = await readHead(await openStore(c), vault, name);
-    if (!head || head.seq <= local.seq!) return 0;
+    // newer: not the save this computer is in sync with, and not an older one
+    if (!head || head.seq < local.seq! || (local.ref ? head.ref.sig === local.ref : head.seq === local.seq)) return 0;
     const base = parseManifest(fs.readFileSync(path.join(home.images, info.image.digest, "manifest.json")));
     const scan = scanMachine({ upper: path.join(dir, "upper"), merged: path.join(dir, "merged"), base, cacheFile: path.join(dir, "scan-cache.json") });
     return scan.fingerprint === local.fingerprint ? CHECK_NEWER_CLEAN : CHECK_NEWER_CONFLICT;
@@ -185,9 +217,10 @@ export async function restoreInner(home: EngineHome, name: string, seq: number |
   const objects = path.join(home.cache, "objects");
   let snap = await readSnapshot(store, vault, head.ref, objects), picked = head.seq;
   if (seq !== null && seq !== head.seq) {
-    const old = snap.history.find((h) => h.seq === seq);
+    // (a save lists the 200 before it; older ones are found through the oldest of those)
+    const old = await snapshotBySeq(store, vault, head, seq, objects);
     if (!old) throw new Error(`"${name}" has no save #${seq}. See: chainboot history ${name}`);
-    snap = await readSnapshot(store, vault, old.ref, objects); picked = seq;
+    snap = old.snapshot; picked = seq;
   }
   if (snap.image.digest !== info.image.digest) throw new Error(`save #${picked} belongs to image ${snap.image.name}:${snap.image.tag} (${snap.image.digest.slice(0, 12)}), but this machine uses ${info.image.digest.slice(0, 12)}`);
   const base = parseManifest(fs.readFileSync(path.join(home.images, info.image.digest, "manifest.json")));
@@ -205,22 +238,52 @@ export async function restoreInner(home: EngineHome, name: string, seq: number |
     }
     return pack(n[8]).subarray(n[9], n[9] + n[6]);
   });
+  if (applied.lostAttributes.length) say(`note: extended attributes (capabilities, ACLs) could not be set on ${applied.lostAttributes.length} entr${applied.lostAttributes.length === 1 ? "y" : "ies"}, for example ${applied.lostAttributes.slice(0, 3).join(", ")}`);
   if (applied.unmappedOwners.length) say(`note: files of owner ${applied.unmappedOwners.slice(0, 3).join(", ")} belong to root here: without administrator rights a machine has the user IDs 0 to 65536`);
   const scan = scanMachine({ upper: path.join(dir, "upper"), merged: path.join(dir, "merged"), base, cacheFile: path.join(dir, "scan-cache.json") });
   // going back to an older save keeps the newest sequence number: the next save continues the same history
-  writeSaveStatus(dir, { state: "saved", seq: head.seq, fingerprint: picked === head.seq ? scan.fingerprint : "", time: snap.time });
+  writeSaveStatus(dir, { state: "saved", seq: head.seq, ref: head.ref.sig, fingerprint: picked === head.seq ? scan.fingerprint : "", time: snap.time });
   progress("applying", 1, 1);
   say(`restored "${name}" from save #${picked} (${new Date(snap.time * 1000).toISOString().replace("T", " ").slice(0, 16)} UTC): ${snap.tree.length} entries, ${snap.deleted.length} deletions`);
   return 0;
 }
 
-/** Empties a machine's own layer so that it shows the plain image again. */
-export function resetLayer(home: EngineHome, name: string): void {
+const ASIDE = "before-restore", LAYER = ["upper", "save.json", "scan-cache.json"];
+
+function stopAndWait(home: EngineHome, name: string): string {
   const dir = machineDir(home, name);
   stopMachine(home, name);
   for (let i = 0; i < 40 && initPid(dir); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-  for (const d of ["upper", "work"]) fs.rmSync(path.join(dir, d), { recursive: true, force: true });
-  for (const f of ["save.json", "scan-cache.json"]) fs.rmSync(path.join(dir, f), { force: true });
+  return dir;
+}
+
+/**
+ * Empties a machine's own layer so that it shows the plain image again. What was there is set
+ * aside, not deleted: a restore that does not complete (no network, a damaged save) must not
+ * cost the user the state they had. See bringBack and dropKept.
+ */
+export function resetLayer(home: EngineHome, name: string): void {
+  const dir = stopAndWait(home, name), aside = path.join(dir, ASIDE);
+  fs.rmSync(aside, { recursive: true, force: true });
+  fs.mkdirSync(aside);
+  for (const x of LAYER) { try { fs.renameSync(path.join(dir, x), path.join(aside, x)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; } }
+  fs.rmSync(path.join(dir, "work"), { recursive: true, force: true });
+}
+
+/** Puts back the layer that resetLayer set aside. Returns false when there was none. */
+export function bringBack(home: EngineHome, name: string): boolean {
+  const dir = stopAndWait(home, name), aside = path.join(dir, ASIDE);
+  if (!fs.existsSync(aside)) return false;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200); // let the kernel drop the machine's mounts
+  for (const x of [...LAYER, "work"]) fs.rmSync(path.join(dir, x), { recursive: true, force: true });
+  for (const x of LAYER) { try { fs.renameSync(path.join(aside, x), path.join(dir, x)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; } }
+  fs.rmSync(aside, { recursive: true, force: true });
+  return true;
+}
+
+/** Forgets the layer that resetLayer set aside: the restore went through. */
+export function dropKept(home: EngineHome, name: string): void {
+  fs.rmSync(path.join(machineDir(home, name), ASIDE), { recursive: true, force: true });
 }
 
 /** Minutes between automatic saves while a machine keeps running. */
@@ -235,32 +298,39 @@ export function watchInBackground(home: EngineHome, homePath: string, name: stri
   if (!c || !loadVault(paths.vault(), c.cluster)) return;
   const dir = machineDir(home, name);
   if (fs.existsSync(path.join(dir, "autosave-off"))) return;
-  try {
-    const pid = Number(fs.readFileSync(path.join(dir, "watch.pid"), "utf8"));
-    if (pid > 1) { process.kill(pid, 0); return; } // a watcher is already running
-  } catch { /* none */ }
+  // a watcher that is alive and watches this very run of the machine is enough
+  // (one from an earlier run ends by itself, and could not save this run anyway)
+  const machine = fs.existsSync(path.join(dir, "pid")) ? fs.readFileSync(path.join(dir, "pid"), "utf8").trim() : "";
+  try { if (readPid(path.join(dir, "watch.pid")) && fs.readFileSync(path.join(dir, "watch.for"), "utf8") === machine) return; } catch { /* none */ }
   const log = fs.openSync(path.join(dir, "save.log"), "a");
   const child = spawn(process.execPath, [...process.execArgv, process.argv[1]!, "_engine", homePath, "", "watch", name], { detached: true, stdio: ["ignore", log, log] });
   child.unref();
   fs.closeSync(log);
-  if (child.pid) fs.writeFileSync(path.join(dir, "watch.pid"), String(child.pid));
+  if (child.pid) {
+    fs.writeFileSync(path.join(dir, "watch.pid"), `${child.pid} ${startTime(child.pid)}\n`);
+    fs.writeFileSync(path.join(dir, "watch.for"), machine);
+  }
 }
 
 /** Body of the watcher process: runs until the machine stops. */
 export async function watchLoop(home: EngineHome, homePath: string, name: string): Promise<void> {
   const dir = machineDir(home, name);
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const mine = `${process.pid} ${startTime(process.pid)}`;
+  // the run of the machine this watcher belongs to: when it ends (or another begins), so does the watcher
+  const run = initPid(dir);
   try {
     for (;;) {
       for (let waited = 0; waited < AUTOSAVE_MINUTES * 60; waited += 5) {
         await sleep(5000);
-        if (!initPid(dir)) return;
+        if (!run || initPid(dir) !== run) return;
       }
       if (fs.existsSync(path.join(dir, "autosave-off"))) continue;
       spawnSync(process.execPath, [...process.execArgv, process.argv[1]!, "_engine", homePath, "", "save", name, "--auto"], { stdio: "ignore" });
     }
   } finally {
-    fs.rmSync(path.join(dir, "watch.pid"), { force: true });
+    // (only its own note: a newer watcher may have written its own by now)
+    try { if (fs.readFileSync(path.join(dir, "watch.pid"), "utf8").trim() === mine) fs.rmSync(path.join(dir, "watch.pid"), { force: true }); } catch { /* gone */ }
   }
 }
 

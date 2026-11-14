@@ -87,8 +87,13 @@ export async function readList(store: ChainStore, spec: ListSpec, cacheDir?: str
   for (const [key, list] of votes) {
     const [name, tag, arch, digest] = JSON.parse(key) as [string, string, string, string];
     const agreed = list.map((v) => v.by);
-    // prefer the entry of the member that stored the image itself; any of them names the same content
-    const pick = list.find((v) => !v.ref.publisher || v.ref.publisher === v.by) ?? list[0]!;
+    // Any of them names the same content, but each names a stored copy of the image's file list,
+    // and one member could point at a copy that is broken. So the copy most members point at
+    // wins; between equals, the entry of a member that stored the image itself.
+    const copies = new Map<string, number>();
+    for (const v of list) copies.set(v.ref.sha256, (copies.get(v.ref.sha256) ?? 0) + 1);
+    const own = (v: Vote) => (!v.ref.publisher || v.ref.publisher === v.by ? 1 : 0);
+    const pick = [...list].sort((a, b) => copies.get(b.ref.sha256)! - copies.get(a.ref.sha256)! || own(b) - own(a))[0]!;
     if (agreed.length < spec.threshold) { view.waiting.push({ name, tag, arch, version: pick.ref.version, digest, agreed }); continue; }
     const image = (view.images[name] ??= { tags: {} });
     image.description ??= list.find((v) => v.description)?.description;

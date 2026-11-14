@@ -18,7 +18,8 @@ import { getDocByRef, getPointer, putDoc } from "../state/snapshot.ts";
 import { seal, sealWithKey, type Vault } from "../state/vault.ts";
 import { tagAddress, type ChainStore, type PutProgress } from "../store/store.ts";
 import type { Commitment } from "../store/sender.ts";
-import type { Catalog, ImageRef, Progress } from "./registry.ts";
+import { withLock } from "../util/lock.ts";
+import { cleanImages, type Catalog, type ImageRef, type Progress } from "./registry.ts";
 
 export interface PrivateCatalog { chainboot: 1; kind: "private-catalog"; updated: number; images: Catalog["images"] }
 
@@ -26,12 +27,16 @@ const privateTag = (v: Vault) => tagAddress("private-images", v.signer.publicKey
 /** The tag under which a vault's newest private catalog is named. */
 export const privateTagOf = privateTag;
 
+/** Name of the lock under which a vault's private catalog is read, changed and written back. */
+export const privateLock = (v: Vault): string => `private-${v.signer.address}`;
+
 /** The signed-in wallet's private images. Empty when it has none. */
 export async function readPrivateCatalog(store: ChainStore, v: Vault): Promise<PrivateCatalog> {
   const p = await getPointer<object>(store, v, privateTag(v), "private-catalog");
   if (!p) return { chainboot: 1, kind: "private-catalog", updated: 0, images: {} };
   const cat = await getDocByRef<PrivateCatalog>(store, v, "private-catalog", p.ref);
-  if (cat?.chainboot !== 1 || cat.kind !== "private-catalog" || typeof cat.images !== "object") throw new Error("your private catalog is malformed");
+  if (cat?.chainboot !== 1 || cat.kind !== "private-catalog") throw new Error("your private catalog is malformed");
+  try { cat.images = cleanImages(cat.images); } catch (e) { throw new Error(`your private catalog is malformed: ${(e as Error).message}`); }
   return cat;
 }
 
@@ -62,17 +67,23 @@ export async function publishPrivateImage(store: ChainStore, v: Vault, built: Bu
     downloadSize: o.size + m.packs.reduce((n, p) => n + p.size, 0), unpackedSize: m.rawSize, private: true,
   };
   opts.onProgress?.({ phase: "catalog", done: 0, total: 1 });
-  const cat = await readPrivateCatalog(store, v);
-  const image = (cat.images[m.name] ??= { tags: {} });
-  if (opts.description ?? m.description) image.description = opts.description ?? m.description;
-  for (const tag of opts.tags ?? [m.version, "latest"]) (image.tags[tag] ??= {})[m.arch] = ref;
-  await writePrivateCatalog(store, v, cat, opts.commitment);
+  await withLock(privateLock(v), async () => {
+    const cat = await readPrivateCatalog(store, v);
+    const image = (cat.images[m.name] ??= { tags: {} });
+    if (opts.description ?? m.description) image.description = opts.description ?? m.description;
+    for (const tag of opts.tags ?? [m.version, "latest"]) (image.tags[tag] ??= {})[m.arch] = ref;
+    await writePrivateCatalog(store, v, cat, opts.commitment);
+  });
   opts.onProgress?.({ phase: "catalog", done: 1, total: 1 });
   return ref;
 }
 
 /** Removes an image, a tag, or one architecture from the private catalog. The encrypted data stays on the ledger. */
 export async function unlistPrivateImage(store: ChainStore, v: Vault, name: string, tag?: string, arch?: string): Promise<boolean> {
+  return withLock(privateLock(v), () => unlistLocked(store, v, name, tag, arch));
+}
+
+async function unlistLocked(store: ChainStore, v: Vault, name: string, tag?: string, arch?: string): Promise<boolean> {
   const cat = await readPrivateCatalog(store, v);
   const image = cat.images[name];
   if (!image) return false;

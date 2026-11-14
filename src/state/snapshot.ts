@@ -17,6 +17,7 @@ import type { Commitment } from "../store/sender.ts";
 import { sha256, toHex } from "../util/bytes.ts";
 import type { Change, ScanResult } from "./scan.ts";
 import { writeXattrs } from "../util/xattr.ts";
+import { withLock } from "../util/lock.ts";
 import { open, openEither, seal, sealWithKey, type Vault } from "./vault.ts";
 
 /** Raw bytes per pack of saved changes (smaller than image packs, so memory use stays modest). */
@@ -31,6 +32,9 @@ export interface StoredRef { sig: string; sha256: string; size: number; codec: C
 
 export interface SnapshotSummary { seq: number; time: number; ref: StoredRef; files: number; bytes: number; note?: string }
 
+/** How many earlier saves a snapshot lists itself. Older ones are reached through the oldest of these (see snapshotBySeq). */
+export const HISTORY_LISTED = 200;
+
 export interface Snapshot {
   chainboot: 1;
   kind: "snapshot";
@@ -44,6 +48,8 @@ export interface Snapshot {
   fingerprint: string;
   /** Earlier snapshots of this machine, newest first (for "history" and going back). */
   history: SnapshotSummary[];
+  /** What the user wrote about this save. */
+  note?: string;
 }
 
 export interface Head { seq: number; time: number; ref: StoredRef }
@@ -54,6 +60,8 @@ export interface SaveOptions {
   journalDir?: string;
   commitment?: Commitment;
   note?: string;
+  /** Called after the data is stored and just before the machine's pointer is moved to the new save. Throw to stop (for example when another computer saved meanwhile). */
+  beforePointer?: () => Promise<void>;
   /** Called once the cost is known and before anything is sent. Return false to cancel. */
   approve?: (plan: SavePlan) => boolean | Promise<boolean>;
   onProgress?: (phase: string, done: number, total: number) => void;
@@ -96,7 +104,9 @@ export interface MachineIndex { machines: Record<string, { image: MachineInfo["i
 export async function readIndex(store: ChainStore, v: Vault): Promise<MachineIndex> {
   const p = await getPointer<object>(store, v, indexTag(v), "index");
   if (!p) return { machines: {} };
-  return await getDocByRef<MachineIndex>(store, v, "index", p.ref);
+  const index = await getDocByRef<MachineIndex>(store, v, "index", p.ref);
+  if (!index || typeof index.machines !== "object" || index.machines === null || Array.isArray(index.machines)) throw new Error("the list of saved machines is malformed");
+  return index;
 }
 
 export async function writeIndex(store: ChainStore, v: Vault, index: MachineIndex, commitment?: Commitment): Promise<void> {
@@ -104,11 +114,13 @@ export async function writeIndex(store: ChainStore, v: Vault, index: MachineInde
 }
 
 export async function forgetMachine(store: ChainStore, v: Vault, name: string): Promise<boolean> {
-  const index = await readIndex(store, v);
-  if (!index.machines[name]) return false;
-  delete index.machines[name];
-  await writeIndex(store, v, index);
-  return true;
+  return withLock(`index-${v.signer.address}`, async () => {
+    const index = await readIndex(store, v);
+    if (!index.machines[name]) return false;
+    delete index.machines[name];
+    await writeIndex(store, v, index);
+    return true;
+  });
 }
 
 // ---- reading
@@ -121,8 +133,81 @@ export async function readHead(store: ChainStore, v: Vault, machine: string): Pr
 
 export async function readSnapshot(store: ChainStore, v: Vault, ref: StoredRef, cacheDir?: string): Promise<Snapshot> {
   const s = await getDocByRef<Snapshot>(store, v, "snapshot", ref, cacheDir);
-  if (s?.chainboot !== 1 || s.kind !== "snapshot" || !Array.isArray(s.tree) || !Array.isArray(s.packs) || !Array.isArray(s.deleted)) throw new Error("the saved snapshot is malformed");
+  checkSnapshot(s);
   return s;
+}
+
+const isCount = (x: unknown, max = Number.MAX_SAFE_INTEGER): x is number => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= max;
+const isHash = (x: unknown): x is string => typeof x === "string" && /^[0-9a-f]{64}$/.test(x);
+const safePath = (p: unknown): p is string => typeof p === "string" && p !== "" && !p.startsWith("/") && !p.includes("\0") && !p.split("/").some((part) => part === "" || part === "." || part === "..");
+const isRef = (r: unknown): r is StoredRef => { const x = r as StoredRef | null; return !!x && typeof x.sig === "string" && isHash(x.sha256) && isCount(x.size) && isCount(x.rawSize) && ["xz", "zstd", "raw"].includes(x.codec); };
+
+/** Checks the description of the image a saved or shared machine was made from. It is used to fetch that image, and its digest names a directory. */
+export function checkImageRef(image: unknown): asserts image is MachineInfo["image"] {
+  const i = image as MachineInfo["image"] | null;
+  const name = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+  if (!i || typeof i !== "object" || typeof i.publisher !== "string" || i.publisher.length > 64 || !name.test(String(i.name)) || !name.test(String(i.tag)) || !name.test(String(i.arch)) || !isHash(i.digest) || !isRef(i.manifest)
+    || (i.private !== undefined && typeof i.private !== "boolean") || (i.manifest.key !== undefined && (typeof i.manifest.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(i.manifest.key)))) throw new Error("the description of the machine's image is malformed");
+}
+
+/**
+ * Checks everything a snapshot promises before any of it is used: it may have been written by
+ * somebody else (a shared machine), and it is applied to a machine's files with full rights.
+ */
+export function checkSnapshot(s: unknown): asserts s is Snapshot {
+  const fail = (why: string): never => { throw new Error(`the saved snapshot is malformed: ${why}`); };
+  const o = s as Snapshot | null;
+  if (!o || o.chainboot !== 1 || o.kind !== "snapshot" || !Array.isArray(o.tree) || !Array.isArray(o.packs) || !Array.isArray(o.deleted) || !Array.isArray(o.history)) fail("not a snapshot");
+  if (typeof o!.machine !== "string" || !isCount(o!.seq) || !isCount(o!.time) || typeof o!.fingerprint !== "string") fail("missing fields");
+  try { checkImageRef(o!.image); } catch (e) { fail((e as Error).message); }
+  for (const p of o!.packs) {
+    if (!p || typeof p.sig !== "string" || !isHash(p.sha256) || !isHash(p.rawSha256) || !isCount(p.size) || !isCount(p.rawSize) || !["xz", "zstd", "raw"].includes(p.codec) || (p.enc !== 0 && p.enc !== 1) || (p.key !== undefined && (typeof p.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(p.key)))) fail("malformed pack entry");
+  }
+  for (const p of o!.deleted) if (!safePath(p)) fail(`unsafe path ${JSON.stringify(p)}`);
+  for (const h of o!.history) if (!h || !isCount(h.seq) || !isCount(h.time) || !isRef(h.ref)) fail("malformed history");
+  const kinds = new Map<string, string>();
+  for (const n of o!.tree as unknown[][]) {
+    if (!Array.isArray(n) || !safePath(n[0]) || typeof n[1] !== "string") fail("malformed entry");
+    const path = n[0] as string, type = n[1] as string;
+    // every path once: a second entry for it could swap what the first one made for something else
+    if (kinds.has(path)) fail(`${path} is there twice`);
+    const attrs = () => { if (!isCount(n[2], 0o7777) || !isCount(n[3], 0xffff_ffff) || !isCount(n[4], 0xffff_ffff) || !isCount(n[5])) fail(`bad attributes for ${path}`); };
+    const xattrs = (x: unknown) => { if (x !== undefined && (!x || typeof x !== "object" || Array.isArray(x) || Object.values(x as object).some((v) => typeof v !== "string"))) fail(`bad extended attributes for ${path}`); };
+    switch (type) {
+      case "f": {
+        attrs();
+        if (n.length < 10 || n.length > 11 || !isCount(n[6]) || !isHash(n[7]) || !Number.isInteger(n[8]) || !isCount(n[9])) fail(`bad file entry ${path}`);
+        const size = n[6] as number, pack = n[8] as number;
+        if (size > 0 && (pack < 0 || pack >= o!.packs.length || (n[9] as number) + size > o!.packs[pack]!.rawSize)) fail(`file ${path} points outside its pack`);
+        xattrs(n[10]);
+        break;
+      }
+      case "d": attrs(); if (n.length > 7) fail(`bad directory entry ${path}`); xattrs(n[6]); break;
+      case "l": attrs(); if (n.length !== 7 || typeof n[6] !== "string" || !n[6] || n[6].includes("\0")) fail(`bad symlink ${path}`); break;
+      case "h": if (n.length !== 3 || !safePath(n[2])) fail(`bad hard link ${path}`); break;
+      case "c": case "b": attrs(); if (n.length !== 8 || !isCount(n[6]) || !isCount(n[7])) fail(`bad device entry ${path}`); break;
+      case "p": attrs(); if (n.length !== 6) fail(`bad fifo ${path}`); break;
+      default: fail(`unknown entry type ${type} for ${path}`);
+    }
+    kinds.set(path, type);
+  }
+}
+
+/**
+ * The snapshot with number `seq` of a machine. The newest snapshot lists the 200 before it;
+ * an older one is reached through the oldest of those, which lists the 200 before itself.
+ */
+export async function snapshotBySeq(store: ChainStore, v: Vault, head: Head, seq: number, cacheDir?: string): Promise<{ snapshot: Snapshot; ref: StoredRef } | null> {
+  let ref = head.ref, snapshot = await readSnapshot(store, v, ref, cacheDir);
+  for (let hops = 0; hops < 10_000; hops++) {
+    if (snapshot.seq === seq) return { snapshot, ref };
+    const listed = snapshot.history.find((h) => h.seq === seq);
+    const oldest = snapshot.history[snapshot.history.length - 1];
+    const next = listed ?? oldest;
+    if (!next || next.seq >= snapshot.seq || next.seq < seq) return null;
+    ref = next.ref; snapshot = await readSnapshot(store, v, ref, cacheDir);
+  }
+  return null;
 }
 
 // ---- saving
@@ -169,7 +254,7 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
     let offset = 0;
     for (const f of g) {
       const data = fs.readFileSync(f.src!);
-      if (toHex(sha256(data)) !== f.sha256) throw new ChangedDuringSave(f.path);
+      if (data.length !== f.size || toHex(sha256(data)) !== f.sha256) throw new ChangedDuringSave(f.path);
       members.push({ sha256: f.sha256!, offset }); parts.push(data); offset += data.length;
     }
     const raw = Buffer.concat(parts);
@@ -213,16 +298,22 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
   });
   const seq = (prev?.head.seq ?? 0) + 1, time = Math.floor(Date.now() / 1000);
   const history: SnapshotSummary[] = prev
-    ? [{ seq: prev.head.seq, time: prev.head.time, ref: prev.head.ref, files: prev.snapshot.tree.length, bytes: prev.snapshot.tree.reduce((n, t) => n + (t[1] === "f" ? t[6] : 0), 0) }, ...prev.snapshot.history].slice(0, 200)
+    ? [{ seq: prev.head.seq, time: prev.head.time, ref: prev.head.ref, files: prev.snapshot.tree.length, bytes: prev.snapshot.tree.reduce((n, t) => n + (t[1] === "f" ? t[6] : 0), 0), ...(prev.snapshot.note && { note: prev.snapshot.note }) }, ...prev.snapshot.history].slice(0, HISTORY_LISTED)
     : [];
-  const snapshot: Snapshot = { chainboot: 1, kind: "snapshot", machine: machine.name, seq, time, image: machine.image, packs, tree, deleted: scan.deleted, fingerprint: scan.fingerprint, history };
-  if (opts.note && history.length >= 0) (snapshot as Snapshot & { note?: string }).note = opts.note;
+  const snapshot: Snapshot = { chainboot: 1, kind: "snapshot", machine: machine.name, seq, time, image: machine.image, packs, tree, deleted: scan.deleted, fingerprint: scan.fingerprint, history, ...(opts.note && { note: opts.note.slice(0, 500) }) };
   opts.onProgress?.("finishing", 0, 1);
+  await opts.beforePointer?.();
   const ref = await putDoc(store, v, stateTag(v, machine.name), "snapshot", snapshot, { seq, time }, { journalDir: opts.journalDir, commitment: opts.commitment });
-  if (!prev) {
+  // The machine must be in the list of saved machines, or no other computer finds it. This is
+  // looked at on every save, not only the first: a first save that was cut short after the
+  // snapshot, or two machines saved for the first time at once, would otherwise never be listed.
+  await withLock(`index-${v.signer.address}`, async () => {
     const index = await readIndex(store, v);
-    if (!index.machines[machine.name]) { index.machines[machine.name] = { image: machine.image, created: machine.created, ...(machine.boot && { boot: true }), ...(machine.lazy && { lazy: true }) }; await writeIndex(store, v, index, opts.commitment); }
-  }
+    const entry = index.machines[machine.name];
+    if (entry && !!entry.boot === !!machine.boot && !!entry.lazy === !!machine.lazy) return;
+    index.machines[machine.name] = { image: entry?.image ?? machine.image, created: entry?.created ?? machine.created, ...(machine.boot && { boot: true }), ...(machine.lazy && { lazy: true }) };
+    await writeIndex(store, v, index, opts.commitment);
+  });
   opts.onProgress?.("finishing", 1, 1);
   return { head: { seq, time, ref }, plan };
 }
@@ -258,7 +349,9 @@ export async function loadPacks(store: ChainStore, v: Vault, snap: Snapshot, cac
  * Applies a snapshot on top of a freshly started machine (its merged view shows the plain image).
  * Works through ordinary file operations, so the result is exactly what the user had.
  */
-export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileNode) => Buffer): { unmappedOwners: string[] } {
+export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileNode) => Buffer): { unmappedOwners: string[]; lostAttributes: string[] } {
+  checkSnapshot(snap);
+  const lostAttrs = new Set<string>();
   // without administrator rights a machine has user IDs 0..65536; a file of an owner beyond that stays root's
   const unmapped = new Set<string>();
   const own = (p: string, uid: number, gid: number) => {
@@ -295,10 +388,10 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
       case "f": {
         if (st) clear(p);
         const data = n[6] === 0 ? Buffer.alloc(0) : content(n);
-        if (data.length !== n[6]) throw new Error(`content of ${n[0]} has the wrong size`);
+        if (data.length !== n[6] || (n[6] > 0 && toHex(sha256(data)) !== n[7])) throw new Error(`the saved content of ${n[0]} is damaged (it does not match its hash)`);
         fs.writeFileSync(p, data, { mode: 0o600 });
         own(p, n[3], n[4]); fs.chmodSync(p, n[2]);
-        if (n[10]) writeXattrs(p, n[10]); // after chown, which clears file capabilities
+        if (n[10] && writeXattrs(p, n[10]).length) lostAttrs.add(n[0]); // after chown, which clears file capabilities
         fs.utimesSync(p, n[5], n[5]);
         break;
       }
@@ -315,14 +408,22 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
       }
     }
   }
-  for (const n of links) { if (n[1] !== "h") continue; const p = at(n[0]); clear(p); fs.linkSync(at(n[2]), p); }
+  for (const n of links) {
+    if (n[1] !== "h") continue;
+    const p = at(n[0]), target = at(n[2]);
+    // a hard link is made to a regular file only: through a symlink it would reach a file outside the machine
+    if (!fs.lstatSync(target, { throwIfNoEntry: false })?.isFile()) throw new Error(`cannot restore ${n[0]}: ${n[2]} is not a regular file`);
+    clear(p); fs.linkSync(target, p);
+  }
   for (let i = dirs.length - 1; i >= 0; i--) {
     const n = dirs[i]!;
     if (n[1] !== "d") continue;
     const p = at(n[0]);
+    // still the directory that was made above: chmod and utimes follow a symlink, which would lead out of the machine
+    if (!fs.lstatSync(p, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`cannot restore ${n[0]}: it is not a directory any more`);
     own(p, n[3], n[4]); fs.chmodSync(p, n[2]);
-    if (n[6]) writeXattrs(p, n[6]);
+    if (n[6] && writeXattrs(p, n[6]).length) lostAttrs.add(n[0]);
     fs.utimesSync(p, n[5], n[5]);
   }
-  return { unmappedOwners: [...unmapped] };
+  return { unmappedOwners: [...unmapped], lostAttributes: [...lostAttrs] };
 }

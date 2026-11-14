@@ -13,7 +13,7 @@ export const SHARE_HELP = `Usage:
   chainboot share me/<image>[:tag] --with <share address> [--arch <arch>] [--note <text>]
 
   chainboot shared                              What others shared with you
-  chainboot shared accept <number> [--name <name>]
+  chainboot shared accept <number or id> [--name <name>] [--yes]
 
 Gives another wallet one of your private images, or the newest save of one of your machines.
 Nothing is uploaded again: the receiver gets the keys of exactly that image or that save, in
@@ -87,7 +87,8 @@ export async function cmdShared(a: Args): Promise<void> {
   const v = login();
   const store = await openStore(loadConfig(), note);
   const cacheDir = path.join(paths.cache(), "objects");
-  const list = await listShares(store, v, { cacheDir });
+  // oldest first: a share that arrives later gets a higher number and does not change the others'
+  const list = (await listShares(store, v, { cacheDir })).reverse();
   const [verb, which] = a._;
   if (!verb) {
     if (!list.length) {
@@ -95,17 +96,20 @@ export async function cmdShared(a: Args): Promise<void> {
       info(dim(`Give people your share address, and they can: ${myShareAddress(v)}`));
       return;
     }
-    out(table(list.map((r, i) => [bold(String(i + 1)), describe(r), short(r.from), when(r.arrived ?? r.record.time), r.record.note ?? dim("-")]), ["#", "what", "from (share address)", "arrived", "note"]));
-    info(dim('Keep one with: chainboot shared accept <number>. Check the "from" address with the sender if you did not expect it.'));
+    out(table(list.map((r, i) => [bold(String(i + 1)), r.id.slice(0, 8), describe(r), short(r.from), when(r.record.time), r.record.note || dim("-")]), ["#", "id", "what", "from (share address)", "sent", "note"]));
+    info(dim('Keep one with: chainboot shared accept <number or id>. Check the "from" address with the sender if you did not expect it.'));
     return;
   }
   if (verb !== "accept") throw new UsageError('use: chainboot shared, or chainboot shared accept <number> [--name <name>]');
-  const r = /^\d+$/.test(which ?? "") ? list[Number(which) - 1] : list.find((x) => x.id === which);
-  if (!r) throw new Error(which ? `there is no share number ${which}. See the list with: chainboot shared` : "say which one: chainboot shared accept <number>");
+  const byId = which && which.length >= 6 ? list.filter((x) => x.id.startsWith(which)) : [];
+  if (byId.length > 1) throw new Error(`"${which}" is the start of several ids; give more of it`);
+  const r = byId[0] ?? (/^\d{1,4}$/.test(which ?? "") ? list[Number(which) - 1] : undefined);
+  if (!r) throw new Error(which ? `there is no share "${which}". See the list with: chainboot shared` : "say which one: chainboot shared accept <number or id>");
   const name = flag(a, "name") ?? r.record.name;
   if (!(await confirm(`Keep ${describe(r)} from ${r.from}${name !== r.record.name ? ` as "${name}"` : ""}?`, a))) { info("cancelled"); return; }
   if (r.record.what === "image") {
-    await acceptImage(store, v, r.record, name);
+    // (naming it yourself is how you say that it may be added to an image you already have under that name)
+    await acceptImage(store, v, r.record, name, { merge: flag(a, "name") !== undefined });
     ok(`${bold(name)} is now one of your private images`);
     info(dim(`Run it with: chainboot run ${PRIVATE_PREFIX}/${name}`));
   } else {

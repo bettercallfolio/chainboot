@@ -4,21 +4,21 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import readline from "node:readline/promises";
 import {
-  bootKind, checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
+  MACHINE_CLOSING, bootKind, checkMachineName, dropUnpacked, enterMachine, imageReady, initPid, listMachines, machineDir, missingTools, readMachine, removeImage, removeMachine,
   startMachine, stopMachine, type EngineHome,
 } from "../engine/linux.ts";
-import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInProgress, saveInner } from "../engine/state-ops.ts";
+import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, bringBack, checkInner, dropKept, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInProgress, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { DISK_FILE, DISK_NEEDS_PACKAGES, DISK_NEEDS_PASSWORD, DISK_NO_SPACE, DISK_SCRIPT, DISK_WORK } from "../engine/disk.ts";
 import { lazyServe } from "../engine/lazy.ts";
 import { engineMode, inUserNs, runInUserNs, scopeCommand, support } from "../engine/rootless.ts";
-import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
+import { homeDir, hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
 import { loadVault } from "../state/vault.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { fmtBytes } from "../util/bytes.ts";
 import { UsageError, flag, has, type Args } from "./args.ts";
-import { confirm, pull, pullList, resolveImage } from "./cmd-image.ts";
+import { PRIVATE_PREFIX, confirm, pull, pullList, resolveImage } from "./cmd-image.ts";
 import { ProgressLine, bold, dim, green, info, ok, out, table, yellow } from "./term.ts";
 
 export function engineHome(home = homeDir()): EngineHome {
@@ -45,6 +45,10 @@ export function asRoot(args: string[]): number {
     const cmd = [...((boots && scopeCommand(false)) || []), ...self];
     return spawnSync(cmd[0]!, cmd.slice(1), { stdio: "inherit" }).status ?? 1;
   }
+  // The directories that commands of the user and the engine both write to are made here, as
+  // the user: made by the engine under sudo they would belong to root, and the next command
+  // run without it (a publish, a pull) could not write there.
+  for (const d of [paths.cache(), path.join(paths.cache(), "objects"), paths.journals(), paths.images(), paths.machines()]) { try { fs.mkdirSync(d, { recursive: true }); } catch { /* reported by whoever needs it */ } }
   if (engineMode(home) === "rootless") {
     const s = support(home);
     if (!s.ready || !s.ids) throw new Error(`this computer no longer allows running machines without administrator rights. See what is missing with: chainboot engine`);
@@ -58,7 +62,12 @@ Log in on this computer in the usual way (or let an administrator run: loginctl 
       scope = cmd;
     }
     // a running machine's namespaces belong to the user namespace it was started in: go there
-    return runInUserNs(home, s.ids, self, running, "inherit", scope).status;
+    let status = runInUserNs(home, s.ids, self, running, "inherit", scope).status;
+    // Another command started the machine while this one was on its way (two terminals at
+    // once): the engine found itself in a user namespace that the machine is not in. Again,
+    // this time into the machine's.
+    if (status === WRONG_USER_NS && dir) status = runInUserNs(home, s.ids, self, initPid(dir), "inherit", scope).status;
+    return status;
   }
   if (spawnSync("sh", ["-c", "command -v sudo"], { stdio: "ignore" }).status !== 0) {
     throw new Error("this step needs administrator rights, but `sudo` is not installed. Run chainboot as root, or see `chainboot engine` for running without administrator rights.");
@@ -66,10 +75,18 @@ Log in on this computer in the usual way (or let an administrator run: loginctl 
   if (spawnSync("sudo", ["-n", "true"], { stdio: "ignore" }).status !== 0) {
     info(dim("Machines are mounted by the system, which needs administrator rights. sudo may ask for your password."));
   }
-  const r = spawnSync("sudo", ["--", ...((boots && scopeCommand(false)) || []), ...self], { stdio: "inherit" });
+  // sudo starts programs with a clean environment: the settings that chainboot takes from it are named, so that they arrive
+  const passed = PASSED_ENV.filter((k) => process.env[k] !== undefined);
+  const r = spawnSync("sudo", [...(passed.length ? [`--preserve-env=${passed.join(",")}`] : []), "--", ...((boots && scopeCommand(false)) || []), ...self], { stdio: "inherit" });
   if (r.error) throw new Error(`could not run sudo: ${r.error.message}`);
   return r.status ?? 1;
 }
+
+/** Settings chainboot reads from the environment, which must reach the engine too. */
+export const PASSED_ENV = ["CHAINBOOT_RPC", "CHAINBOOT_OFFLINE", "CHAINBOOT_AUTOSAVE_MINUTES", "CHAINBOOT_CARRIER", "CHAINBOOT_DEBUG"];
+
+/** Exit status of an engine that runs in another user namespace than the machine it was asked about. */
+const WRONG_USER_NS = 198;
 
 /** Engine operations whose second argument is a machine name. */
 const MACHINE_OPS = new Set(["enter", "save", "restore", "export", "autosave", "start", "stop", "rm", "disk"]);
@@ -150,7 +167,14 @@ export async function cmdRun(a: Args): Promise<void> {
     ok(`created machine ${bold(name)} from ${found.name}:${found.tag}${machine.boot ? " (boots its own system)" : ""}${machine.lazy ? " (lazy: files are fetched when they are first read)" : ""}`);
     if (has(a, "no-autosave")) asRoot(["autosave", name, "off"]);
   }
-  else if (has(a, "boot") && !machine.boot) info(dim(`${name} already exists and does not boot. Change that with: chainboot boot ${name} on`));
+  else {
+    if (has(a, "boot") && !machine.boot) info(dim(`${name} already exists and does not boot. Change that with: chainboot boot ${name} on`));
+    // a publisher or a tag was named, and the machine of this name was made from something else: say which machine opens
+    const named = text.includes("/") || text.includes(":");
+    const same = wanted.name === machine.image.name && (!text.includes(":") || wanted.tag === machine.image.tag)
+      && (!wanted.publisher || (wanted.publisher === PRIVATE_PREFIX ? !!machine.image.private : !machine.image.private && (() => { try { return resolveSource(loadConfig(), wanted.publisher).kind === "list" || resolvePublisher(loadConfig(), wanted.publisher) === machine!.image.publisher; } catch { return false; } })()));
+    if (named && !same) info(`${yellow("!")} Opening your machine ${bold(name)}, which was made from ${machine.image.private ? "your private image " : ""}${machine.image.name}:${machine.image.tag}. For a new machine from ${text}, give it another name: --name <name>`);
+  }
   process.exitCode = asRoot(["enter", name, "--", ...command]);
 }
 
@@ -353,6 +377,13 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   if (term) process.env.TERM = term;
   const home = engineHome(homePath);
   process.env.CHAINBOOT_HOME = homePath;
+  // Without administrator rights, a running machine can only be reached from the user namespace
+  // it was started in. This engine may have been started in a new one a moment before another
+  // command started the machine: say so with a status of its own, and the caller comes back into the right one.
+  if (inUserNs() && MACHINE_OPS.has(op)) {
+    const running = initPid(machineDir(home, name));
+    try { if (running && fs.readlinkSync(`/proc/${running}/ns/user`) !== fs.readlinkSync("/proc/self/ns/user")) process.exit(WRONG_USER_NS); } catch { /* it is gone, or cannot be looked at: carry on */ }
+  }
   const line = new ProgressLine();
   const say = (t: string) => info(t);
   const progress = (phase: string, done: number, total: number) => line.update(done, total, phase === "uploading" || phase === "downloading" ? "bytes" : "count", phase[0]!.toUpperCase() + phase.slice(1));
@@ -378,8 +409,10 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
       const code = insideMachine(home, homePath, name, ["check-inner", name], "ignore");
       if (code === CHECK_NEWER_CLEAN) {
         info("A newer save of this machine is on chain (made on another computer). Updating to it.");
+        // (what this copy holds is set aside first and comes back if the update does not go through)
         resetLayer(home, name);
-        if (insideMachine(home, homePath, name, ["restore-inner", name, "latest"]) !== 0) info(dim("The update did not complete; starting the machine as it is."));
+        if (insideMachine(home, homePath, name, ["restore-inner", name, "latest"]) === 0) dropKept(home, name);
+        else { bringBack(home, name); info(dim(`The update did not complete; this copy is as it was. Try again later with: chainboot restore ${name}`)); }
         pid = 0;
       } else if (code === CHECK_NEWER_CONFLICT) {
         info(`${yellow("!")} A newer save of this machine is on chain, but this copy also has changes that were not saved.`);
@@ -389,7 +422,14 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     pid = initPid(dir) ?? start();
     line.done(unpacked ? "image unpacked" : undefined);
     watchInBackground(home, homePath, name);
-    process.exitCode = enterMachine(home, name, pid, rest[0] === "--" ? rest.slice(1) : rest);
+    const command = rest[0] === "--" ? rest.slice(1) : rest;
+    let status = enterMachine(home, name, pid, command);
+    if (status === MACHINE_CLOSING) {
+      // the last session had just left and the machine was on its way out: wait for it to be gone, start it again
+      for (let i = 0; i < 60 && initPid(dir); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      status = enterMachine(home, name, start(), command);
+    }
+    process.exitCode = status;
     if (autosaveInBackground(home, homePath, name)) info(dim("Changes are saved to Solana in the background. Check with: chainboot status"));
     if (boots) info(dim(`${name} keeps running. Stop it with: chainboot stop ${name}`));
     return;
@@ -400,7 +440,17 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     return saveInner(home, name, { force: rest.includes("--force"), auto: rest.includes("--auto"), yes: rest.includes("--yes"), note: noteAt >= 0 ? rest[noteAt + 1] : undefined }, say, progress, ask)
       .then((status) => { line.done(); process.exitCode = status; });
   }
-  if (op === "restore") { resetLayer(home, name); process.exitCode = insideMachine(home, homePath, name, ["restore-inner", name, ...rest]); return; }
+  if (op === "restore") {
+    // the machine's own layer is set aside while the saved one is put in its place: it comes back if that fails
+    resetLayer(home, name);
+    let code = 1;
+    try { code = insideMachine(home, homePath, name, ["restore-inner", name, ...rest]); } finally {
+      if (code === 0) dropKept(home, name);
+      else if (bringBack(home, name)) info(dim(`The restore did not complete; "${name}" is as it was before.`));
+    }
+    process.exitCode = code;
+    return;
+  }
   if (op === "restore-inner") {
     return restoreInner(home, name, rest[0] && rest[0] !== "latest" ? Number(rest[0]) : null, say, progress).then((status) => { line.done(); process.exitCode = status; });
   }
@@ -409,37 +459,6 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     const r = exportInner(home, name, rest[0]!, progress);
     line.done();
     ok(`exported ${name}: ${r.entries} entries, ${fmtBytes(r.bytes)}`);
-    return;
-  }
-  if (op === "disk") {
-    const [target, sizeMb] = rest;
-    const dir = machineDir(home, name);
-    const pid = initPid(dir) ?? startMachine(home, name);
-    // what the script does appears as it happens (its error output is ours); its standard output is for us
-    const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--uts", "--ipc", "--pid", ...(bootKind(dir) ? ["--cgroup"] : []), ...(fs.existsSync(path.join(dir, "netns")) ? ["--net"] : []), "--",
-      "chroot", path.join(dir, "merged"), "/usr/bin/env", "-i", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", `CB_SIZE_MB=${Number(sizeMb) || 0}`, `CB_NAME=${name}`, "/bin/sh", "-c", DISK_SCRIPT],
-      { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 1 << 20 });
-    const out = (r.stdout ?? "").split("\n");
-    const missing = out.find((l) => l.startsWith("MISSING:"))?.slice(8).trim();
-    if (r.status === DISK_NEEDS_PACKAGES && missing) {
-      throw new Error(`the system in "${name}" needs a kernel, a boot loader and the tools that make a disk. Install them and try again:\n  chainboot run ${name} -- apt-get install -y ${missing}`);
-    }
-    if (r.status === DISK_NEEDS_PASSWORD) {
-      throw new Error(`nobody could log in on a computer started from this disk: no account in "${name}" has a password. Set one and try again:\n  chainboot run ${name} -- passwd`);
-    }
-    if (r.status === DISK_NO_SPACE) {
-      throw new Error(`there is not enough free space on this computer to build the disk (about ${out.find((l) => l.startsWith("NOSPACE:"))?.slice(8) ?? "?"} MiB are needed)`);
-    }
-    const done = /^DONE:(\d+):(.*)$/.exec(out.find((l) => l.startsWith("DONE:")) ?? "");
-    const reason = out.filter((l) => l.trim() && !/^(MISSING|NOSPACE|DONE):/.test(l)).pop();
-    if (r.status !== 0 || !done) throw new Error(`the disk could not be built${reason ? `: ${reason}` : ""}`);
-    // the finished disk lies in the machine's own layer: move it to where it was asked for
-    const built = path.join(dir, "upper", DISK_FILE);
-    if (fs.realpathSync(built) !== path.join(fs.realpathSync(path.join(dir, "upper")), DISK_FILE)) throw new Error("the disk file is not where it should be");
-    try { fs.renameSync(built, target!); } catch { fs.copyFileSync(built, target!); fs.rmSync(built); }
-    fs.rmSync(path.join(dir, "upper", DISK_WORK), { recursive: true, force: true });
-    ok(`wrote ${target}: ${fmtBytes(Number(done[1]) * 1048576)}, kernel ${done[2]}, boots with UEFI firmware`);
-    info(dim("Try it: qemu-system-x86_64 -m 2G -bios /usr/share/ovmf/OVMF.fd -drive file=" + path.basename(target!) + ",format=raw,if=virtio -nic user"));
     return;
   }
   if (op === "autosave") {
@@ -459,5 +478,44 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
   if (op === "rm") { removeMachine(home, name); ok(`deleted machine ${name}`); return; }
   if (op === "rmi") { removeImage(home, name); ok(`deleted image ${name.slice(0, 12)}`); return; }
   if (op === "drop-unpacked") { dropUnpacked(home); return; }
+  if (op === "disk") {
+    const [target, sizeMb] = rest;
+    const dir = machineDir(home, name);
+    const wasRunning = initPid(dir) !== null;
+    const pid = initPid(dir) ?? startMachine(home, name);
+    // a machine that boots stays up once started: one that was started only to build this disk is stopped again
+    const tidy = () => { if (!wasRunning && readMachine(home, name)?.boot) { stopMachine(home, name); info(dim(`${name} was started to build the disk and is stopped again.`)); } };
+    try { buildDisk(name, dir, pid, target!, sizeMb); } finally { tidy(); }
+    return;
+  }
   throw new Error(`unknown engine operation "${op}"`);
 }
+
+function buildDisk(name: string, dir: string, pid: number, target: string, sizeMb: string | undefined): void {
+  // what the script does appears as it happens (its error output is ours); its standard output is for us
+  const r = spawnSync("flock", ["-s", path.join(dir, "lock"), "nsenter", "--target", String(pid), "--mount", "--uts", "--ipc", "--pid", ...(bootKind(dir) ? ["--cgroup"] : []), ...(fs.existsSync(path.join(dir, "netns")) ? ["--net"] : []), "--",
+    "chroot", path.join(dir, "merged"), "/usr/bin/env", "-i", "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", `CB_SIZE_MB=${Number(sizeMb) || 0}`, `CB_NAME=${name}`, "/bin/sh", "-c", DISK_SCRIPT],
+    { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 1 << 20 });
+  const out = (r.stdout ?? "").split("\n");
+  const missing = out.find((l) => l.startsWith("MISSING:"))?.slice(8).trim();
+  if (r.status === DISK_NEEDS_PACKAGES && missing) {
+    throw new Error(`the system in "${name}" needs a kernel, a boot loader and the tools that make a disk. Install them and try again:\n  chainboot run ${name} -- apt-get install -y ${missing}`);
+  }
+  if (r.status === DISK_NEEDS_PASSWORD) {
+    throw new Error(`nobody could log in on a computer started from this disk: no account in "${name}" has a password. Set one and try again:\n  chainboot run ${name} -- passwd`);
+  }
+  if (r.status === DISK_NO_SPACE) {
+    throw new Error(`there is not enough free space on this computer to build the disk (about ${out.find((l) => l.startsWith("NOSPACE:"))?.slice(8) ?? "?"} MiB are needed)`);
+  }
+  const done = /^DONE:(\d+):(.*)$/.exec(out.find((l) => l.startsWith("DONE:")) ?? "");
+  const reason = out.filter((l) => l.trim() && !/^(MISSING|NOSPACE|DONE):/.test(l)).pop();
+  if (r.status !== 0 || !done) throw new Error(`the disk could not be built${reason ? `: ${reason}` : ""}`);
+  // the finished disk lies in the machine's own layer: move it to where it was asked for
+  const built = path.join(dir, "upper", DISK_FILE);
+  if (fs.realpathSync(built) !== path.join(fs.realpathSync(path.join(dir, "upper")), DISK_FILE)) throw new Error("the disk file is not where it should be");
+  try { fs.renameSync(built, target); } catch { fs.copyFileSync(built, target); fs.rmSync(built); }
+  fs.rmSync(path.join(dir, "upper", DISK_WORK), { recursive: true, force: true });
+  ok(`wrote ${target}: ${fmtBytes(Number(done[1]) * 1048576)}, kernel ${done[2]}, boots with UEFI firmware`);
+  info(dim("Try it: qemu-system-x86_64 -m 2G -bios /usr/share/ovmf/OVMF.fd -drive file=" + path.basename(target) + ",format=raw,if=virtio -nic user"));
+}
+

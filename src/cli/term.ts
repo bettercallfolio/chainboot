@@ -12,7 +12,11 @@ function clearLive(): void {
 }
 
 /** A normal line on stdout (results the user may pipe elsewhere). */
-export function out(text = ""): void { clearLive(); process.stdout.write(text + "\n"); }
+export function out(text = ""): void {
+  clearLive();
+  // colours are decided by the terminal that shows the messages; what goes to a file or a pipe instead is plain text
+  process.stdout.write((process.stdout.isTTY ? text : text.replace(/\x1b\[[0-9;]*m/g, "")) + "\n");
+}
 /** A status line on stderr. */
 export function info(text = ""): void { clearLive(); process.stderr.write(text + "\n"); }
 export function ok(text: string): void { info(`${green("✔")} ${text}`); }

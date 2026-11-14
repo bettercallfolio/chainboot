@@ -99,7 +99,10 @@ export async function cmdRpc(a: Args): Promise<void> {
       info(`${green("✔")} ${r.label} (${networkLabel(c)})${fresh.includes(u) ? "" : dim(" already saved")}`);
     });
     if (good.length) { c.rpcs[c.cluster] = [...list, ...good]; saveConfig(c); }
-    ok(`${c.rpcs[c.cluster]?.length ?? 0} endpoint(s) saved for ${networkLabel(c)}`);
+    const kept = urls.filter((u) => (c.rpcs[c.cluster] ?? []).includes(u)).length;
+    (kept === urls.length ? ok : info)(`${c.rpcs[c.cluster]?.length ?? 0} endpoint(s) saved for ${networkLabel(c)}`);
+    // an endpoint that was turned away is a failure of the command, also when others were added
+    if (kept < urls.length) process.exitCode = 1;
     return;
   }
   if (sub === "list") {
@@ -112,6 +115,8 @@ export async function cmdRpc(a: Args): Promise<void> {
   if (sub === "remove") {
     const what = a._[1];
     if (!what) throw new UsageError("say which one: chainboot rpc remove <number|url>");
+    // (the numbers of "rpc list" are those of CHAINBOOT_RPC while it is set, not those of the saved endpoints)
+    if (process.env.CHAINBOOT_RPC && /^\d+$/.test(what)) throw new Error("the endpoints in use come from CHAINBOOT_RPC, so the numbers of \"rpc list\" are not those of the saved endpoints. Unset it to see and remove saved ones, or name the saved endpoint by its URL.");
     const idx = /^\d+$/.test(what) ? Number(what) - 1 : list.indexOf(what);
     if (idx < 0 || idx >= list.length) throw new Error(`no such endpoint: ${what}`);
     const [gone] = list.splice(idx, 1);

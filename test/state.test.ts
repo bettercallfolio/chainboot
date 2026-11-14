@@ -6,16 +6,17 @@ import os from "node:os";
 import path from "node:path";
 import { buildImage } from "../src/image/build.ts";
 import { extractImage } from "../src/image/extract.ts";
-import { parseManifest, serializeManifest } from "../src/image/manifest.ts";
+import { parseManifest, serializeManifest, validateManifest } from "../src/image/manifest.ts";
 import { readTar, writeTar, type Entry } from "../src/image/tar.ts";
 import { decompress } from "../src/codec/index.ts";
 import { Keypair } from "../src/solana/keys.ts";
 import { RpcPool } from "../src/solana/rpc.ts";
 import { ChainStore } from "../src/store/store.ts";
 import { isUnsaved, scanMachine } from "../src/state/scan.ts";
-import { applySnapshot, loadPacks, readHead, readIndex, readSnapshot, saveSnapshot } from "../src/state/snapshot.ts";
+import { applySnapshot, checkSnapshot, loadPacks, readHead, readIndex, readSnapshot, saveSnapshot, type Snapshot } from "../src/state/snapshot.ts";
 import { LOGIN_MESSAGE, deriveVault, objectKey, open, openFrom, openWithKey, parseShareAddress, seal, sealTo, sealWithKey, shareAddress, shareKeys, vaultFromKeypair } from "../src/state/vault.ts";
-import { acceptImage, acceptMachine, listShares, myShareAddress, shareImage, shareMachine } from "../src/share/share.ts";
+import { acceptImage, acceptMachine, cleanShareRecord, listShares, myShareAddress, shareImage, shareMachine, type ShareRecord } from "../src/share/share.ts";
+import { withLock } from "../src/util/lock.ts";
 import { canReadXattrs, readXattrs, writeXattrs } from "../src/util/xattr.ts";
 import type { MachineInfo } from "../src/engine/linux.ts";
 import { FakeChain } from "./helpers/fakechain.ts";
@@ -388,4 +389,134 @@ test("sharing: a private image and a saved machine reach the wallet they were sh
   // alice's own machine is untouched, and her later saves do not reach bob
   assert.equal((await readHead(store, alice, "work"))!.seq, 1);
   assert.equal(await readHead(store, alice, "from-alice"), null);
+});
+
+test("restore: a save written by somebody else cannot reach outside the machine, and damaged content is not written", { skip: !posix && "needs a POSIX file system" }, () => {
+  const root = tmp(), merged = path.join(root, "merged"), outside = path.join(root, "outside");
+  fs.mkdirSync(merged); fs.mkdirSync(outside);
+  const victim = path.join(outside, "secret");
+  fs.writeFileSync(victim, "not yours", { mode: 0o600 });
+  const before = fs.statSync(victim);
+  const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
+  const good = Buffer.from("hello from a save\n");
+  const ref = { sig: "s", sha256: "0".repeat(64), size: 1, codec: "raw" as const, rawSize: 1 };
+  const snapshot = (tree: unknown[], deleted: string[] = []): Snapshot => ({
+    chainboot: 1, kind: "snapshot", machine: "m", seq: 1, time: T, fingerprint: "",
+    image: { publisher: Keypair.generate().address, name: "demo", tag: "latest", arch: "amd64", digest: "a".repeat(64), manifest: ref },
+    packs: [{ sig: "p", sha256: "1".repeat(64), size: good.length, codec: "raw", rawSha256: sha(good), rawSize: good.length, enc: 1 }],
+    tree: tree as Snapshot["tree"], deleted, history: [],
+  });
+  const apply = (tree: unknown[], deleted: string[] = [], content: Buffer = good) => applySnapshot(snapshot(tree, deleted), merged, () => content);
+  const untouched = () => { const st = fs.statSync(victim); assert.equal(st.mode, before.mode); assert.equal(st.mtimeMs, before.mtimeMs); assert.equal(fs.readFileSync(victim, "utf8"), "not yours"); };
+
+  // a well-formed save is applied as before
+  apply([["etc", "d", 0o755, uid, gid, T], ["etc/motd", "f", 0o644, uid, gid, T, good.length, sha(good), 0, 0], ["etc/link", "l", 0o777, uid, gid, T, "motd"], ["etc/hard", "h", "etc/motd"]]);
+  assert.equal(fs.readFileSync(path.join(merged, "etc/motd"), "utf8"), good.toString());
+  assert.equal(fs.statSync(path.join(merged, "etc/hard")).ino, fs.statSync(path.join(merged, "etc/motd")).ino);
+
+  // the same path twice: a directory that is then swapped for a symlink would get its mode and time set on the symlink's target
+  assert.throws(() => apply([["x", "d", 0o4777, uid, gid, T], ["x", "l", 0o777, uid, gid, T, victim]]), /is there twice/);
+  // a hard link through a symlink, a directory replaced by a hard link
+  assert.throws(() => apply([["s", "l", 0o777, uid, gid, T, victim], ["h", "h", "s"]]), /not a regular file/);
+  assert.throws(() => apply([["s2", "l", 0o777, uid, gid, T, victim], ["y", "d", 0o666, uid, gid, T], ["y", "h", "s2"]]), /is there twice/);
+  // paths that lead out, in entries and in deletions
+  assert.throws(() => apply([["../outside/new", "f", 0o644, uid, gid, T, good.length, sha(good), 0, 0]]), /malformed/);
+  assert.throws(() => apply([], ["../outside/secret"]), /unsafe path/);
+  assert.throws(() => apply([["a", "h", "/etc/passwd"]]), /bad hard link/);
+  // a parent that is a symlink leading out is not followed
+  fs.symlinkSync(outside, path.join(merged, "door"));
+  assert.throws(() => apply([["door/planted", "f", 0o644, uid, gid, T, good.length, sha(good), 0, 0]]), /is not a directory/);
+  // numbers that are not numbers, entries of no known kind, a file outside its pack
+  assert.throws(() => apply([["m", "d", "0777", uid, gid, T]]), /bad attributes/);
+  assert.throws(() => apply([["z", "q", 0o644, uid, gid, T]]), /unknown entry type/);
+  assert.throws(() => apply([["big", "f", 0o644, uid, gid, T, good.length + 1, sha(good), 0, 0]]), /points outside its pack/);
+  // content that does not match its hash is refused, not written
+  assert.throws(() => apply([["bad", "f", 0o644, uid, gid, T, good.length, sha(Buffer.from("something else"))  , 0, 0]]), /damaged/);
+  assert.ok(!fs.existsSync(path.join(merged, "bad")));
+  untouched();
+  assert.ok(!fs.existsSync(path.join(outside, "new")) && !fs.existsSync(path.join(outside, "planted")));
+  // and the checker alone says the same about a snapshot that is merely read
+  assert.throws(() => checkSnapshot({ ...snapshot([]), image: { ...snapshot([]).image, digest: "../../somewhere" } }), /image is malformed/);
+  checkSnapshot(snapshot([["ok", "d", 0o755, 0, 0, T]]));
+});
+
+test("archives: a cut-off archive, a sparse entry and a date before 1970 do not become a broken image", { skip: !posix && "needs a POSIX file system" }, async () => {
+  const { spawnSync } = await import("node:child_process");
+  const tar = Buffer.concat(writeTar([d("etc"), f("etc/a", "one"), f("etc/b", "two")]));
+  assert.equal(readTar(tar).length, 3);
+  // cut after the second entry's header and data, at a block boundary: nothing is malformed, it just ends
+  const cut = tar.subarray(0, 512 * 3);
+  assert.throws(() => readTar(cut), /cut off/);
+  // cut inside an entry
+  assert.throws(() => readTar(tar.subarray(0, 512 * 4)), /truncated/);
+
+  const dir = tmp();
+  if (spawnSync("tar", ["--version"], { encoding: "utf8" }).stdout?.includes("GNU tar")) {
+    // a file with a hole, stored the pax way: read as an ordinary entry it would be a wrong file under a wrong name
+    fs.writeFileSync(path.join(dir, "sparse.db"), "");
+    fs.truncateSync(path.join(dir, "sparse.db"), 1 << 20);
+    fs.appendFileSync(path.join(dir, "sparse.db"), "tail");
+    assert.equal(spawnSync("tar", ["--format=posix", "--sparse", "-C", dir, "-cf", path.join(dir, "s.tar"), "sparse.db"]).status, 0);
+    assert.throws(() => readTar(fs.readFileSync(path.join(dir, "s.tar"))), /sparse file/);
+    // a date before 1970 becomes 1970, and the image built from it is one every reader accepts
+    fs.writeFileSync(path.join(dir, "old"), "from long ago");
+    assert.equal(spawnSync("tar", ["--format=gnu", "--mtime=1960-01-01", "-C", dir, "-cf", path.join(dir, "o.tar"), "old"]).status, 0);
+    const old = readTar(fs.readFileSync(path.join(dir, "o.tar")));
+    assert.equal(old[0]!.mtime, 0);
+    validateManifest(buildImage(old, { name: "old", version: "1", arch: "amd64" }).manifest);
+  }
+
+  // the start command is part of what an image is: the same files with another command are another image
+  const files = [d("etc"), f("etc/os-release", "NAME=demo\n")];
+  const plain = buildImage(files, { name: "demo", version: "1", arch: "amd64" }).manifest;
+  const withCmd = buildImage(files, { name: "demo", version: "1", arch: "amd64", config: { cmd: ["/bin/sh", "-c", "echo hi"] } }).manifest;
+  assert.notEqual(plain.digest, withCmd.digest);
+  assert.equal(buildImage(files, { name: "demo", version: "1", arch: "amd64", config: {} }).manifest.digest, plain.digest, "an empty configuration changes nothing");
+  // so a manifest whose command was changed afterwards no longer matches its digest
+  assert.throws(() => validateManifest({ ...withCmd, config: { cmd: ["/bin/sh", "-c", "echo OWNED"] } }), /digest does not match/);
+  assert.throws(() => validateManifest({ ...plain, config: { cmd: ["/bin/sh", "-c", "echo OWNED"] } }), /digest does not match/);
+  assert.throws(() => validateManifest({ ...plain, config: { cmd: "rm -rf /" } }), /malformed start command/);
+});
+
+test("shares: a record is taken apart and put together again from fields that were checked", () => {
+  const wallet = Keypair.generate().address, publisher = Keypair.generate().address;
+  const key = crypto.randomBytes(32).toString("base64"), hash = (c: string) => c.repeat(64);
+  const ref = { sig: "sig", sha256: hash("a"), size: 10, codec: "xz", rawSize: 20, digest: hash("b"), version: "1.0", created: T, downloadSize: 100, unpackedSize: 200, private: true, publisher, key };
+  const image = (over: object = {}, refOver: object = {}): ShareRecord => ({ chainboot: 1, kind: "share", what: "image", name: "tools", time: T, wallet, image: { tag: "latest", arch: "amd64", ref: { ...ref, ...refOver } }, ...over } as ShareRecord);
+  const ok = cleanShareRecord(image({ note: "see you\r\u001b[2K\u001b[1Afrom: share_SOMEBODY-ELSE", extra: { anything: 1 } }, { more: "x".repeat(1000) }))!;
+  assert.equal(ok.note, "see you  [2K [1Afrom: share_SOMEBODY-ELSE", "control characters cannot rewrite what the receiver sees");
+  assert.ok(!("extra" in ok) && !("more" in ok.image!.ref), "fields chainboot does not know are not carried along");
+  for (const bad of [image({ name: "Tools\n" }), image({ name: "../x" }), image({ wallet: "nobody" }), image({ time: -1 }), image({}, { key: "short" }), image({}, { digest: "../../x" }), image({}, { publisher: "x" }),
+    { ...image(), image: { tag: "__proto__", arch: "amd64", ref } }, { ...image(), image: { tag: "latest", arch: "amd 64", ref } }, { ...image(), what: "something" }]) {
+    assert.equal(cleanShareRecord(bad as ShareRecord), null);
+  }
+  const machine = (over: object = {}, imageOver: object = {}): ShareRecord => ({
+    chainboot: 1, kind: "share", what: "machine", name: "web", time: T, wallet,
+    machine: { image: { publisher, name: "demo", tag: "latest", arch: "amd64", digest: hash("c"), manifest: { sig: "m", sha256: hash("d"), size: 5, codec: "xz", rawSize: 9 }, ...imageOver }, created: T, seq: 3, saved: T, snapshot: { sig: "s", sha256: hash("e"), size: 7, codec: "xz", rawSize: 30 }, signer: publisher, key, ...over },
+  } as ShareRecord);
+  const m = cleanShareRecord(machine({ padding: "x".repeat(100_000) }, { padding: "y".repeat(100_000) }))!;
+  assert.ok(JSON.stringify(m).length < 2000, "what is kept is small, whatever the sender added");
+  assert.equal(cleanShareRecord(machine({}, { digest: "../../../tmp/x" })), null, "the digest names a directory: it must be a hash");
+  assert.equal(cleanShareRecord(machine({ keys: { nothash: key } })), null);
+  assert.equal(cleanShareRecord(machine({ signer: "x" })), null);
+});
+
+test("locks: work that reads, changes and writes back runs one at a time, and a lock left behind holds nobody up", async () => {
+  const name = `test-${crypto.randomBytes(6).toString("hex")}`;
+  let inside = 0, most = 0;
+  const order: number[] = [];
+  await Promise.all([1, 2, 3, 4].map((n) => withLock(name, async () => {
+    inside++; most = Math.max(most, inside);
+    await new Promise((r) => setTimeout(r, 30));
+    order.push(n); inside--;
+  })));
+  assert.equal(most, 1);
+  assert.equal(order.length, 4);
+  // an error inside releases the lock
+  await assert.rejects(withLock(name, async () => { throw new Error("boom"); }), /boom/);
+  // a lock whose owner is gone is passed over
+  const dir = path.join(os.tmpdir(), `chainboot-lock-${name}`);
+  fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, "owner"), "999999999");
+  assert.equal(await withLock(name, async () => "went through"), "went through");
+  assert.ok(!fs.existsSync(dir));
 });

@@ -67,18 +67,19 @@ ${bold("Settings")}
 Run "chainboot <command> --help" for details.`;
 
 async function cmdEngineInfo(rest: string[]): Promise<void> {
-  const kind = engineKind();
   if (rest.includes("--help") || rest.includes("-h")) { out(ENGINE_HELP); return; }
+  const kind = engineKind();
   if (!kind) {
     if (process.platform !== "linux") { out("Machines need Linux; this computer has no engine for them yet."); return; }
-    const args = parseArgs(rest, ["yes"]);
+    const args = parseArgs(rest, ["yes"], ["yes"]);
     allow(args, ["yes"]);
     await cmdEngineLinux(args);
     return;
   }
   const names = { wsl: "a WSL 2 distribution named \"chainboot\"", docker: "a Docker container named \"chainboot\"", podman: "a Podman container named \"chainboot\"", lima: "a Lima virtual machine named \"chainboot\"" };
   if (rest[0] === "reset") {
-    const args = parseArgs(rest.slice(1), ["yes"]);
+    const args = parseArgs(rest.slice(1), ["yes"], ["yes"]);
+    allow(args, ["yes"]);
     const { confirm } = await import("./cmd-image.ts");
     if (!(await confirm("Delete the engine and every machine inside it on this computer? Saves on chain are not affected.", args))) { info("cancelled"); return; }
     removeEngine(kind);
@@ -95,7 +96,7 @@ async function cmdEngineInfo(rest: string[]): Promise<void> {
  */
 async function fileCommand(kind: EngineKind, name: string, rest: string[]): Promise<number> {
   const cmd = COMMANDS[name]!;
-  const args = parseArgs(rest, cmd.booleans);
+  const args = parseArgs(rest, cmd.booleans, cmd.options);
   allow(args, cmd.options);
   const [machine, file, ...more] = args._;
   if (!machine || !file || more.length) throw new UsageError(`usage: chainboot ${name} <machine> <file>`);
@@ -146,7 +147,7 @@ const COMMANDS: Record<string, Command> = {
     run: async (a) => {
       const { startUi, openBrowser } = await import("../ui/server.ts");
       const port = flag(a, "port");
-      if (port !== undefined && !/^\d{2,5}$/.test(port)) throw new UsageError("--port takes a number");
+      if (port !== undefined && (!/^\d{2,5}$/.test(port) || Number(port) > 65535)) throw new UsageError("--port takes a number from 10 to 65535");
       const ui = await startUi({ port: port ? Number(port) : undefined });
       info(`${bold("chainboot interface")} is running. Open it here:`);
       out(ui.url);
@@ -218,7 +219,7 @@ async function main(): Promise<void> {
     const kind = engineKind();
     if (kind) {
       const keypairLogin = name === "login" && withKeypair;
-      if (keypairLogin) { const args = parseArgs(rest); allow(args, COMMANDS.login!.options); await COMMANDS.login!.run(args); }
+      if (keypairLogin) { const args = parseArgs(rest, [], COMMANDS.login!.options); allow(args, COMMANDS.login!.options); await COMMANDS.login!.run(args); }
       await ensureEngine(kind);
       if (keypairLogin) { pushVault(kind, loadConfig().cluster); return; }
       if (name === "export" || name === "disk") { process.exitCode = await fileCommand(kind, name, rest); return; }
@@ -239,8 +240,8 @@ async function main(): Promise<void> {
   }
   const cmd = COMMANDS[name];
   if (!cmd) throw new UsageError(`unknown command "${name}". Run "chainboot help" to see what is available.`);
-  const args = parseArgs(rest, cmd.booleans);
-  if (has(args, "help")) { out(cmd.help); return; }
+  if (help) { out(cmd.help); return; }
+  const args = parseArgs(rest, cmd.booleans, cmd.options);
   allow(args, cmd.options);
   await cmd.run(args);
 }

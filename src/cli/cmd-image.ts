@@ -156,7 +156,10 @@ export async function cmdPublish(a: Args): Promise<void> {
   const reuse: ImageManifest[] = [];
   for (const r of flags(a, "reuse")) {
     const found = await resolveImage(store!, c, r, arch);
-    reuse.push((await pull(store!, found.publisher, { ...found.ref, private: found.private }, r)).manifest);
+    const pulled = await pull(store!, found.publisher, { ...found.ref, private: found.private }, r);
+    // what the other image says it holds is checked before any file is left out because "it is already there"
+    for (let i = 0; i < pulled.manifest.packs.length; i++) pulled.pack(i);
+    reuse.push(pulled.manifest);
   }
   const cmd = flag(a, "cmd");
   let startFiles: string[] | undefined;
@@ -181,7 +184,7 @@ export async function cmdPublish(a: Args): Promise<void> {
     ["contents", `${m.fileCount} entries, ${fmtBytes(m.rawSize)} unpacked`],
     ["to upload", `${fmtBytes(newBytes)} in ${built.newPacks.size} pack(s)` + (reuse.length ? dim(` (${m.packs.length - built.newPacks.size} pack(s) reused)`) : "")],
     ["transactions", `about ${tx}`],
-    ["cost", `about ${((tx * perTx) / 1e9).toFixed(4)} SOL on ${networkLabel(c)}` + (c.priorityFeeLamports ? dim(` (includes a tip of ${c.priorityFeeLamports} lamports per transaction)`) : "")],
+    ["cost", `about ${((tx * perTx) / 1e9).toFixed(tx * perTx < 1e6 ? 6 : 4)} SOL on ${networkLabel(c)}` + (c.priorityFeeLamports ? dim(` (includes a tip of ${c.priorityFeeLamports} lamports per transaction)`) : "")],
   ]));
   if (has(a, "dry-run")) { info(dim("dry run: nothing was sent")); return; }
   const balance = (await store!.pool.call<{ value: number }>("getBalance", [payer!.address])).value;

@@ -40,6 +40,7 @@ export function cleanPath(p: string): string {
 }
 
 function num(field: Buffer): number {
+  if (field[0] === 0xff) return 0; // GNU base-256, negative (a date before 1970, for example): chainboot has no negative numbers
   if (field[0]! & 0x80) { // GNU base-256
     let v = 0;
     for (let i = 1; i < field.length; i++) v = v * 256 + field[i]!;
@@ -83,9 +84,11 @@ function parsePax(data: Buffer): Map<string, Buffer> {
 export function readTar(tar: Buffer): Entry[] {
   const entries: Entry[] = [];
   let at = 0, pax: Map<string, Buffer> | null = null, longName: string | null = null, longLink: string | null = null;
+  let ended = false;
+  const whole = (text: string): number => { const n = Math.floor(parseFloat(text)); return Number.isFinite(n) && n > 0 ? n : 0; };
   while (at + 512 <= tar.length) {
     const h = tar.subarray(at, at + 512);
-    if (h.every((b) => b === 0)) break;
+    if (h.every((b) => b === 0)) { ended = true; break; }
     let sum = 0;
     for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 0x20 : h[i]!;
     if (sum !== num(h.subarray(148, 156))) throw new Error(`corrupt tar header at byte ${at}`);
@@ -93,7 +96,7 @@ export function readTar(tar: Buffer): Entry[] {
     const flag = String.fromCharCode(h[156]!);
     const body = at + 512;
     if (pax?.has("size")) size = parseInt(pax.get("size")!.toString("latin1"), 10);
-    if (body + size > tar.length) throw new Error("truncated tar archive");
+    if (!Number.isSafeInteger(size) || size < 0 || body + size > tar.length) throw new Error("truncated tar archive");
     const next = body + Math.ceil(size / 512) * 512;
     if (flag === "x") { pax = parsePax(tar.subarray(body, body + size)); at = next; continue; }
     if (flag === "g") { at = next; continue; }
@@ -109,9 +112,11 @@ export function readTar(tar: Buffer): Entry[] {
       for (const [k, v] of pax) {
         if (k === "path") name = utf8(v);
         else if (k === "linkpath") link = utf8(v);
-        else if (k === "uid") uid = parseInt(v.toString("latin1"), 10);
-        else if (k === "gid") gid = parseInt(v.toString("latin1"), 10);
-        else if (k === "mtime") mtime = Math.floor(parseFloat(v.toString("latin1")));
+        else if (k === "uid") uid = whole(v.toString("latin1"));
+        else if (k === "gid") gid = whole(v.toString("latin1"));
+        else if (k === "mtime") mtime = whole(v.toString("latin1"));
+        // a file with holes, stored the pax way: its entry holds a map and pieces, not the file. Read as an ordinary entry it would be a wrong file under a wrong name.
+        else if (k.startsWith("GNU.sparse.")) throw new Error(`the archive stores ${utf8(pax.get("GNU.sparse.name") ?? pax.get("path") ?? Buffer.from(name))} as a sparse file, which chainboot does not read. Make the archive without the --sparse option.`);
         else if (k.startsWith("SCHILY.xattr.")) (xattrs ??= {})[k.slice(13)] = Buffer.from(v);
         else if (k.startsWith("LIBARCHIVE.xattr.")) (xattrs ??= {})[decodeURIComponent(k.slice(17))] = Buffer.from(v.toString("latin1"), "base64");
       }
@@ -134,6 +139,8 @@ export function readTar(tar: Buffer): Entry[] {
       default: throw new Error(`unsupported tar entry type "${flag}" for ${path}`);
     }
   }
+  // every tar archive ends with a block of zeros: one that does not was cut off (a full disk, a broken download), and what was read is not the whole system
+  if (!ended) throw new Error("truncated tar archive: it has no end marker, so it was cut off somewhere");
   return entries;
 }
 

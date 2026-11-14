@@ -259,11 +259,17 @@ export class ChainStore {
     return { sig: headSig, size: data.length, sha256: toHex(digest) };
   }
 
+  /** The longest payload a pointer may have with this store's settings (it must fit one transaction, and how much that holds depends on the chain). */
+  pointerCapacity(options: TxOptions = {}): number {
+    const opts = { ...this.defaults, ...options };
+    return capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1, carrier: opts.carrier }) - POINTER_HEAD;
+  }
+
   /** Publishes a small record that can be found again through `tag` (see tagAddress). */
   async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment; account?: boolean } = {}): Promise<string> {
     const opts = { ...this.defaults, ...options };
     const carrier = opts.carrier ?? "noop";
-    const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1, carrier: opts.carrier }) - POINTER_HEAD;
+    const cap = this.pointerCapacity(options);
     if (payload.length > cap) throw new Error(`pointer payload is ${payload.length} bytes, the limit is ${cap}`);
 
     // An account that mirrors this pointer must never be left showing an older one: once it

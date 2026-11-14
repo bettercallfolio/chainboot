@@ -454,7 +454,8 @@ async function shareThing(what, words, to, note) {
 async function keepShare(s) {
   const name = (keep[s.id] || "").trim() || s.name;
   if (!confirm("Keep " + s.what + " \"" + s.name + "\" from " + s.from + (name !== s.name ? " as \"" + name + "\"" : "") + "?")) return;
-  const j = await runJob(["shared", "accept", s.id, "--name=" + name, "--yes"], "Keep " + s.what + " " + name);
+  // (a name is passed on only when one was typed: naming it is how one says "add it to what I have under that name")
+  const j = await runJob(["shared", "accept", s.id, ...(name !== s.name ? ["--name=" + name] : []), "--yes"], "Keep " + s.what + " " + name);
   if (j.status === "done") { toast(s.what === "image" ? name + " is now one of your private systems." : name + " is now one of your saved machines: open it with chainboot run " + name); if (catalogPublisher === "me") await loadCatalog(); }
 }
 

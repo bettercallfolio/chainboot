@@ -149,7 +149,7 @@ An administrator can turn them on; until then machines run through sudo.`);
   }
   const reason = !s.ready || !s.ids ? missingText(s.missing, null).join("; ") : probe(home, s.ids);
   if (reason) {
-    throw new Error(`this computer does not run machines without administrator rights:\n${reason}\nMachines keep running through sudo.`);
+    throw new Error(`this computer does not run machines without administrator rights:\n${reason}\n${mode === "root" ? "Machines keep running through sudo." : "Until that is repaired, machines can run through sudo: chainboot engine sudo"}`);
   }
   if (mode === "root" && hasEngineData(home) && asRoot(["drop-unpacked", "all"]) !== 0) throw new Error("could not remove the unpacked images");
   writeMode(home, "rootless");

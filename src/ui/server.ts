@@ -247,7 +247,7 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
       if (!v) throw new Error("sign in to see what was shared with you");
       const list = await listShares(await store(), v, { cacheDir: path.join(paths.cache(), "objects") });
       return list.map((r) => ({
-        id: r.id, from: r.from, arrived: r.arrived ?? r.record.time, note: r.record.note ?? "", what: r.record.what, name: r.record.name,
+        id: r.id, from: r.from, arrived: r.record.time, note: r.record.note ?? "", what: r.record.what, name: r.record.name,
         detail: r.record.what === "image" ? `${r.record.image!.tag} · ${r.record.image!.arch}` : `${r.record.machine!.image.name}:${r.record.machine!.image.tag} · ${r.record.machine!.image.arch}${r.record.machine!.boot ? " · boots" : ""}`,
       }));
     },

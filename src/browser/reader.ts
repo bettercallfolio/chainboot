@@ -641,7 +641,8 @@ export class Reader {
     const ref = JSON.parse(text.decode(p.payload)) as StoredRef;
     const raw = unpack(ref.codec, await this.object(ref, { signers: [key], signal }), ref.rawSize);
     const cat = JSON.parse(text.decode(raw)) as Catalog;
-    if (cat?.chainboot !== 1 || cat.kind !== "catalog" || cat.publisher !== publisher || typeof cat.images !== "object") throw new Error(`the catalog of ${publisher} is malformed`);
+    if (cat?.chainboot !== 1 || cat.kind !== "catalog" || cat.publisher !== publisher || !cat.images || typeof cat.images !== "object" || Array.isArray(cat.images)) throw new Error(`the catalog of ${publisher} is malformed`);
+    cat.images = cleanImages(cat.images);
     this.#say(`catalog: ${Object.keys(cat.images).length} image(s), SHA-256 ${ref.sha256.slice(0, 12)}… matches its pointer`);
     return cat;
   }
@@ -670,7 +671,11 @@ export class Reader {
     for (const [key, list] of votes) {
       if (list.length < threshold) continue;
       const [name, tag, arch] = JSON.parse(key) as [string, string, string];
-      const pick = list.find((v) => !v.ref.publisher || v.ref.publisher === v.by) ?? list[0]!;
+      // every entry names the same content, but each names a stored copy of the file list: the copy most members point at wins
+      const copies = new Map<string, number>();
+      for (const v of list) copies.set(v.ref.sha256, (copies.get(v.ref.sha256) ?? 0) + 1);
+      const own = (v: { ref: { publisher?: string }; by: string }) => (!v.ref.publisher || v.ref.publisher === v.by ? 1 : 0);
+      const pick = [...list].sort((a, b) => copies.get(b.ref.sha256)! - copies.get(a.ref.sha256)! || own(b) - own(a))[0]!;
       const image = (images[name] ??= { tags: {} });
       image.description ??= list.find((v) => v.description)?.description;
       (image.tags[tag] ??= {})[arch] = { ...pick.ref, publisher: pick.ref.publisher ?? pick.by } as ImageRef;
@@ -706,6 +711,29 @@ export class Reader {
 
 const isHash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
 const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+const plain = (v: unknown, max: number): string => String(v ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").slice(0, max);
+
+/** The images of a catalog with everything dropped that is not well formed: a reader must not trip over what a publisher wrote. */
+function cleanImages(images: Record<string, unknown>): Catalog["images"] {
+  const name = /^[a-z0-9][a-z0-9._-]{0,127}$/, label = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+  const out: Catalog["images"] = {};
+  for (const [n, image] of Object.entries(images)) {
+    const tagsIn = (image as { tags?: unknown } | null)?.tags;
+    if (!name.test(n) || !tagsIn || typeof tagsIn !== "object" || Array.isArray(tagsIn)) continue;
+    const tags: Catalog["images"][string]["tags"] = {};
+    for (const [tag, arches] of Object.entries(tagsIn as Record<string, unknown>)) {
+      if (!label.test(tag) || !arches || typeof arches !== "object" || Array.isArray(arches)) continue;
+      for (const [arch, r] of Object.entries(arches as Record<string, ImageRef & { publisher?: string } | null>)) {
+        if (!label.test(arch) || !r || typeof r !== "object" || typeof r.sig !== "string" || r.sig.length > 90 || !isHash(r.sha256) || !isCount(r.size) || !isCount(r.rawSize) || !["xz", "zstd", "raw"].includes(r.codec) || !isHash(r.digest)) continue;
+        if (r.publisher !== undefined) { try { b58decode(String(r.publisher), 32); } catch { continue; } }
+        (tags[tag] ??= {})[arch] = { ...r, version: plain(r.version, 64) } as ImageRef;
+      }
+    }
+    const description = (image as { description?: unknown }).description;
+    if (Object.keys(tags).length) out[n] = { ...(description !== undefined && { description: plain(description, 300) }), tags };
+  }
+  return out;
+}
 
 /**
  * Checks what a manifest promises, the way chainboot does before it unpacks an image: packs

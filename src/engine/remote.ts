@@ -51,6 +51,15 @@ export function engineKind(): EngineKind | null {
   if (forced === "wsl" || forced === "docker" || forced === "podman" || forced === "lima") return forced;
   if (process.platform === "win32") return "wsl";
   if (process.platform !== "darwin") return null;
+  // The engine that already holds this computer's machines is the one to use. If it is not
+  // running, say so: quietly setting up a second, empty one would make every machine seem gone.
+  const known = readState()?.kind;
+  if (known === "docker" || known === "podman" || known === "lima") {
+    const up = known === "lima" ? works("limactl", ["--version"]) : works(known, ["info"]);
+    if (up) return known;
+    const what = { docker: "Docker (OrbStack or Docker Desktop)", podman: "Podman", lima: "Lima" }[known];
+    throw new Error(`Your machines on this Mac live in ${what}, which is not running or not installed any more. Start it and run chainboot again.\n(To start over with another engine instead, delete ${stateFile()}; the machines in the old engine stay there, and what you saved to chain comes back from the chain.)`);
+  }
   if (works("docker", ["info"])) return "docker";
   if (works("podman", ["info"])) return "podman";
   if (works("limactl", ["--version"])) return "lima";
@@ -66,7 +75,8 @@ export function engineKind(): EngineKind | null {
 /** Command prefix that runs a program inside the engine as root. */
 function prefix(kind: EngineKind, tty: boolean, env: Record<string, string> = {}): string[] {
   const vars = Object.entries({ CHAINBOOT_HOME: ENGINE_HOME, CHAINBOOT_ENGINE: "native", ...env });
-  if (kind === "wsl") return ["wsl.exe", "-d", NAME, "-u", "root", "--cd", "/", "--", "env", ...vars.map(([k, v]) => `${k}=${v}`)];
+  // (--exec starts the program itself; with "--" the rest would be handed to a shell in the engine, which would read ; | $ * in the user's arguments its own way)
+  if (kind === "wsl") return ["wsl.exe", "-d", NAME, "-u", "root", "--cd", "/", "--exec", "env", ...vars.map(([k, v]) => `${k}=${v}`)];
   if (kind === "lima") return ["limactl", "shell", "--workdir", "/", NAME, "sudo", "env", ...vars.map(([k, v]) => `${k}=${v}`)];
   return [kind, "exec", "-i", ...(tty ? ["-t"] : []), ...vars.flatMap(([k, v]) => ["-e", `${k}=${v}`]), NAME];
 }
@@ -292,8 +302,12 @@ export function pullVault(kind: EngineKind, cluster: string): boolean {
  */
 export function proxy(kind: EngineKind, argv: string[], watchForLinks: (url: string) => void = () => {}): Promise<number> {
   const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
-  const env: Record<string, string> = { TERM: process.env.TERM || "xterm-256color", CHAINBOOT_UI_BIND: kind === "docker" || kind === "podman" ? "0.0.0.0" : "127.0.0.1" };
+  // a mark on this command's processes in the engine, by which they are found again if the command here is ended
+  const mark = createHash("sha256").update(`${process.pid} ${Date.now()} ${Math.random()}`).digest("hex").slice(0, 24);
+  const env: Record<string, string> = { TERM: process.env.TERM || "xterm-256color", CHAINBOOT_UI_BIND: kind === "docker" || kind === "podman" ? "0.0.0.0" : "127.0.0.1", CHAINBOOT_PROXY: mark };
   if (process.env.NO_COLOR) env.NO_COLOR = "1";
+  // settings that chainboot takes from the environment must arrive in the engine as well
+  for (const k of ["CHAINBOOT_RPC", "CHAINBOOT_OFFLINE", "CHAINBOOT_AUTOSAVE_MINUTES", "CHAINBOOT_CARRIER", "CHAINBOOT_DEBUG"]) if (process.env[k] !== undefined) env[k] = process.env[k]!;
   if (process.stdin.isTTY) env.CHAINBOOT_UI_TERMINAL = "1";
   const p = [...prefix(kind, interactive, env), `${ENGINE_APP}/node`, `${ENGINE_APP}/app/chainboot.mjs`, ...argv];
   const wantsLink = ["ui", "login", "fund"].includes(argv[0] ?? "");
@@ -311,7 +325,13 @@ export function proxy(kind: EngineKind, argv: string[], watchForLinks: (url: str
     }
     child.on("error", (e) => reject(new Error(`could not reach the engine: ${e.message}`)));
     child.on("close", (code, signal) => resolve(code ?? (signal ? 130 : 1)));
-    for (const s of ["SIGINT", "SIGTERM"] as const) process.on(s, () => { try { child.kill(s); } catch { /* already gone */ } });
+    for (const s of ["SIGINT", "SIGTERM"] as const) process.on(s, () => {
+      try { child.kill(s); } catch { /* already gone */ }
+      // Without a terminal in between, ending the command here does not end the program in the
+      // engine (a save would go on sending, and paying). It is told directly. (With a terminal,
+      // Ctrl+C reaches it through that terminal, and may be meant for a program in a machine.)
+      if (!interactive) inEngine(kind, ["sh", "-c", `for p in /proc/[0-9]*; do if tr '\\0' '\\n' < "$p/environ" 2>/dev/null | grep -qx "CHAINBOOT_PROXY=${mark}"; then kill -TERM "\${p#/proc/}" 2>/dev/null; fi; done; true`]);
+    });
   });
 }
 

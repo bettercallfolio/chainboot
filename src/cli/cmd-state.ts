@@ -30,7 +30,8 @@ export const LOGIN_HELP = `Usage:
   chainboot login --keypair <file>    Sign in with a keypair file (servers, scripts)
   chainboot logout                    Forget the login on this computer
   chainboot whoami                    Show who is signed in and the vault balance
-  chainboot fund <SOL> --keypair <file>   Move SOL from a keypair to your vault
+  chainboot fund <SOL>                Add SOL to your vault from your browser wallet
+  chainboot fund <SOL> --keypair <file>   Add SOL to your vault from a keypair file
 
 Signing in lets chainboot save your machines to Solana, encrypted, and restore them on any
 computer. Your wallet signs one message; from it chainboot derives an encryption key and a
@@ -78,8 +79,10 @@ export async function cmdWhoami(): Promise<void> {
 }
 
 export async function cmdFund(a: Args): Promise<void> {
-  const amount = Number(a._[0]);
-  if (!isFinite(amount) || amount <= 0) throw new UsageError("say how much: chainboot fund 0.05 --keypair <file>");
+  // (a plain decimal number of SOL, with at most the nine places a lamport has: not 1e9, not 0x10)
+  const text = (a._[0] ?? "").replace(",", ".");
+  if (!/^\d{1,9}(\.\d{1,9})?$/.test(text) || a._.length > 1 || Math.round(Number(text) * 1e9) < 1) throw new UsageError("say how much, in SOL: chainboot fund 0.05   (from a keypair file instead of a browser wallet: --keypair <file>)");
+  const amount = Number(text);
   const v = currentVault();
   if (!flag(a, "keypair") && !process.env.CHAINBOOT_KEYPAIR) {
     const { fundWithBrowser } = await import("../ui/login.ts");
@@ -119,7 +122,8 @@ function pickMachine(a: Args): string {
   if (a._[0]) return a._[0];
   const all = listMachines(home);
   if (all.length === 1) return all[0]!.name;
-  throw new UsageError(all.length ? `say which machine: ${all.map((m) => m.name).join(", ")}` : "there are no machines yet");
+  if (!all.length) throw new Error("there are no machines yet. Create one with: chainboot run solinux");
+  throw new UsageError(`say which machine: ${all.map((m) => m.name).join(", ")}`);
 }
 
 export function cmdSave(a: Args): void {
@@ -158,7 +162,7 @@ export async function cmdRestore(a: Args): Promise<void> {
   if (snapshot !== undefined && !/^\d+$/.test(snapshot)) throw new UsageError("--snapshot takes a save number, see: chainboot history <machine>");
   await pull(store, entry.image.publisher, { ...entry.image.manifest, digest: entry.image.digest, private: entry.image.private }, `${entry.image.name}:${entry.image.tag}`);
   if (!local) {
-    const machine: MachineInfo = { name, image: entry.image, created: entry.created };
+    const machine: MachineInfo = { name, image: entry.image, created: entry.created, ...(entry.boot && { boot: true }), ...(entry.lazy && { lazy: true }) };
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
   }
@@ -173,9 +177,11 @@ export async function cmdHistory(a: Args): Promise<void> {
   if (!head) { info(`"${name}" has never been saved with this login.`); return; }
   const snap = await readSnapshot(store, v, head.ref, path.join(paths.cache(), "objects"));
   const bytes = snap.tree.reduce((n, t) => n + (t[1] === "f" ? t[6] : 0), 0);
-  const rows = [[bold(`#${head.seq}`), when(head.time), String(snap.tree.length), fmtBytes(bytes), green("current")],
-    ...snap.history.map((h) => [`#${h.seq}`, when(h.time), String(h.files), fmtBytes(h.bytes), ""])];
-  out(table(rows, ["save", "time", "entries", "size of changes", ""]));
+  const rows = [[bold(`#${head.seq}`), when(head.time), String(snap.tree.length), fmtBytes(bytes), green("current"), snap.note ?? ""],
+    ...snap.history.map((h) => [`#${h.seq}`, when(h.time), String(h.files), fmtBytes(h.bytes), "", h.note ?? ""])];
+  out(table(rows, ["save", "time", "entries", "size of changes", "", "note"]));
+  const oldest = snap.history[snap.history.length - 1];
+  if (oldest && oldest.seq > 1) info(dim(`Saves before #${oldest.seq} are kept too; they are not listed here, but "restore --snapshot" reaches them.`));
   info(dim(`Go back to an earlier save with: chainboot restore ${name} --snapshot <number>`));
 }
 
