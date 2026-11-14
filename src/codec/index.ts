@@ -5,7 +5,7 @@
 //   raw  - stored as is (data that does not shrink)
 import { spawnSync } from "node:child_process";
 import zlib from "node:zlib";
-import { xzDecode } from "./xz.ts";
+import { xzDecode, xzUncompressedSize } from "./xz.ts";
 
 export type Codec = "xz" | "zstd" | "raw";
 
@@ -48,7 +48,12 @@ function xzFast(data: Uint8Array, rawSize: number): Buffer | null {
 export function decompress(codec: Codec, data: Uint8Array, rawSize: number): Buffer {
   let out: Buffer;
   if (codec === "raw") out = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  else if (codec === "xz") out = xzFast(data, rawSize) ?? xzDecode(data);
+  else if (codec === "xz") {
+    // what the file says about its own size is read first: a small file can claim gigabytes
+    const claimed = xzUncompressedSize(data);
+    if (claimed !== rawSize) throw new Error(`decompressed size would be ${claimed}, expected ${rawSize}`);
+    out = xzFast(data, rawSize) ?? xzDecode(data);
+  }
   else if (codec === "zstd") out = zlib.zstdDecompressSync(data, { maxOutputLength: Math.max(rawSize, 1) });
   else throw new Error(`unknown codec "${codec as string}"`);
   if (out.length !== rawSize) throw new Error(`decompressed size is ${out.length}, expected ${rawSize}`);

@@ -87,11 +87,28 @@ export function identityLine(n: TreeNode): string {
   }
 }
 
-/** SHA-256 over the identity lines of all nodes in path order. */
-export function treeDigest(tree: readonly TreeNode[]): string {
+/**
+ * What an image is told to run when it starts, in one fixed form; null when it says nothing.
+ * It is part of the image's identity: two images with the same files and different commands
+ * are different images.
+ */
+export function configIdentity(config: ImageConfig | undefined): string | null {
+  const cmd = config?.cmd?.length ? config.cmd : undefined;
+  const names = Object.keys(config?.env ?? {}).sort();
+  const env = names.length ? Object.fromEntries(names.map((k) => [k, config!.env![k]!])) : undefined;
+  return cmd || env ? JSON.stringify({ ...(cmd && { cmd }), ...(env && { env }) }) : null;
+}
+
+/**
+ * SHA-256 over the identity lines of all nodes in path order, followed by the configuration
+ * when the image has one (an image without one has the digest of its files alone).
+ */
+export function treeDigest(tree: readonly TreeNode[], config?: ImageConfig): string {
   const h = createHash("sha256");
   h.update(`chainboot-tree-v${MANIFEST_VERSION}\n`);
   for (const n of tree) { h.update(identityLine(n)); h.update("\n"); }
+  const c = configIdentity(config);
+  if (c) h.update(`config ${c}\n`);
   return h.digest("hex");
 }
 
@@ -137,6 +154,12 @@ export function validateManifest(m: unknown): asserts m is ImageManifest {
   for (const k of ["name", "version", "arch", "digest"]) if (typeof o[k] !== "string" || !o[k]) fail(`missing ${k}`);
   if (o.os !== "linux") fail("only linux images are supported");
   if (!Array.isArray(o.packs) || !Array.isArray(o.tree)) fail("missing packs or tree");
+  if (o.config !== undefined) {
+    const c = o.config as { cmd?: unknown; env?: unknown } | null;
+    if (!c || typeof c !== "object" || Array.isArray(c)) fail("malformed configuration");
+    if (c!.cmd !== undefined && (!Array.isArray(c!.cmd) || c!.cmd.length > 64 || c!.cmd.some((x) => typeof x !== "string" || x.length > 8192 || x.includes("\0")))) fail("malformed start command");
+    if (c!.env !== undefined && (!c!.env || typeof c!.env !== "object" || Array.isArray(c!.env) || Object.entries(c!.env as object).some(([k, v]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || typeof v !== "string" || v.length > 8192 || v.includes("\0")))) fail("malformed environment");
+  }
   const packs = o.packs as PackInfo[];
   for (const p of packs) {
     if (!p || typeof p.sig !== "string" || !isHash(p.sha256) || !isHash(p.rawSha256) || !isInt(p.size) || !isInt(p.rawSize) || !["xz", "zstd", "raw"].includes(p.codec) || (p.enc !== undefined && p.enc !== 0 && p.enc !== 1) || (p.key !== undefined && (typeof p.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(p.key)))) fail("malformed pack entry");
@@ -173,7 +196,7 @@ export function validateManifest(m: unknown): asserts m is ImageManifest {
     kinds.set(path, type);
   }
   for (const n of o.tree as TreeNode[]) if (n[1] === "h" && kinds.get(n[2]) !== "f") fail(`hard link ${n[0]} does not point at a regular file`);
-  if (treeDigest(o.tree as TreeNode[]) !== o.digest) fail("digest does not match the tree");
+  if (treeDigest(o.tree as TreeNode[], o.config as ImageConfig | undefined) !== o.digest) fail("digest does not match the content");
 }
 
 /** Deterministic JSON: one tree node per line, so manifests are stable and diff-friendly. */

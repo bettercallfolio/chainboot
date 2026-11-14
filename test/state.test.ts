@@ -53,14 +53,20 @@ test("vault: one signature gives the same keys everywhere; encryption is authent
   assert.throws(() => deriveVault(Keypair.generate().address, wallet.sign(Buffer.from(LOGIN_MESSAGE)), "devnet"), /not a valid signature/);
   const secret = crypto.randomBytes(5000), sealed = seal(a.encKey, secret, "pack");
   assert.deepEqual(open(b.encKey, sealed, "pack"), secret);
-  assert.notDeepEqual(seal(a.encKey, secret, "pack"), sealed, "a fresh nonce every time");
+  // the same content sealed again gives the same bytes (an interrupted upload of it can continue);
+  // any other content, or another purpose, gets another key and nonce
+  assert.deepEqual(seal(a.encKey, secret, "pack"), sealed);
+  const other = seal(a.encKey, Buffer.concat([secret, Buffer.from("!")]), "pack");
+  assert.notDeepEqual(other.subarray(1, 29), sealed.subarray(1, 29), "other content: another key id and nonce");
+  assert.notDeepEqual(seal(a.encKey, secret, "snapshot").subarray(1, 29), sealed.subarray(1, 29), "another purpose: another key id and nonce");
   assert.throws(() => open(a.encKey, sealed, "snapshot"), /could not decrypt/);
   assert.throws(() => open(vaultFromKeypair(Keypair.generate(), "devnet").encKey, sealed, "pack"), /could not decrypt/);
   const bad = Buffer.from(sealed); bad[40] = bad[40]! ^ 1;
   assert.throws(() => open(a.encKey, bad, "pack"), /could not decrypt/);
 
   // every object has a key of its own: it opens that object and no other
-  const one = sealWithKey(a.encKey, secret, "pack"), two = sealWithKey(a.encKey, secret, "pack");
+  // (objects with the very same content share a key; knowing it reveals nothing more than that content)
+  const one = sealWithKey(a.encKey, secret, "pack"), two = sealWithKey(a.encKey, crypto.randomBytes(5000), "pack");
   assert.notEqual(one.key, two.key);
   assert.equal(objectKey(a.encKey, one.sealed, "pack")!.toString("base64"), one.key, "the owner can work the key out again");
   assert.deepEqual(openWithKey(Buffer.from(one.key, "base64"), one.sealed, "pack"), secret);

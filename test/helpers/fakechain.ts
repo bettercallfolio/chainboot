@@ -19,6 +19,8 @@ export interface Faults {
   hideNewest?: number;
   /** getSignaturesForAddress puts a signature that does not exist at the top (an endpoint that makes things up). */
   inventNewest?: boolean;
+  /** getSignaturesForAddress puts these real signatures at the top with a slot from the future (an endpoint that passes off old or unrelated records as the newest). */
+  promote?: string[];
   /** Every answer takes this long (a slow or stuck endpoint). */
   delayMs?: number;
   /** The endpoint does not offer getBlock. */
@@ -207,9 +209,12 @@ export class FakeChain {
         return { result: { slot: t.slot, blockTime: 1_700_000_000 + t.slot, transaction: [raw, "base64"], meta: { err: null } } };
       }
       case "getSignaturesForAddress": {
-        const list = (this.byAccount.get(params[0]) ?? []).slice(f.hideNewest ?? 0);
+        let list = (this.byAccount.get(params[0]) ?? []).slice(f.hideNewest ?? 0);
+        const before = params[1]?.before as string | undefined;
+        if (before) list = list.includes(before) ? list.slice(list.indexOf(before) + 1) : [];
         const entries = list.slice(0, params[1]?.limit ?? 1000).map((signature) => ({ signature, err: null, slot: this.txs.get(signature)!.slot }));
-        if (f.inventNewest) entries.unshift({ signature: b58encode(Buffer.alloc(64, 7)), err: null, slot: this.slot + 1000 });
+        if (f.inventNewest && !before) entries.unshift({ signature: b58encode(Buffer.alloc(64, 7)), err: null, slot: this.slot + 1000 });
+        if (f.promote && !before) entries.unshift(...f.promote.map((signature, i) => ({ signature, err: null, slot: this.slot + 2000 - i })));
         return { result: entries };
       }
       default: return { error: { code: -32601, message: "Method not found" } };

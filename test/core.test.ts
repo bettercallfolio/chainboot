@@ -308,6 +308,76 @@ test("pointers: one honest endpoint is enough to see the newest record; invented
   assert.equal((await solo.getPointer(tag, [me.publicKey]))!.payload.toString(), "old");
 });
 
+test("pointers: an old record passed off as new, a record from elsewhere, and a flood by strangers do not change the answer", async () => {
+  const chain = new FakeChain(), urls = chain.urls(3);
+  const pool = () => new RpcPool(urls, { fetch: chain.fetch, initialRate: 400 });
+  const store = new ChainStore(pool());
+  const me = Keypair.generate(), tag = tagAddress("state", me.publicKey, "a"), elsewhere = tagAddress("state", me.publicKey, "b");
+  const opts = { commitment: "confirmed" as const };
+  const first = await store.putPointer(me, tag, Buffer.from("v1"), opts);
+  await store.putPointer(me, tag, Buffer.from("v2"), opts);
+  const other = await store.putPointer(me, elsewhere, Buffer.from("of another machine"), opts);
+  const newest = async (s = store) => (await s.getPointer(tag, [me.publicKey]))?.payload.toString();
+  const v2 = (await store.getPointer(tag, [me.publicKey]))!;
+  assert.ok(v2.seq > 0n, "the writer's sequence number comes back with the record");
+
+  // one endpoint lists the old record on top, with a slot from the future: the sequence number its writer signed decides
+  chain.faults.set(urls[0]!, { promote: [first] });
+  for (let i = 0; i < 4; i++) assert.equal(await newest(new ChainStore(pool())), "v2");
+  // one endpoint lists a genuine record of the same writer that belongs to another tag
+  chain.faults.set(urls[0]!, { promote: [other] });
+  for (let i = 0; i < 4; i++) assert.equal(await newest(new ChainStore(pool())), "v2");
+  // also when that endpoint is the only one: the record does not name this tag, so it is none
+  assert.equal(await newest(new ChainStore(new RpcPool([urls[0]!], { fetch: chain.fetch, initialRate: 400 }))), "v2");
+  chain.faults.clear();
+
+  // pointers written before there were sequence numbers are still read, and any newer write wins over them
+  const { TxSender, itemKey } = await import("../src/store/sender.ts");
+  const legacyTag = tagAddress("legacy", me.publicKey), legacy = Buffer.concat([Buffer.from([0xcb, 0x10, 1]), Buffer.from("from an earlier release")]);
+  await new TxSender(pool(), me).sendAll([{ data: legacy, readonlyAccounts: [legacyTag], key: itemKey(legacy) }], { commitment: "confirmed" });
+  const old = (await store.getPointer(legacyTag, [me.publicKey]))!;
+  assert.deepEqual([old.payload.toString(), old.seq], ["from an earlier release", 0n]);
+  await store.putPointer(me, legacyTag, Buffer.from("today"), opts);
+  assert.equal((await store.getPointer(legacyTag, [me.publicKey]))!.payload.toString(), "today");
+
+  // strangers bury the address under their own transactions: the owner's record is still found, further back
+  const strangers = Array.from({ length: 6 }, () => Keypair.generate());
+  for (let round = 0; round < 11; round++) await Promise.all(strangers.map((k) => new TxSender(pool(), k).sendAll([{ data: Buffer.concat([legacy, Buffer.from(String(round))]), readonlyAccounts: [tag], key: itemKey(Buffer.from(`${k.address}${round}`)) }], { commitment: "confirmed" })));
+  assert.ok((chain.byAccount.get(b58encode(tag)) ?? []).length > 60, "more foreign transactions than one page holds");
+  assert.equal(await newest(new ChainStore(pool())), "v2");
+  // and a key that never wrote there has no record: that is found out, not guessed
+  assert.equal(await store.getPointer(tag, [Keypair.generate().publicKey]), null);
+  // the owner's next write is newer than everything, whatever was read before
+  await store.putPointer(me, tag, Buffer.from("v3"), opts);
+  assert.equal(await newest(new ChainStore(pool())), "v3");
+});
+
+test("store: what an object or a reference claims is checked before anything is fetched or set aside for it", async () => {
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 400 }));
+  const payer = Keypair.generate(), data = crypto.randomBytes(120_000), dir = tmp();
+  const ref = await store.put(payer, data, { commitment: "confirmed", pollMs: 20, txVersion: "legacy" });
+
+  // a hash becomes a file name in the cache: nothing but a hash may pass (the file it names would be read, and deleted)
+  const victim = path.join(dir, "victim");
+  fs.writeFileSync(victim, "keep me");
+  await assert.rejects(store.get({ sig: ref.sig, size: ref.size, sha256: "../victim" }, { cacheDir: path.join(dir, "cache") }), /is not a SHA-256/);
+  await assert.rejects(store.get(ref.sig, { sha256: "../victim", cacheDir: path.join(dir, "cache") }), /is not a SHA-256/);
+  assert.equal(fs.readFileSync(victim, "utf8"), "keep me");
+
+  // the size in the head is compared with what the reference says, or with a limit, before memory is set aside
+  await assert.rejects(store.get({ ...ref, size: ref.size - 1 }), /expected 119999/);
+  await assert.rejects(store.get(ref.sig, { maxSize: 50_000 }), /more than the 50000 accepted/);
+  assert.ok((await store.get(ref.sig, { maxSize: 200_000 })).equals(data));
+
+  // the same content stored twice: an interrupted download of one does not get in the way of the other
+  const again = await store.put(Keypair.generate(), data, { commitment: "confirmed", pollMs: 20 });
+  const cache = path.join(dir, "cache2"), ac = new AbortController();
+  await assert.rejects(store.get(ref, { cacheDir: cache, signal: ac.signal, mode: "transactions", onProgress: (p) => { if (p.done > 5) ac.abort(); } }), /aborted/);
+  assert.ok(fs.readdirSync(cache).some((f) => f.endsWith(".part.sigs")), "the interrupted download left its partial files");
+  assert.ok((await store.get(again, { cacheDir: cache })).equals(data));
+});
+
 test("priority fee: the store's default tip is on every transaction it sends", async () => {
   const chain = new FakeChain();
   const pool = new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 400 });
@@ -631,9 +701,10 @@ test("other chains: without the Noop program the data travels as a memo, and eve
   assert.ok((await plain.get(ref)).equals(data), "a reader needs no setting to read them");
   const tag = tagAddress("demo", payer.publicKey);
   await memo.putPointer(payer, tag, Buffer.from("first"), { commitment: "confirmed" });
-  await memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 3, 7), { commitment: "confirmed" });
-  await assert.rejects(memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 2), { commitment: "confirmed" }), /the limit is/);
-  assert.ok((await plain.getPointer(tag, [payer.publicKey]))!.payload.equals(Buffer.alloc(roomTagged - 3, 7)));
+  // (a pointer has 11 bytes of its own in front of the payload: magic, kind, version and its sequence number)
+  await memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 11, 7), { commitment: "confirmed" });
+  await assert.rejects(memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 10), { commitment: "confirmed" }), /the limit is/);
+  assert.ok((await plain.getPointer(tag, [payer.publicKey]))!.payload.equals(Buffer.alloc(roomTagged - 11, 7)));
   assert.equal(await plain.getPointer(tag, [Keypair.generate().publicKey]), null);
 
   // a whole image, published and read on such a chain; also by the browser reader

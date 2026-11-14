@@ -183,7 +183,7 @@ export function buildImage(input: Entry[], meta: ImageMeta, opts: BuildOptions =
     ...(meta.description && { description: meta.description }),
     ...(meta.source && { source: meta.source }),
     ...(meta.config && { config: meta.config }),
-    digest: treeDigest(tree),
+    digest: treeDigest(tree, meta.config),
     rawSize: entries.reduce((n, e) => n + (e.data?.length ?? 0), 0),
     fileCount: entries.length,
     packs, tree,

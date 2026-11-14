@@ -44,6 +44,8 @@ export function b58decode(text: string): Buffer {
 
 /** Decode a base58 string that must be exactly `len` bytes (32 for addresses, 64 for signatures). */
 export function b58decodeFixed(text: string, len: number, what = "value"): Buffer {
+  // (checked before decoding: the work grows with the square of the length, and the text may come from an endpoint)
+  if (typeof text !== "string" || text.length > Math.ceil(len * 1.38) + 1) throw new Error(`${what} must be ${len} bytes`);
   const b = b58decode(text);
   if (b.length !== len) throw new Error(`${what} must be ${len} bytes, got ${b.length}`);
   return b;

@@ -25,14 +25,27 @@ import { b58decodeFixed, b58encode } from "../util/base58.ts";
 import { concat, equal, sha256, toHex } from "../util/bytes.ts";
 import type { Keypair } from "../solana/keys.ts";
 import type { RpcPool } from "../solana/rpc.ts";
-import { buildTransaction, carriedData, computeBudgetInstructions, dataInstructions, noopCapacity, parseTransaction, verifyPayerSignature, type Carrier, type Instruction, type ParsedTx, type TxVersion } from "../solana/tx.ts";
+import { MEMO_UNITS_PER_CHAR, buildTransaction, carriedData, computeBudgetInstructions, dataInstructions, noopCapacity, parseTransaction, verifyPayerSignature, type Carrier, type Instruction, type ParsedTx, type TxVersion } from "../solana/tx.ts";
 import { ACCOUNT_PAYLOAD_MAX, ACCOUNT_SPACE, RECORD_HEADER, RECORD_PROGRAM, accountAddress, closeInstruction, createInstructions, decodeRecord, encodeRecord, writeInstruction, type AccountRecord } from "./accounts.ts";
 import { TxSender, itemKey, sendAndConfirm, type Commitment, type Landed, type SendItem, type SenderProgress } from "./sender.ts";
 
 export const MAGIC = 0xcb;
 export const KIND_LEAF = 0x00, KIND_BRANCH = 0x01, KIND_HEAD = 0x02, KIND_INLINE = 0x03, KIND_POINTER = 0x10;
 export const FORMAT_VERSION = 1;
+/**
+ * Pointers have a version of their own. Version 2 puts a sequence number in front of the
+ * payload, covered by the transaction's signature: which of two pointers is the newer one is
+ * then said by their writer, not by an endpoint. Version 1 (no number) is still read.
+ */
+export const POINTER_VERSION = 2;
+const POINTER_HEAD = 3 + 8; // magic, kind, version, sequence number
 const SIG = 64;
+/** An object that does not come with its size may be at most this large. */
+const MAX_OBJECT = 1 << 30;
+/** No carrier cuts a file into pieces smaller than this; a head that claims so is not chainboot's. */
+const MIN_LEAF = 64;
+/** Pages of an address's history that are searched for a pointer, and the size of every page after the first. */
+const POINTER_PAGES = 12, POINTER_PAGE = 1000;
 const HEAD_FIXED = 2 + 1 + 1 + 2 + 8 + 32 + SIG; // magic, kind, version, depth, leaf size, size, sha256, hint signature
 /** Objects with fewer nodes than this get no slot hint (they are quick to fetch anyway). */
 const HINT_MIN_NODES = 16;
@@ -81,6 +94,8 @@ export interface GetOptions {
   sha256?: string;
   /** Directory for finished objects and partial downloads (enables resume). */
   cacheDir?: string;
+  /** Largest object to accept when `ref` does not say its size (default 1 GiB). */
+  maxSize?: number;
   /** "auto" (default) uses block mode when a hint exists; "transactions" never does. */
   mode?: "auto" | "transactions";
   onProgress?: (p: GetProgress) => void;
@@ -93,6 +108,8 @@ export interface PointerRecord {
   /** Signature of the pointer transaction ("" when the record was read from an account). */
   signature: string;
   slot: number; blockTime: number | null; payer: Buffer;
+  /** The sequence number its writer gave it (0 for pointers written before there was one). */
+  seq: bigint;
   /** Address of the account the record was read from, when it came from one. */
   account?: string;
 }
@@ -198,7 +215,8 @@ export class ChainStore {
     const { cap, leafSize, fan, headFan } = sizes(opts);
     const digest = sha256(data);
     const sender = new TxSender(this.pool, payer);
-    const journal = opts.journalDir ? path.join(opts.journalDir, `${toHex(digest)}.journal`) : undefined;
+    // (one journal per content, payer and wire format: what another key or another format sent is of no use to this upload)
+    const journal = opts.journalDir ? path.join(opts.journalDir, `${toHex(digest)}.${payer.address}.${opts.carrier ?? "noop"}${opts.txVersion ?? 1}${(opts.priorityFeeLamports ?? 0) > 0 ? "f" : ""}.journal`) : undefined;
     const send = (phase: string, payloads: Uint8Array[]): Promise<Landed[]> => sender.sendAll(payloads.map((p): SendItem => ({ data: p, key: itemKey(p) })), {
       commitment: opts.commitment, journal, signal: opts.signal, resendAfterMs: opts.resendAfterMs, pollMs: opts.pollMs,
       txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier,
@@ -244,36 +262,55 @@ export class ChainStore {
   /** Publishes a small record that can be found again through `tag` (see tagAddress). */
   async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment; account?: boolean } = {}): Promise<string> {
     const opts = { ...this.defaults, ...options };
-    const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1, carrier: opts.carrier }) - 3;
+    const carrier = opts.carrier ?? "noop";
+    const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1, carrier: opts.carrier }) - POINTER_HEAD;
     if (payload.length > cap) throw new Error(`pointer payload is ${payload.length} bytes, the limit is ${cap}`);
-    const data = concat([Uint8Array.of(MAGIC, KIND_POINTER, FORMAT_VERSION), payload]);
 
     // An account that mirrors this pointer must never be left showing an older one: once it
     // exists it is kept up to date with every write, whatever the settings say now.
-    // (so a write that cannot find out whether there is one does not go ahead)
-    const mirror = await this.#account(payer.publicKey, tag).catch((e: Error) => { throw new Error(`could not check whether this pointer is also kept in an account: ${e.message}`); });
+    // (so a write that cannot find out whether there is one does not go ahead, and "there is
+    // none" is believed only when several endpoints say so)
+    const mirror = await this.#account(payer.publicKey, tag, Math.min(Math.max(this.pool.size, 2), 5)).catch((e: Error) => { throw new Error(`could not check whether this pointer is also kept in an account: ${e.message}`); });
+
+    // The sequence number says which pointer is the newest: the time, and always more than the
+    // newest one this key wrote before (also when this computer's clock is behind that writer's).
+    const before = await this.getPointer(tag, [payer.publicKey], { pages: 1 }).then((r) => r?.seq ?? 0n, () => 0n);
+    const seq = [BigInt(Date.now()), before + 1n, (mirror.record?.seq ?? 0n) + 1n].reduce((a, b) => (a > b ? a : b));
+    const head = Buffer.alloc(POINTER_HEAD);
+    head[0] = MAGIC; head[1] = KIND_POINTER; head[2] = POINTER_VERSION;
+    head.writeBigUInt64LE(seq, 3);
+    const data = concat([head, payload]);
+
     const wanted = options.account ?? this.defaults.accounts ?? false;
     if (mirror.exists || wanted) {
-      const fits = payload.length <= ACCOUNT_PAYLOAD_MAX;
-      const budget = (opts.priorityFeeLamports ?? 0) > 0 ? computeBudgetInstructions(ACCOUNT_TX_UNITS, Math.ceil(((opts.priorityFeeLamports ?? 0) * 1e6) / ACCOUNT_TX_UNITS)) : [];
-      const send = (instructions: Instruction[]) => sendAndConfirm(this.pool, (bh) => buildTransaction(payer, [...budget, ...instructions], bh, { version: "legacy" }));
-      // later than anything written before, also when this computer's clock is behind the last writer's
-      const seq = (() => { const now = BigInt(Date.now()); return mirror.record && mirror.record.seq >= now ? mirror.record.seq + 1n : now; })();
+      const fee = opts.priorityFeeLamports ?? 0;
+      const send = (instructions: Instruction[], units = ACCOUNT_TX_UNITS) => {
+        const budget = fee > 0 ? computeBudgetInstructions(units, Math.ceil((fee * 1e6) / units)) : [];
+        return sendAndConfirm(this.pool, (bh) => buildTransaction(payer, [...budget, ...instructions], bh, { version: "legacy" }));
+      };
+      // one transaction carries the pointer and updates the account: both happen or neither does
+      const both = payload.length <= ACCOUNT_PAYLOAD_MAX ? [...dataInstructions(carrier, payer.publicKey, data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))] : null;
+      // (a memo is checked character by character, which the transaction must ask the units for)
+      const units = ACCOUNT_TX_UNITS + (carrier === "memo" && both ? both[0]!.data.length * MEMO_UNITS_PER_CHAR : 0);
+      let fits = both !== null;
+      if (both) {
+        // whether both fit into one transaction depends on the carrier and the fee: try it
+        try { buildTransaction(payer, [...(fee > 0 ? computeBudgetInstructions(units, 1) : []), ...both], Buffer.alloc(32), { version: "legacy" }); } catch { fits = false; }
+      }
       if (fits) {
         if (!mirror.exists) {
           const rent = await this.pool.call<number>("getMinimumBalanceForRentExemption", [ACCOUNT_SPACE]);
           await send(createInstructions(payer.publicKey, tag, rent));
         }
-        // one transaction carries the pointer and updates the account: both happen or neither does
-        return send([...dataInstructions(opts.carrier ?? "noop", payer.publicKey, data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))]);
+        return send(both!, units);
       }
       // too long for the account: it is told to send readers to the transactions, then the pointer is written as usual
       if (mirror.exists) await send([writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, null, seq))]);
     }
 
-    // the key includes the time so that publishing the same pointer twice still creates a new, newer transaction
+    // the key includes the sequence number so that publishing the same pointer twice still creates a new, newer transaction
     const [landed] = await new TxSender(this.pool, payer).sendAll(
-      [{ data, readonlyAccounts: [tag], key: itemKey(concat([data, Buffer.from(String(Date.now()))])) }],
+      [{ data, readonlyAccounts: [tag], key: itemKey(data) }],
       { commitment: opts.commitment, txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier });
     return landed!.signature;
   }
@@ -282,21 +319,22 @@ export class ChainStore {
    * The account that mirrors the pointer of `owner` under `tag`: whether it exists, and the
    * newest valid record that the asked endpoints showed.
    */
-  async #account(owner: Uint8Array, tag: Uint8Array, endpoints = 2): Promise<{ exists: boolean; address: string; lamports: number; record: AccountRecord | null }> {
+  async #account(owner: Uint8Array, tag: Uint8Array, endpoints = 2): Promise<{ exists: boolean; agreed: boolean; address: string; lamports: number; record: AccountRecord | null }> {
     const address = b58encode(accountAddress(owner, tag));
     const params = [address, { encoding: "base64", commitment: "confirmed" }];
-    let answers = await this.pool.callEach<AccountInfo>("getAccountInfo", params, endpoints);
+    let answers = (await this.pool.callEach<AccountInfo>("getAccountInfo", params, endpoints)).filter((a) => a && typeof a === "object");
     // nobody answered in time: the patient, retrying path (a write must know whether the account exists)
     if (!answers.length) answers = [await this.pool.call<AccountInfo>("getAccountInfo", params)];
-    let exists = false, lamports = 0, record: AccountRecord | null = null;
+    let shown = 0, lamports = 0, record: AccountRecord | null = null;
     for (const a of answers) {
       const v = a?.value;
-      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data)) continue;
-      exists = true; lamports = Math.max(lamports, v.lamports);
+      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data) || typeof v.data[0] !== "string") continue;
+      shown++; lamports = Math.max(lamports, Number(v.lamports) || 0);
       const r = decodeRecord(Buffer.from(v.data[0], "base64").subarray(RECORD_HEADER), tag, owner);
       if (r && (!record || r.seq > record.seq)) record = r;
     }
-    return { exists, address, lamports, record };
+    // `agreed`: every endpoint that answered showed the account (none said "there is none")
+    return { exists: shown > 0, agreed: shown > 0 && shown === answers.length, address, lamports, record };
   }
 
   /** Closes the account that mirrors `payer`'s pointer under `tag` and returns the lamports that came back (0 when there is none). */
@@ -314,11 +352,13 @@ export class ChainStore {
     if (expected && (!tx.signatures[0] || !equal(tx.signatures[0], expected))) throw new Error("answer is a different transaction");
     if (verify && !verifyPayerSignature(tx)) throw new Error("invalid signature");
     if (signers && !signers.some((s) => equal(s, tx.accountKeys[0]!))) {
+      // only a genuine transaction by somebody else is a matter of trust; a forged one is a faulty endpoint, and the next is asked
+      if (!verify && !verifyPayerSignature(tx)) throw new Error("invalid signature");
       throw new TrustError(`transaction ${b58encode(tx.signatures[0]!)} was not published by a trusted key (it was paid by ${b58encode(tx.accountKeys[0]!)})`);
     }
   }
 
-  async #fetchTx(signature: string, opts: GetOptions, verify = true): Promise<{ tx: ParsedTx; result: TxResult }> {
+  async #fetchTx(signature: string, opts: GetOptions, verify = true, attempts?: number): Promise<{ tx: ParsedTx; result: TxResult }> {
     if (opts.signal?.aborted) throw new Error("download aborted");
     const expected = b58decodeFixed(signature, SIG, "signature");
     let good: { tx: ParsedTx; result: TxResult } | null = null, untrusted: TrustError | null = null, problem = "";
@@ -342,7 +382,7 @@ export class ChainStore {
       }
     };
     try {
-      await this.pool.call<TxResult>("getTransaction", [signature, { encoding: "base64", maxSupportedTransactionVersion: 1, commitment: "confirmed" }], { accept, batch: true });
+      await this.pool.call<TxResult>("getTransaction", [signature, { encoding: "base64", maxSupportedTransactionVersion: 1, commitment: "confirmed" }], { accept, batch: true, ...(attempts && { attempts }) });
     } catch (e) {
       throw new Error(`could not get a valid copy of transaction ${signature}: ${problem || (e as Error).message}`);
     }
@@ -387,6 +427,10 @@ export class ChainStore {
   async get(ref: string | ObjectRef, opts: GetOptions = {}): Promise<Buffer> {
     const sig = typeof ref === "string" ? ref : ref.sig;
     const wantSha = (typeof ref === "string" ? opts.sha256 : ref.sha256)?.toLowerCase();
+    // (it becomes a file name in the cache, and it may come from a catalog or a share: nothing but a hash may pass)
+    if (wantSha !== undefined && !/^[0-9a-f]{64}$/.test(wantSha)) throw new Error(`"${String(wantSha).slice(0, 80)}" is not a SHA-256`);
+    const wantSize = typeof ref === "string" ? null : ref.size;
+    if (wantSize !== null && (!Number.isSafeInteger(wantSize) || wantSize < 0)) throw new Error("an object's size must be a whole number");
     const cacheFile = opts.cacheDir && wantSha ? path.join(opts.cacheDir, wantSha) : null;
     if (cacheFile && fs.existsSync(cacheFile)) {
       const cached = fs.readFileSync(cacheFile);
@@ -403,7 +447,7 @@ export class ChainStore {
       out = Buffer.from(head.subarray(3));
       opts.onProgress?.({ total: 1, done: 1, bytes: out.length, size: out.length });
     } else if (head[1] === KIND_HEAD) {
-      out = await this.#getTree(sig, head, wantSha, opts, false);
+      out = await this.#getTree(sig, head, wantSha, wantSize, opts, false);
     } else {
       throw new Error(`${sig} is not the head of an object`);
     }
@@ -419,17 +463,22 @@ export class ChainStore {
     return out;
   }
 
-  async #getTree(sig: string, head: Buffer, wantSha: string | undefined, opts: GetOptions, secondTry: boolean): Promise<Buffer> {
+  async #getTree(sig: string, head: Buffer, wantSha: string | undefined, wantSize: number | null, opts: GetOptions, secondTry: boolean): Promise<Buffer> {
     if (head.length < HEAD_FIXED + SIG || (head.length - HEAD_FIXED) % SIG) throw new Error(`malformed head ${sig}`);
     const depth = head[3]!, leafSize = head.readUInt16LE(4), size = Number(head.readBigUInt64LE(6));
     const digest = head.subarray(14, 46), hint = head.subarray(46, 46 + SIG);
     if (wantSha && toHex(digest) !== wantSha) throw new Error(`object ${sig} is not the expected content (sha256 differs)`);
-    if (depth < 1 || depth > 8 || leafSize < 1 || size < 1) throw new Error(`malformed head ${sig}`);
+    if (depth < 1 || depth > 8 || leafSize < MIN_LEAF || size < 1) throw new Error(`malformed head ${sig}`);
+    // the size is checked before anything is set aside for it: a head can claim any number
+    if (wantSize !== null && size !== wantSize) throw new Error(`object ${sig} has ${size} bytes, expected ${wantSize}`);
+    const limit = opts.maxSize ?? MAX_OBJECT;
+    if (wantSize === null && size > limit) throw new Error(`object ${sig} claims ${size} bytes, more than the ${limit} accepted here`);
     const leafCount = Math.ceil(size / leafSize);
     const split = (b: Buffer) => { const r: Buffer[] = []; for (let at = 0; at < b.length; at += SIG) r.push(b.subarray(at, at + SIG)); return r; };
 
     // resume support: partial data + the list of leaves already written
-    const partBase = opts.cacheDir ? path.join(opts.cacheDir, `${toHex(digest)}.part`) : null;
+    // (named after the object as well as the content: the same content stored twice has different pieces)
+    const partBase = opts.cacheDir ? path.join(opts.cacheDir, `${toHex(digest)}.${sig.slice(0, 16)}.part`) : null;
     const wipe = () => { if (partBase) for (const ext of [".data", ".done", ".sigs"]) fs.rmSync(partBase + ext, { force: true }); };
     if (opts.cacheDir) fs.mkdirSync(opts.cacheDir, { recursive: true });
     const out = Buffer.alloc(size);
@@ -480,7 +529,15 @@ export class ChainStore {
       if (opts.signal?.aborted) throw new Error("download aborted");
 
       /** Payload of a tree node: from the block cache when present, otherwise fetched by signature. */
-      const node = async (s: Buffer, kind: number, verify: boolean): Promise<{ data: Buffer; tx: ParsedTx }> => {
+      // (one piece may be listed many times, by a file with repeated content or by a hostile head: it is fetched once)
+      const fetched = new Map<string, Promise<{ data: Buffer; tx: ParsedTx }>>();
+      const node = (s: Buffer, kind: number, verify: boolean): Promise<{ data: Buffer; tx: ParsedTx }> => {
+        const id = `${key(s)}${kind}${verify ? "v" : ""}`;
+        let p = fetched.get(id);
+        if (!p) { p = fetchNode(s, kind, verify); fetched.set(id, p); p.catch(() => { if (fetched.get(id) === p) fetched.delete(id); }); }
+        return p;
+      };
+      const fetchNode = async (s: Buffer, kind: number, verify: boolean): Promise<{ data: Buffer; tx: ParsedTx }> => {
         let tx = blocks.get(key(s));
         if (tx && verify && !verifyPayerSignature(tx)) tx = undefined;
         tx ??= (await this.#fetchTx(b58encode(s), opts, verify)).tx;
@@ -491,10 +548,10 @@ export class ChainStore {
       };
 
       // ---- branches (always signature-checked: they decide which leaves belong to the object)
-      let leafSigs: Buffer[] | null = null;
+      let leafSigs: Buffer[] | null = null, sigsFromDisk = false;
       if (partBase && fs.existsSync(`${partBase}.sigs`)) {
         const s = fs.readFileSync(`${partBase}.sigs`);
-        if (s.length === leafCount * SIG) leafSigs = split(s);
+        if (s.length === leafCount * SIG) { leafSigs = split(s); sigsFromDisk = true; }
       }
       if (!leafSigs) {
         let level = split(head.subarray(HEAD_FIXED));
@@ -503,7 +560,8 @@ export class ChainStore {
           level = [];
           for (const n of nodes) {
             if (!n.data.length || n.data.length % SIG) throw new Error(`malformed branch in object ${sig}`);
-            level.push(...split(n.data));
+            for (const s of split(n.data)) level.push(s);
+            if (level.length > leafCount) throw new Error(`object ${sig} is inconsistent: more pieces than its ${size} bytes need`);
           }
         }
         if (level.length !== leafCount) throw new Error(`object ${sig} is inconsistent: ${level.length} leaves for ${size} bytes`);
@@ -529,9 +587,18 @@ export class ChainStore {
         await Promise.all(indexes.map(async (i) => {
           if (failed) return;
           try {
-            const n = await node(leafSigs![i]!, KIND_LEAF, verify);
+            let n: { data: Buffer; tx: ParsedTx };
+            try {
+              n = await node(leafSigs![i]!, KIND_LEAF, verify);
+              place(i, n.data);
+            } catch (e) {
+              // an unchecked answer that does not fit: probably one faulty endpoint. Ask again, with the signature checked.
+              if (verify || e instanceof TrustError) throw e;
+              blocks.delete(key(leafSigs![i]!));
+              n = await node(leafSigs![i]!, KIND_LEAF, true);
+              place(i, n.data);
+            }
             leafTx[i] = n.tx;
-            place(i, n.data);
             if (done % 64 === 0 || done === leafCount) report();
           } catch (e) { failed ??= e as Error; }
         }));
@@ -539,7 +606,14 @@ export class ChainStore {
       };
       const missing: number[] = [];
       for (let i = 0; i < leafCount; i++) if (!have[i]) missing.push(i);
-      await fetchLeaves(missing, false);
+      try { await fetchLeaves(missing, false); } catch (e) {
+        // the list of pieces came from an earlier, interrupted download: if it is what fails, start clean once
+        if (!sigsFromDisk || secondTry || opts.signal?.aborted) throw e;
+        if (fd !== null) { fs.closeSync(fd); fd = null; }
+        if (doneFd !== null) { fs.closeSync(doneFd); doneFd = null; }
+        wipe();
+        return await this.#getTree(sig, head, wantSha, wantSize, opts, true);
+      }
       report();
 
       if (!equal(sha256(out), digest)) {
@@ -554,7 +628,7 @@ export class ChainStore {
           if (fromDisk > 0 && !secondTry) {
             if (fd !== null) { fs.closeSync(fd); fd = null; }
             if (doneFd !== null) { fs.closeSync(doneFd); doneFd = null; }
-            return await this.#getTree(sig, head, wantSha, opts, true);
+            return await this.#getTree(sig, head, wantSha, wantSize, opts, true);
           }
           throw new Error(`object ${sig} failed verification: the downloaded bytes do not match its SHA-256`);
         }
@@ -571,63 +645,170 @@ export class ChainStore {
    * Newest pointer record under `tag` that was published by one of `signers`.
    * Records by anyone else are ignored, so nobody can redirect your pointer.
    *
-   * "Newest" is a question an endpoint could answer wrongly by being behind, or by hiding the
-   * latest transactions. So several endpoints are asked and their lists are merged: one honest,
-   * up-to-date endpoint is enough to see the newest record. Every candidate is still verified
-   * by signature, so an endpoint cannot add a record, only fail to mention one.
+   * "Newest" is a question an endpoint could answer wrongly: by being behind, by hiding the
+   * latest transactions, or by claiming that an old one is recent. So several endpoints are
+   * asked and their lists are merged, every candidate is verified by signature and must name
+   * the tag, and between candidates the sequence number that their writer signed decides. An
+   * endpoint can then neither add a record nor pass off an old one as the newest; one honest,
+   * up-to-date endpoint is enough.
+   *
+   * Returns null only when the address has no record by these signers. When that cannot be
+   * found out (endpoints fail, or the address is buried under other people's transactions),
+   * it throws: "nothing there" must never be a guess, because writers start over from it.
    */
-  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number; accounts?: boolean } = {}): Promise<PointerRecord | null> {
+  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number; accounts?: boolean; pages?: number } = {}): Promise<PointerRecord | null> {
     // the quick way first: an account that mirrors the pointer, read with one request and
     // checked by the signature inside it. Anything short of a valid record falls through.
+    let inAccount: PointerRecord | null = null;
     if (opts.accounts !== false && signers.length === 1) {
       const a = await this.#account(signers[0]!, tag, opts.endpoints ?? 2).catch(() => null);
-      if (a?.record?.payload) return { payload: a.record.payload, signature: "", slot: 0, blockTime: Number(a.record.seq / 1000n), payer: Buffer.from(signers[0]!), account: a.address };
+      if (a?.record?.payload) {
+        inAccount = { payload: a.record.payload, signature: "", slot: 0, blockTime: Number(a.record.seq / 1000n), payer: Buffer.from(signers[0]!), seq: a.record.seq, account: a.address };
+        if (a.agreed) return inAccount;
+        // one endpoint shows the account and another says there is none (it was closed, or it
+        // is new): the transactions are looked at as well, and the later record is the answer
+      }
     }
-    for await (const record of this.#pointers(tag, signers, opts)) return record;
-    return null;
+    const inTransactions = await this.#newest(tag, signers, opts);
+    if (inAccount && (!inTransactions || inAccount.seq > inTransactions.seq)) return inAccount;
+    return inTransactions;
   }
 
   /**
-   * Every pointer record under `tag`, newest first, whoever wrote it (or only those of
-   * `signers`). For tags that anybody may write to, such as an inbox: what a record says is
-   * for the reader to judge.
+   * Every pointer record on the newest page of `tag`'s history, newest first, whoever wrote it
+   * (or only those of `signers`). For tags that anybody may write to, such as an inbox: what a
+   * record says is for the reader to judge.
    */
   async listPointers(tag: Uint8Array, opts: { limit?: number; endpoints?: number; signers?: Uint8Array[] } = {}): Promise<PointerRecord[]> {
+    const page = await this.#page(tag, Math.min(opts.limit ?? 50, POINTER_PAGE), opts.endpoints ?? 3, undefined, true);
     const all: PointerRecord[] = [];
-    for await (const record of this.#pointers(tag, opts.signers, opts)) all.push(record);
+    for (let at = 0; at < page.candidates.length; at += 16) {
+      const records = await Promise.all(page.candidates.slice(at, at + 16).map((c) => this.#record(c, tag, opts.signers, page.lists > 1)));
+      for (const r of records) if (r) all.push(r);
+    }
     return all;
   }
 
-  async *#pointers(tag: Uint8Array, signers: Uint8Array[] | undefined, opts: { limit?: number; endpoints?: number }): AsyncGenerator<PointerRecord> {
+  /**
+   * One page of the history of `tag`, merged from several endpoints: the signatures that are
+   * candidates for pointer records, newest first, with how many endpoints named each.
+   */
+  async #page(tag: Uint8Array, limit: number, endpoints: number, before: string | undefined, first: boolean): Promise<{ candidates: Candidate[]; lists: number; more: boolean; next: string | undefined }> {
     type Listed = { signature: string; err: unknown; slot?: number };
-    const params = [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }];
-    let lists = (await this.pool.callEach<Listed[]>("getSignaturesForAddress", params, opts.endpoints ?? 3)).filter(Array.isArray);
-    // nobody answered in time: fall back to the patient, retrying path
-    if (!lists.length) lists = [await this.pool.call<Listed[]>("getSignaturesForAddress", params)].filter(Array.isArray);
+    const params = [b58encode(tag), { limit, commitment: "confirmed", ...(before && { before }) }];
+    const usable = (answers: unknown[]) => answers.filter(Array.isArray) as Listed[][];
+    let lists = usable((await this.pool.askEach<Listed[]>("getSignaturesForAddress", params, endpoints)).answers);
+    // One endpoint's word is not enough where there are more: it may not keep history (and say
+    // "nothing"), or be the one that lies about the order. Those that failed are asked again.
+    const need = Math.min(2, this.pool.size);
+    if (lists.length < need) {
+      const again = usable((await this.pool.askEach<Listed[]>("getSignaturesForAddress", params, Math.min(Math.max(this.pool.size, 1), endpoints + 3))).answers);
+      if (again.length > lists.length) lists = again;
+    }
+    // nobody answered in time: the patient, retrying path
+    if (!lists.length) lists = usable([await this.pool.call<Listed[]>("getSignaturesForAddress", params)]);
     if (!lists.length) throw new Error("malformed getSignaturesForAddress answer");
-    const seen = new Map<string, { slot: number; votes: number; order: number }>();
+    // (an endpoint cannot make the reader work through more than was asked for)
+    lists = lists.map((l) => l.slice(0, limit));
+    const seen = new Map<string, Candidate & { claims: number[]; ok: number }>();
     for (const list of lists) {
       list.forEach((entry, order) => {
-        if (!entry || typeof entry.signature !== "string" || entry.err) return;
-        const old = seen.get(entry.signature);
-        if (old) old.votes++; else seen.set(entry.signature, { slot: typeof entry.slot === "number" ? entry.slot : 0, votes: 1, order });
+        if (!entry || typeof entry.signature !== "string" || entry.signature.length > 90) return;
+        let c = seen.get(entry.signature);
+        if (!c) { c = { signature: entry.signature, slot: 0, votes: 0, mentions: 0, order, claims: [], ok: 0 }; seen.set(entry.signature, c); }
+        c.mentions++;
+        // (a transaction that failed on chain holds no record; an endpoint that says so of a good one is outvoted by any that lists it)
+        if (!entry.err) { c.ok++; c.claims.push(typeof entry.slot === "number" ? entry.slot : 0); }
       });
     }
-    const candidates = [...seen.entries()].sort((a, b) => b[1].slot - a[1].slot || a[1].order - b[1].order);
-    for (const [signature, info] of candidates) {
-      try {
-        const { tx, result } = await this.#fetchTx(signature, { signers });
-        const data = ChainStore.#payload(tx);
-        if (!data || data[1] !== KIND_POINTER || data[2] !== FORMAT_VERSION) continue;
-        yield { payload: Buffer.from(data.subarray(3)), signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!) };
-      } catch (e) {
-        if (e instanceof TrustError) continue; // somebody else wrote under this tag: skip it
-        // a signature that only one of several endpoints mentioned and nobody can produce is not a record
-        if (lists.length > 1 && info.votes === 1) continue;
-        throw e;
-      }
+    for (const c of seen.values()) settle(c);
+    const candidates = [...seen.values()].filter((c) => c.ok > 0).sort((a, b) => b.slot - a.slot || a.order - b.order);
+    // Where the next page starts: after the last entry of a full list. Of several, the one most
+    // endpoints agree on (an endpoint that makes up its list must not make the reader skip a stretch).
+    const full = lists.filter((l) => l.length >= limit);
+    let next: Candidate | undefined;
+    for (const l of full) {
+      const last = l[l.length - 1], c = last && typeof last.signature === "string" ? seen.get(last.signature) : undefined;
+      if (c && (!next || c.mentions > next.mentions || (c.mentions === next.mentions && c.slot > next.slot))) next = c;
+    }
+    return { candidates, lists: lists.length, more: !!next, next: next?.signature };
+  }
+
+  /** The pointer record a listed transaction holds, or null when it is none (not a pointer, not under this tag, not by a trusted key). */
+  async #record(c: Candidate, tag: Uint8Array, signers: Uint8Array[] | undefined, several: boolean): Promise<PointerRecord | null> {
+    try {
+      // (a signature that only one of several endpoints named may be made up: it gets a short try)
+      const { tx, result } = await this.#fetchTx(c.signature, { signers }, true, several && c.votes === 1 ? 2 : undefined);
+      // the transaction must name the tag itself: an endpoint could list a pointer from somewhere else under it
+      if (!tx.accountKeys.some((k) => equal(k, tag))) return null;
+      const data = ChainStore.#payload(tx);
+      if (!data || data[1] !== KIND_POINTER) return null;
+      let seq = 0n, payload: Buffer;
+      if (data[2] === 1) payload = Buffer.from(data.subarray(3));
+      else if (data[2] === POINTER_VERSION && data.length >= POINTER_HEAD) { seq = data.readBigUInt64LE(3); payload = Buffer.from(data.subarray(POINTER_HEAD)); }
+      else return null;
+      return { payload, signature: c.signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!), seq };
+    } catch (e) {
+      if (e instanceof TrustError) return null; // somebody else wrote under this tag
+      // a signature that only one of several endpoints mentioned and nobody can produce is not a record
+      if (several && c.votes === 1) return null;
+      throw e;
     }
   }
+
+  /** The newest record by `signers` in the transactions that name `tag`. */
+  async #newest(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number; pages?: number }): Promise<PointerRecord | null> {
+    const pages = Math.max(1, Math.min(opts.pages ?? POINTER_PAGES, POINTER_PAGES));
+    let best: { record: PointerRecord; confirmed: boolean } | null = null;
+    let before: string | undefined;
+    for (let n = 0; n < pages; n++) {
+      const page = await this.#page(tag, n === 0 ? Math.min(opts.limit ?? 50, POINTER_PAGE) : POINTER_PAGE, opts.endpoints ?? 3, before, n === 0);
+      const several = page.lists > 1;
+      // Candidates are looked at from the newest on, a few at a time. A record that several
+      // endpoints listed ends the search: nothing after it is newer. One that a single endpoint
+      // listed (it may be the very latest, or an old one passed off as new) is kept as a
+      // candidate, and the sequence numbers decide between it and the first that is confirmed.
+      let size = 1;
+      while (several && size < page.candidates.length && page.candidates[size - 1]!.votes === 1) size++;
+      for (let at = 0; at < page.candidates.length; at += size, size = Math.min(32, size * 4)) {
+        const window = page.candidates.slice(at, at + size);
+        const records = await Promise.all(window.map((c) => this.#record(c, tag, signers, several)));
+        for (let k = 0; k < window.length; k++) {
+          const record = records[k];
+          if (!record) continue;
+          const confirmed = !several || window[k]!.votes > 1;
+          if (!best || record.seq > best.record.seq || (record.seq === best.record.seq && confirmed && !best.confirmed)) best = { record, confirmed };
+          if (confirmed) return best.record;
+        }
+      }
+      if (!page.more) return best?.record ?? null;
+      before = page.next;
+    }
+    if (best) return best.record;
+    if (opts.pages !== undefined) return null; // the caller asked for a short look only
+    throw new Error(`the newest ${POINTER_PAGES * POINTER_PAGE} transactions under ${b58encode(tag)} are all by other keys, so the pointer kept there cannot be found. (Somebody is flooding this address. Pointers kept in accounts are not affected: chainboot accounts on)`);
+  }
+}
+
+/**
+ * A signature from an address's history. `votes`: how many endpoints agree on where it lies in
+ * the chain (its slot); `mentions`: how many listed it at all.
+ */
+interface Candidate { signature: string; slot: number; votes: number; mentions: number; order: number }
+
+/**
+ * Works out where a candidate lies, from what the endpoints claimed. A slot that at least two
+ * of them name is taken as true. Without that the candidate counts as unconfirmed and is put
+ * as early as any endpoint claimed: it is then looked at before anything is settled, and what
+ * its writer signed decides whether it is the newest.
+ */
+export function settle(c: Candidate & { claims: number[] }): void {
+  const count = new Map<number, number>();
+  for (const s of c.claims) count.set(s, (count.get(s) ?? 0) + 1);
+  let slot = 0, n = 0;
+  for (const [s, k] of count) if (k > n || (k === n && s > slot)) { slot = s; n = k; }
+  c.votes = n >= 2 ? n : 1;
+  c.slot = n >= 2 ? slot : Math.max(0, ...c.claims);
 }
 
 export class TrustError extends Error {

@@ -9,7 +9,7 @@
 //
 // It reads public images. Private images and saves need a wallet's key, and stay out of here.
 // The same file runs in Node 22 (which has the same APIs); that is how it is tested.
-import { xzDecodeBytes } from "../codec/xz-core.ts";
+import { xzDecodeBytes, xzUncompressedSize } from "../codec/xz-core.ts";
 
 // ---------------------------------------------------------------- bytes
 
@@ -99,6 +99,10 @@ const MEMO_PROGRAM = b58decode("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", 32
 /** SPL Record: the program through which a publisher may keep a pointer in an account as well. */
 const RECORD_PROGRAM = b58decode("recr1L3PCGKLbckBqMNcJhuuyU1zgo8nBhfLVsJNwr5", 32);
 const MAGIC = 0xcb, KIND_LEAF = 0x00, KIND_BRANCH = 0x01, KIND_HEAD = 0x02, KIND_INLINE = 0x03, KIND_POINTER = 0x10, FORMAT_VERSION = 1;
+/** Pointers of version 2 carry a sequence number signed by their writer; version 1 (none) is still read. */
+const POINTER_VERSION = 2, POINTER_HEAD = 3 + 8, POINTER_PAGES = 12, POINTER_PAGE = 1000;
+/** Limits on what an object may claim before anything is set aside for it. */
+const MAX_OBJECT = 1 << 30, MIN_LEAF = 64;
 const SIG = 64, HEAD_FIXED = 2 + 1 + 1 + 2 + 8 + 32 + SIG;
 
 interface Tx {
@@ -108,6 +112,8 @@ interface Tx {
   message: Uint8Array;
   /** Instruction data of the Noop call that carries chainboot data, if any. */
   data: Uint8Array | null;
+  /** Every account the transaction names. */
+  keys: Uint8Array[];
 }
 
 function shortU16(buf: Uint8Array, at: number): [number, number] {
@@ -154,7 +160,7 @@ function parseTx(raw: Uint8Array): Tx {
       at += nAcc + len;
     }
     if (signers < 1 || raw.length !== at + SIG * signers || nKeys < 1) throw new Error("malformed v1 transaction");
-    return { signature: raw.subarray(at, at + SIG), payer: key(0)!, message: raw.subarray(0, at), data: found };
+    return { signature: raw.subarray(at, at + SIG), payer: key(0)!, message: raw.subarray(0, at), data: found, keys: Array.from({ length: nKeys }, (_, i) => key(i)!) };
   }
   let [nSig, at] = shortU16(raw, 0);
   need(at + SIG * nSig);
@@ -184,7 +190,7 @@ function parseTx(raw: Uint8Array): Tx {
     at += len;
   }
   if (at !== raw.length || nKeys < 1) throw new Error("malformed transaction");
-  return { signature, payer: key(0)!, message, data: found };
+  return { signature, payer: key(0)!, message, data: found, keys: Array.from({ length: nKeys }, (_, i) => key(i)!) };
 }
 
 function decodeSlots(buf: Uint8Array): number[] {
@@ -221,6 +227,10 @@ export interface Manifest { chainboot: 1; name: string; version: string; arch: s
 export interface FileEntry { path: string; type: "d" | "f" | "l" | "h" | "c" | "b" | "p"; mode?: number; size?: number; target?: string; sha256?: string; pack?: number; offset?: number }
 export interface Progress { done: number; total: number; bytes: number; size: number }
 
+/** A pointer record: what its writer put there, and the sequence number they signed with it (0 for records written before there was one). */
+export interface PointerRecord { payload: Uint8Array; signature: string; slot: number; blockTime: number | null; seq: bigint; account?: string }
+interface Candidate { signature: string; slot: number; votes: number; mentions: number; order: number }
+
 export class TrustError extends Error {
   constructor(message: string) { super(message); this.name = "TrustError"; }
 }
@@ -228,7 +238,11 @@ export class TrustError extends Error {
 function unpack(codec: Codec, data: Uint8Array, rawSize: number): Uint8Array {
   let out: Uint8Array;
   if (codec === "raw") out = data;
-  else if (codec === "xz") out = xzDecodeBytes(data);
+  else if (codec === "xz") {
+    // what the file says about its own size is read first: a small file can claim gigabytes
+    if (xzUncompressedSize(data) !== rawSize) throw new Error("an object does not have the size its reference states");
+    out = xzDecodeBytes(data);
+  }
   else throw new Error(`this object is compressed with "${codec}", which the browser reader does not decode (it reads xz)`);
   if (out.length !== rawSize) throw new Error("an object does not have the size its reference states");
   return out;
@@ -353,20 +367,21 @@ export class Reader {
     if (head[2] !== FORMAT_VERSION) throw new Error(`object ${sig} uses format version ${head[2]}; this reader understands version ${FORMAT_VERSION}`);
     let out: Uint8Array;
     if (head[1] === KIND_INLINE) { out = head.slice(3); opts.onProgress?.({ done: 1, total: 1, bytes: out.length, size: out.length }); }
-    else if (head[1] === KIND_HEAD) out = await this.#tree(sig, head, want, opts);
+    else if (head[1] === KIND_HEAD) out = await this.#tree(sig, head, want, { ...opts, ...(typeof ref !== "string" && ref.size !== undefined && { size: ref.size }) });
     else throw new Error(`${sig} is not the head of an object`);
     if (want && toHex(await sha256(out)) !== want) throw new Error(`object ${sig} is not the expected content (its SHA-256 differs)`);
     if (typeof ref !== "string" && ref.size !== undefined && ref.size !== out.length) throw new Error(`object ${sig} has ${out.length} bytes, expected ${ref.size}`);
     return out;
   }
 
-  async #tree(sig: string, head: Uint8Array, want: string | undefined, opts: { signers?: Uint8Array[]; onProgress?: (p: Progress) => void; signal?: AbortSignal; blocks?: boolean }): Promise<Uint8Array> {
+  async #tree(sig: string, head: Uint8Array, want: string | undefined, opts: { signers?: Uint8Array[]; onProgress?: (p: Progress) => void; signal?: AbortSignal; blocks?: boolean; size?: number }): Promise<Uint8Array> {
     if (head.length < HEAD_FIXED + SIG || (head.length - HEAD_FIXED) % SIG) throw new Error(`malformed head ${sig}`);
     const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
     const depth = head[3]!, leafSize = view.getUint16(4, true), size = Number(view.getBigUint64(6, true));
     const digest = head.subarray(14, 46), hint = head.subarray(46, 46 + SIG);
     if (want && toHex(digest) !== want) throw new Error(`object ${sig} is not the expected content (its SHA-256 differs)`);
-    if (depth < 1 || depth > 8 || leafSize < 1 || size < 1 || size > 2 ** 32) throw new Error(`malformed head ${sig}`);
+    if (depth < 1 || depth > 8 || leafSize < MIN_LEAF || size < 1) throw new Error(`malformed head ${sig}`);
+    if (opts.size !== undefined ? size !== opts.size : size > MAX_OBJECT) throw new Error(`object ${sig} claims ${size} bytes, which is not what was expected`);
     const leafCount = Math.ceil(size / leafSize);
     const split = (b: Uint8Array) => { const r: Uint8Array[] = []; for (let at = 0; at < b.length; at += SIG) r.push(b.subarray(at, at + SIG)); return r; };
     const out = new Uint8Array(size);
@@ -457,15 +472,16 @@ export class Reader {
    * one request per endpoint and accepted only with the owner's signature inside it. Null when
    * there is no account, no valid record, or the record says to look in the transactions.
    */
-  async #accountPointer(tag: Uint8Array, owner: Uint8Array, signal?: AbortSignal): Promise<{ payload: Uint8Array; seq: bigint; address: string } | null> {
+  async #accountPointer(tag: Uint8Array, owner: Uint8Array, signal?: AbortSignal): Promise<{ payload: Uint8Array; seq: bigint; address: string; agreed: boolean } | null> {
     const seed = utf8.encode(`cb${toHex(tag.subarray(0, 15))}`);
     const address = b58encode(await sha256(concat([owner, seed, RECORD_PROGRAM])));
     type Info = { value: { owner: string; data: [string, string] } | null };
-    const answers = await Promise.all(this.#endpoints.slice(0, 2).map(() => this.rpc<Info>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed" }], (a) => !!a && "value" in a, signal).catch(() => null)));
-    let best: { payload: Uint8Array | null; seq: bigint } | null = null;
+    const answers = await this.#each<Info>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed" }], 2, (a) => !!a && typeof a === "object" && "value" in a, signal);
+    let best: { payload: Uint8Array | null; seq: bigint } | null = null, shown = 0;
     for (const a of answers) {
       const v = a?.value;
-      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data)) continue;
+      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data) || typeof v.data[0] !== "string") continue;
+      shown++;
       const d = fromBase64(v.data[0]).subarray(33);
       if (d.length < 78 || d[0] !== MAGIC || d[1] !== 0x11 || d[2] !== 1) continue;
       const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -476,35 +492,142 @@ export class Reader {
       if (!(await verifyEd25519(owner, signed, d.subarray(14 + len, 78 + len)))) continue;
       if (!best || seq > best.seq) best = { payload: flags & 1 ? null : payload.slice(), seq };
     }
-    return best?.payload ? { payload: best.payload, seq: best.seq, address } : null;
+    // `agreed`: every endpoint that answered showed the account (none said "there is none")
+    return best?.payload ? { payload: best.payload, seq: best.seq, address, agreed: shown === answers.length } : null;
   }
 
-  /** The newest pointer record under `tag` that was published by one of `signers`, or null. */
-  async pointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; signal?: AbortSignal; accounts?: boolean } = {}): Promise<{ payload: Uint8Array; signature: string; slot: number; blockTime: number | null; account?: string } | null> {
+  /**
+   * Asks each of the first `count` endpoints the same question, once, and returns the answers
+   * that arrived and passed `ok`. For questions where one endpoint could be behind or lie.
+   */
+  async #each<T>(method: string, params: unknown[], count: number, ok: (result: unknown) => boolean, signal?: AbortSignal): Promise<T[]> {
+    const one = async (url: string): Promise<T | undefined> => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (signal?.aborted) throw new Error("stopped");
+        try {
+          this.requests++;
+          const res = await this.#fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++this.#id, method, params }), signal });
+          if (res.status === 429 || res.status >= 500) { await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); continue; }
+          if (!res.ok) return undefined;
+          const body = await res.json() as { result?: unknown; error?: { message?: string; code?: number } };
+          if (body.error) {
+            if (body.error.code === 429 || /rate|limit|too many/i.test(body.error.message ?? "")) { await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); continue; }
+            return undefined;
+          }
+          return ok(body.result) ? body.result as T : undefined;
+        } catch { if (signal?.aborted) throw new Error("stopped"); }
+      }
+      return undefined;
+    };
+    const answers = await Promise.all(this.#endpoints.slice(0, Math.max(1, count)).map((url) => this.#slot(() => one(url))));
+    return answers.filter((a): a is Awaited<T> => a !== undefined) as T[];
+  }
+
+  /**
+   * The newest pointer record under `tag` that was published by one of `signers`, or null when
+   * there is none. Several endpoints are asked and their lists merged; every candidate is
+   * verified by signature and must name the tag; between candidates, the sequence number their
+   * writer signed decides. (The same rules as chainboot's own reader: see docs/07-format.md.)
+   */
+  async pointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; signal?: AbortSignal; accounts?: boolean } = {}): Promise<PointerRecord | null> {
+    let inAccount: PointerRecord | null = null;
     if (opts.accounts !== false && signers.length === 1) {
       const a = await this.#accountPointer(tag, signers[0]!, opts.signal).catch(() => null);
-      if (a) return { payload: a.payload, signature: "", slot: 0, blockTime: Number(a.seq / 1000n), account: a.address };
-    }
-    type Listed = { signature: string; err: unknown; slot?: number };
-    const params = [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }];
-    // "newest" is a question an endpoint could answer wrongly by being behind: ask up to three and merge
-    const lists = (await Promise.all(this.#endpoints.slice(0, 3).map(() => this.rpc<Listed[]>("getSignaturesForAddress", params, Array.isArray, opts.signal).catch(() => null)))).filter((l): l is Listed[] => Array.isArray(l));
-    if (!lists.length) throw new Error("no endpoint could list the transactions of this address");
-    const seen = new Map<string, { slot: number; order: number }>();
-    for (const list of lists) list.forEach((e, order) => { if (e && typeof e.signature === "string" && !e.err && !seen.has(e.signature)) seen.set(e.signature, { slot: typeof e.slot === "number" ? e.slot : 0, order }); });
-    for (const [signature] of [...seen.entries()].sort((a, b) => b[1].slot - a[1].slot || a[1].order - b[1].order)) {
-      try {
-        const { tx, slot, blockTime } = await this.#tx(b58decode(signature, SIG), signers, true, opts.signal);
-        const data = tx.data;
-        if (!data || data[1] !== KIND_POINTER || data[2] !== FORMAT_VERSION) continue;
-        return { payload: data.slice(3), signature, slot, blockTime };
-      } catch (e) {
-        if (e instanceof TrustError) continue; // somebody else wrote under this tag
-        if (lists.length > 1) continue;
-        throw e;
+      if (a) {
+        inAccount = { payload: a.payload, signature: "", slot: 0, blockTime: Number(a.seq / 1000n), seq: a.seq, account: a.address };
+        if (a.agreed) return inAccount;
       }
     }
-    return null;
+    const inTransactions = await this.#newest(tag, signers, opts);
+    if (inAccount && (!inTransactions || inAccount.seq > inTransactions.seq)) return inAccount;
+    return inTransactions;
+  }
+
+  /** One page of the history of `tag`, merged from up to three endpoints: candidates for pointer records, newest first. */
+  async #page(tag: Uint8Array, limit: number, before: string | undefined, signal?: AbortSignal): Promise<{ candidates: Candidate[]; lists: number; next: string | undefined }> {
+    type Listed = { signature: string; err: unknown; slot?: number };
+    const params = [b58encode(tag), { limit, commitment: "confirmed", ...(before && { before }) }];
+    let lists = await this.#each<Listed[]>("getSignaturesForAddress", params, 3, Array.isArray, signal);
+    // nobody answered at once: the patient path, which goes round the endpoints until one does
+    if (!lists.length) lists = [await this.rpc<Listed[]>("getSignaturesForAddress", params, Array.isArray, signal)];
+    lists = lists.map((l) => l.slice(0, limit));
+    const seen = new Map<string, Candidate & { claims: number[]; ok: number }>();
+    for (const list of lists) {
+      list.forEach((e, order) => {
+        if (!e || typeof e.signature !== "string" || e.signature.length > 90) return;
+        let c = seen.get(e.signature);
+        if (!c) { c = { signature: e.signature, slot: 0, votes: 0, mentions: 0, order, claims: [], ok: 0 }; seen.set(e.signature, c); }
+        c.mentions++;
+        if (!e.err) { c.ok++; c.claims.push(typeof e.slot === "number" ? e.slot : 0); }
+      });
+    }
+    // Where a candidate lies in the chain: a slot that two endpoints name is taken as true;
+    // without that it is unconfirmed and placed as early as any endpoint claimed, so that it
+    // is looked at before anything is settled and its writer's sequence number decides.
+    for (const c of seen.values()) {
+      const count = new Map<number, number>();
+      for (const slot of c.claims) count.set(slot, (count.get(slot) ?? 0) + 1);
+      let slot = 0, n = 0;
+      for (const [x, k] of count) if (k > n || (k === n && x > slot)) { slot = x; n = k; }
+      c.votes = n >= 2 ? n : 1;
+      c.slot = n >= 2 ? slot : Math.max(0, ...c.claims);
+    }
+    const candidates = [...seen.values()].filter((c) => c.ok > 0).sort((a, b) => b.slot - a.slot || a.order - b.order);
+    let next: Candidate | undefined;
+    for (const l of lists.filter((x) => x.length >= limit)) {
+      const last = l[l.length - 1], c = last && typeof last.signature === "string" ? seen.get(last.signature) : undefined;
+      if (c && (!next || c.mentions > next.mentions || (c.mentions === next.mentions && c.slot > next.slot))) next = c;
+    }
+    return { candidates, lists: lists.length, next: next?.signature };
+  }
+
+  /** The pointer record a listed transaction holds, or null when it is none. */
+  async #record(c: Candidate, tag: Uint8Array, signers: Uint8Array[], several: boolean, signal?: AbortSignal): Promise<PointerRecord | null> {
+    try {
+      const { tx, slot, blockTime } = await this.#tx(b58decode(c.signature, SIG), signers, true, signal);
+      // the transaction must name the tag itself: an endpoint could list a pointer from somewhere else under it
+      if (!tx.keys.some((k) => equal(k, tag))) return null;
+      const data = tx.data;
+      if (!data || data[1] !== KIND_POINTER) return null;
+      if (data[2] === 1) return { payload: data.slice(3), signature: c.signature, slot, blockTime, seq: 0n };
+      if (data[2] !== POINTER_VERSION || data.length < POINTER_HEAD) return null;
+      return { payload: data.slice(POINTER_HEAD), signature: c.signature, slot, blockTime, seq: new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(3, true) };
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      if (e instanceof TrustError) return null; // somebody else wrote under this tag
+      // a signature that only one of several endpoints mentioned and nobody can produce is not a record
+      if (several && c.votes === 1) return null;
+      throw e;
+    }
+  }
+
+  async #newest(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; signal?: AbortSignal }): Promise<PointerRecord | null> {
+    let best: { record: PointerRecord; confirmed: boolean } | null = null;
+    let before: string | undefined;
+    for (let n = 0; n < POINTER_PAGES; n++) {
+      const page = await this.#page(tag, n === 0 ? Math.min(opts.limit ?? 50, POINTER_PAGE) : POINTER_PAGE, before, opts.signal);
+      const several = page.lists > 1;
+      // A record that several endpoints listed ends the search. One that a single endpoint
+      // listed (the very latest, or an old one passed off as new) stays a candidate, and the
+      // sequence numbers decide between it and the first that is confirmed.
+      let size = 1;
+      while (several && size < page.candidates.length && page.candidates[size - 1]!.votes === 1) size++;
+      for (let at = 0; at < page.candidates.length; at += size, size = Math.min(16, size * 4)) {
+        const window = page.candidates.slice(at, at + size);
+        const records = await Promise.all(window.map((c) => this.#record(c, tag, signers, several, opts.signal)));
+        for (let k = 0; k < window.length; k++) {
+          const record = records[k];
+          if (!record) continue;
+          const confirmed = !several || window[k]!.votes > 1;
+          if (!best || record.seq > best.record.seq || (record.seq === best.record.seq && confirmed && !best.confirmed)) best = { record, confirmed };
+          if (confirmed) return best.record;
+        }
+      }
+      if (!page.next) return best?.record ?? null;
+      before = page.next;
+    }
+    if (best) return best.record;
+    throw new Error(`the newest ${POINTER_PAGES * POINTER_PAGE} transactions under ${b58encode(tag)} are all by other keys, so the pointer kept there cannot be found`);
   }
 
   // ---- images
@@ -563,6 +686,8 @@ export class Reader {
     const m = JSON.parse(text.decode(raw)) as Manifest;
     if (m?.chainboot !== 1 || !Array.isArray(m.packs) || !Array.isArray(m.tree) || typeof m.name !== "string") throw new Error("the manifest is malformed");
     if (m.digest !== ref.digest) throw new Error(`the manifest of ${m.name} does not match its catalog entry`);
+    // the digest is worked out again from the list of files itself: what the manifest says about itself proves nothing
+    await checkManifest(m);
     if (m.packs.some((p) => p.enc)) throw new Error("this is a private image; the browser reader reads public images only");
     this.#say(`manifest of ${m.name}:${m.version} (${m.arch}): ${m.tree.length} entries, SHA-256 ${ref.sha256.slice(0, 12)}… matches the catalog`);
     return m;
@@ -577,6 +702,55 @@ export class Reader {
     this.#say(`pack ${index + 1}/${manifest.packs.length}: ${p.size} bytes on chain, ${p.rawSize} unpacked, both SHA-256 values match the manifest`);
     return raw;
   }
+}
+
+const isHash = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+
+/**
+ * Checks what a manifest promises, the way chainboot does before it unpacks an image: packs
+ * and nodes are well formed, paths are safe, sorted and unique, every file lies inside its
+ * pack, and the digest is the one that these files (and the start command, if any) give.
+ */
+export async function checkManifest(m: Manifest): Promise<void> {
+  const fail = (why: string): never => { throw new Error(`the manifest of ${String(m.name)} is not valid: ${why}`); };
+  for (const p of m.packs) if (!p || typeof p.sig !== "string" || !isHash(p.sha256) || !isHash(p.rawSha256) || !isCount(p.size) || !isCount(p.rawSize) || !["xz", "zstd", "raw"].includes(p.codec)) fail("malformed pack entry");
+  const sortedAttrs = (x: unknown): Record<string, unknown> | undefined => {
+    if (!x || typeof x !== "object" || !Object.keys(x).length) return undefined;
+    return Object.fromEntries(Object.keys(x).sort().map((k) => [k, (x as Record<string, unknown>)[k]]));
+  };
+  const lines: string[] = ["chainboot-tree-v1"];
+  let prev: Uint8Array | null = null;
+  for (const n of m.tree as unknown[][]) {
+    if (!Array.isArray(n) || typeof n[0] !== "string" || typeof n[1] !== "string") fail("malformed entry");
+    const path = n[0] as string, type = n[1] as string;
+    if (!path || path.startsWith("/") || path.includes("\0") || path.split("/").some((part) => part === "" || part === "." || part === "..")) fail(`unsafe path ${JSON.stringify(path)}`);
+    const bytes = utf8.encode(path);
+    if (prev) {
+      // paths are in the order of their UTF-8 bytes, each once
+      let order = 0;
+      for (let i = 0; i < Math.min(prev.length, bytes.length) && !order; i++) order = prev[i]! - bytes[i]!;
+      if ((order || prev.length - bytes.length) >= 0) fail(`entries are not sorted, or one is there twice, at ${path}`);
+    }
+    prev = bytes;
+    if (type === "f") {
+      const size = n[6], pack = n[8], offset = n[9];
+      if (!isCount(size) || !isHash(n[7]) || !isCount(offset) || !Number.isInteger(pack)) fail(`malformed file entry ${path}`);
+      if (size as number > 0 && (pack as number < 0 || pack as number >= m.packs.length || (offset as number) + (size as number) > m.packs[pack as number]!.rawSize)) fail(`file ${path} points outside its pack`);
+      const x = sortedAttrs(n[10]);
+      lines.push(JSON.stringify(x ? [...n.slice(0, 8), x] : n.slice(0, 8)));
+    } else if (type === "d") {
+      const x = sortedAttrs(n[6]);
+      lines.push(JSON.stringify(x ? [...n.slice(0, 6), x] : n.slice(0, 6)));
+    } else if (["l", "h", "c", "b", "p"].includes(type)) lines.push(JSON.stringify(n));
+    else fail(`unknown entry type ${type} for ${path}`);
+  }
+  const config = m.config as { cmd?: string[]; env?: Record<string, string> } | undefined;
+  const cmd = Array.isArray(config?.cmd) && config.cmd.length ? config.cmd : undefined;
+  const names = Object.keys(config?.env ?? {}).sort();
+  const env = names.length ? Object.fromEntries(names.map((k) => [k, config!.env![k]])) : undefined;
+  if (cmd || env) lines.push(`config ${JSON.stringify({ ...(cmd && { cmd }), ...(env && { env }) })}`);
+  if (toHex(await sha256(utf8.encode(lines.join("\n") + "\n"))) !== m.digest) fail("its digest is not the digest of its content");
 }
 
 /** The entries of an image, as objects. */

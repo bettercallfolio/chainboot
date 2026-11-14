@@ -65,6 +65,7 @@ export function vaultFromKeypair(keypair: Keypair, cluster: Cluster): Vault {
 // (Version 1, written by earlier releases, used the vault key directly: [1][nonce][ciphertext][tag].)
 
 const OBJECT_KEY_INFO = "chainboot-object-v2:";
+const OBJECT_ID_INFO = "chainboot-object-id-v2:";
 
 function objectKeyFor(master: Uint8Array, id: Uint8Array, purpose: string): Buffer {
   return Buffer.from(hkdfSync("sha256", master, id, Buffer.from(OBJECT_KEY_INFO + purpose, "utf8"), 32));
@@ -93,7 +94,12 @@ export function seal(key: Uint8Array, plain: Uint8Array, purpose: string): Buffe
 
 /** Like seal(), and also returns the object's own key (base64), to be noted where the object is listed. */
 export function sealWithKey(key: Uint8Array, plain: Uint8Array, purpose: string): { sealed: Buffer; key: string } {
-  const id = randomBytes(16), nonce = randomBytes(12);
+  // The key id and the nonce come from the vault key and the content itself, not from chance:
+  // sealing the same content again gives the same bytes, so an interrupted upload of it
+  // continues where it stopped instead of being paid for again. Different content gets a
+  // different id, hence a different key; a key is never used for two different texts.
+  const derived = Buffer.from(hkdfSync("sha256", key, createHash("sha256").update(plain).digest(), Buffer.from(OBJECT_ID_INFO + purpose, "utf8"), 28));
+  const id = derived.subarray(0, 16), nonce = derived.subarray(16, 28);
   const objKey = objectKeyFor(key, id, purpose);
   return { sealed: Buffer.concat([Uint8Array.of(2), id, nonce, ...gcmSeal(objKey, nonce, plain, purpose)]), key: objKey.toString("base64") };
 }

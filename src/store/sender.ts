@@ -68,9 +68,14 @@ export function itemKey(data: Uint8Array): string {
   return toHex(sha256(data));
 }
 
+/**
+ * The resume journal: lines of "<key> <signature>" for transactions that landed, and of
+ * "<key> <signature> <last valid block height>" for transactions that were sent and not yet
+ * seen to land. A later line for the same key replaces an earlier one.
+ */
 export class Journal {
   readonly #path: string;
-  readonly #known = new Map<string, string>();
+  readonly #known = new Map<string, { signature: string; lastValid: number | null }>();
   #fd: number | null = null;
 
   constructor(file: string) {
@@ -78,17 +83,30 @@ export class Journal {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     if (fs.existsSync(file)) {
       for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-        const [k, s] = line.split(" ");
-        if (k && s && /^[0-9a-f]{64}$/.test(k) && s.length >= 64) this.#known.set(k, s);
+        const [k, s, h] = line.split(" ");
+        if (!k || !s || !/^[0-9a-f]{64}$/.test(k)) continue;
+        // (a line cut off by a crash must not reach the network as a signature)
+        try { b58decodeFixed(s, 64, "signature"); } catch { continue; }
+        if (h !== undefined && !/^\d{1,15}$/.test(h)) continue;
+        this.#known.set(k, { signature: s, lastValid: h === undefined ? null : Number(h) });
       }
     }
   }
-  get(key: string): string | undefined { return this.#known.get(key); }
+  get(key: string): { signature: string; lastValid: number | null } | undefined { return this.#known.get(key); }
   forget(key: string): void { this.#known.delete(key); }
-  set(key: string, signature: string): void {
-    this.#known.set(key, signature);
+  #write(line: string): void {
     this.#fd ??= fs.openSync(this.#path, "a");
-    fs.writeSync(this.#fd, `${key} ${signature}\n`);
+    fs.writeSync(this.#fd, line);
+  }
+  /** The transaction landed. */
+  set(key: string, signature: string): void {
+    this.#known.set(key, { signature, lastValid: null });
+    this.#write(`${key} ${signature}\n`);
+  }
+  /** The transaction was sent: after an interruption it is looked for before the data is sent (and paid for) again. */
+  sent(key: string, signature: string, lastValid: number): void {
+    this.#known.set(key, { signature, lastValid });
+    this.#write(`${key} ${signature} ${lastValid}\n`);
   }
   close(): void { if (this.#fd !== null) { fs.closeSync(this.#fd); this.#fd = null; } }
 }
@@ -134,29 +152,40 @@ export class TxSender {
     const recheck: Pending[] = [];
     for (let i = 0; i < items.length; i++) {
       const known = journal?.get(items[i]!.key);
-      if (known) recheck.push({ item: items[i]!, index: i, signature: known, raw: "", lastValidBlockHeight: 0, sentAt: 0, lastSendAt: 0, lastCheckAt: 0, sends: 0, confirmedAt: 0 });
+      if (known) recheck.push({ item: items[i]!, index: i, signature: known.signature, raw: "", lastValidBlockHeight: known.lastValid ?? 0, sentAt: 0, lastSendAt: 0, lastCheckAt: 0, sends: 0, confirmedAt: 0 });
       else todo.push(i);
     }
     let done = 0, resent = 0, fee = 0;
+    const pending = new Map<number, Pending>();
     const report = () => opts.onProgress?.({ total: items.length, done, pending: pending.size, resent, feeLamports: fee });
 
-    // signatures recorded by an earlier run: keep those the chain still knows, redo the rest
+    // Signatures recorded by an earlier run: keep those the chain knows, keep waiting for those
+    // that may still land (sending them again would pay twice), redo the rest.
+    if (recheck.length) await this.#refreshHeight();
     for (let at = 0; at < recheck.length; at += 256) {
       const batch = recheck.slice(at, at + 256);
       const st = await this.#statuses(batch.map((p) => p.signature), true);
+      // "unknown" from one endpoint may only mean that it keeps no history: another one is asked before data is sent again
+      const unknown = batch.map((_, i) => i).filter((i) => !st[i]);
+      if (unknown.length && this.#pool.size > 1) {
+        const second = await this.#statuses(unknown.map((i) => batch[i]!.signature), true, true).catch(() => null);
+        if (second) unknown.forEach((i, k) => { st[i] = second[k] ?? null; });
+      }
       batch.forEach((p, i) => {
         const s = st[i];
-        if (s && !s.err && (s.confirmationStatus === "finalized" || (commitment === "confirmed" && s.confirmationStatus === "confirmed"))) { result[p.index] = { signature: p.signature, slot: s.slot }; done++; }
-        else { journal?.forget(p.item.key); todo.push(p.index); }
+        if (s && !s.err && (s.confirmationStatus === "finalized" || (commitment === "confirmed" && s.confirmationStatus === "confirmed"))) { result[p.index] = { signature: p.signature, slot: s.slot }; done++; return; }
+        // sent before the interruption and not failed: it is on its way, or its blockhash has not expired yet
+        const flying = journal!.get(p.item.key)?.lastValid != null && !s?.err && (!!s || this.#height <= p.lastValidBlockHeight + 8);
+        if (flying) { pending.set(p.index, { ...p, sentAt: Date.now(), lastSendAt: Date.now(), lastCheckAt: 0, sends: 12, confirmedAt: s?.confirmationStatus === "confirmed" ? Date.now() : 0 }); return; }
+        journal?.forget(p.item.key); todo.push(p.index);
       });
     }
     todo.sort((a, b) => a - b);
-    const pending = new Map<number, Pending>();
     report();
-    if (!todo.length) { journal?.close(); return result as Landed[]; }
+    if (!todo.length && !pending.size) { journal?.close(); return result as Landed[]; }
 
     const need = todo.length * feePerTx;
-    const have = await this.balance();
+    const have = todo.length ? await this.balance() : need;
     if (have < need) {
       journal?.close();
       throw new Error(`not enough SOL: this needs about ${(need / 1e9).toFixed(4)} SOL in fees but ${this.#payer.address} holds ${(have / 1e9).toFixed(4)} SOL`);
@@ -164,6 +193,8 @@ export class TxSender {
 
     await Promise.all([this.#refreshBlockhash(), this.#refreshHeight()]);
     let stop = false, fatal: Error | null = null, wake: () => void = () => {};
+    // when the network last answered anything: an upload does not wait forever on endpoints that are gone
+    let heard = Date.now();
     const stopped = new Promise<void>((r) => { wake = r; });
     const housekeeping = (async () => {
       let tick = 0;
@@ -172,8 +203,8 @@ export class TxSender {
         if (stop) break;
         tick++;
         try {
-          if (tick % 4 === 0 || !this.#blockhash || Date.now() - this.#blockhash.at > 20_000) await this.#refreshBlockhash();
-          if (tick % 2 === 0) await this.#refreshHeight();
+          if (tick % 4 === 0 || !this.#blockhash || Date.now() - this.#blockhash.at > 20_000) { await this.#refreshBlockhash(); heard = Date.now(); }
+          if (tick % 2 === 0) { await this.#refreshHeight(); heard = Date.now(); }
         } catch { /* stale values are handled by the send loop */ }
       }
     })();
@@ -187,7 +218,8 @@ export class TxSender {
       const tx = buildNoopTransaction(this.#payer, items[index]!.data, bh.hash, { version: opts.txVersion, readonlyAccounts: items[index]!.readonlyAccounts, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier });
       const p: Pending = { item: items[index]!, index, signature: tx.signature, raw: tx.raw.toString("base64"), lastValidBlockHeight: bh.lastValidBlockHeight, sentAt: Date.now(), lastSendAt: Date.now(), lastCheckAt: Date.now() - pollMs / 2, sends: 1, confirmedAt: 0 };
       pending.set(index, p);
-      this.#send(p).catch((e: Error) => {
+      journal?.sent(p.item.key, p.signature, p.lastValidBlockHeight);
+      this.#send(p).then(() => { heard = Date.now(); }, (e: Error) => {
         // not accepted by any endpoint: nothing was paid, simply try again
         if (pending.get(index) === p && !p.confirmedAt) { pending.delete(index); requeue.push(index); }
         if (e instanceof RpcError && e.kind === "invalid") fatal ??= new Error(`the network rejected a transaction: ${e.message}`);
@@ -199,6 +231,7 @@ export class TxSender {
         if (opts.signal?.aborted) throw new Error("upload aborted");
         if (fatal) throw fatal;
         const now = Date.now();
+        if (now - heard > 120_000) throw new Error(`no RPC endpoint has answered for two minutes. ${done} of ${items.length} transactions are stored${journal ? "; run the command again to continue from there" : ""}.`);
         // 1. start new transactions while there is room and the blockhash is fresh
         const fresh = this.#blockhash && now - this.#blockhash.at < 45_000;
         let started = 0;
@@ -209,13 +242,14 @@ export class TxSender {
           launch(index); started++;
         }
         // 2. look at what happened to the ones in flight
-        const waiting = [...pending.values()].filter((p) => now - p.lastCheckAt >= pollMs);
+        // (a transaction that an earlier run sent can only be waited for: it is asked about once a second, not more)
+        const waiting = [...pending.values()].filter((p) => now - p.lastCheckAt >= (p.raw ? pollMs : Math.max(pollMs, 1000)));
         for (const p of waiting) p.lastCheckAt = now;
         const batches: Pending[][] = [];
         for (let at = 0; at < waiting.length; at += 256) batches.push(waiting.slice(at, at + 256));
         await Promise.all(batches.map(async (batch) => {
           let st: (SigStatus | null)[];
-          try { st = await this.#statuses(batch.map((p) => p.signature), false); } catch { return; }
+          try { st = await this.#statuses(batch.map((p) => p.signature), false); heard = Date.now(); } catch { return; }
           batch.forEach((p, i) => {
             if (pending.get(p.index) !== p) return;
             const s = st[i];
@@ -242,10 +276,11 @@ export class TxSender {
               if (Date.now() - p.confirmedAt > 90_000 && !s) { pending.delete(p.index); requeue.push(p.index); resent++; }
               return;
             }
-            if (!s && this.#height > p.lastValidBlockHeight + 8) {
+            if (!s && (this.#height > p.lastValidBlockHeight + 8 || (!p.raw && Date.now() - p.sentAt > resendAfter * 24))) {
               // blockhash expired and the chain does not know the signature: it can never land
+              // (one that an earlier run sent is also given up after two minutes, the time in which any blockhash expires)
               pending.delete(p.index); requeue.push(p.index); resent++;
-            } else if (!s && Date.now() - p.lastSendAt > resendAfter && p.sends < 12) {
+            } else if (!s && p.raw && Date.now() - p.lastSendAt > resendAfter && p.sends < 12) {
               p.lastSendAt = Date.now(); p.sends++;
               this.#send(p).catch(() => {});
             }
@@ -267,9 +302,11 @@ export class TxSender {
     return this.#pool.call("sendTransaction", [p.raw, { encoding: "base64", skipPreflight: true, maxRetries: 0 }], { attempts: 4, timeoutMs: 10_000 });
   }
 
-  async #statuses(signatures: string[], searchHistory: boolean): Promise<(SigStatus | null)[]> {
+  /** `known`: only an answer that knows every signature counts (other endpoints are asked until one does). */
+  async #statuses(signatures: string[], searchHistory: boolean, known = false): Promise<(SigStatus | null)[]> {
+    const accept = (answer: unknown) => { const v = (answer as { value?: unknown[] } | null)?.value; return Array.isArray(v) && v.every((x) => x !== null); };
     const r = await this.#pool.call<{ value: (SigStatus | null)[] }>(
-      "getSignatureStatuses", [signatures, { searchTransactionHistory: searchHistory }], { urgent: true, timeoutMs: 15_000 });
+      "getSignatureStatuses", [signatures, { searchTransactionHistory: searchHistory }], { urgent: true, timeoutMs: 15_000, ...(known && { accept, attempts: Math.min(this.#pool.size, 4) }) });
     if (!Array.isArray(r?.value) || r.value.length !== signatures.length) throw new Error("malformed getSignatureStatuses answer");
     return r.value;
   }
@@ -286,7 +323,7 @@ export async function sendAndConfirm(pool: RpcPool, build: (blockhash: Buffer) =
     const bh = await pool.call<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [{ commitment: "confirmed" }], { urgent: true });
     const tx = build(b58decodeFixed(bh.value.blockhash, 32, "blockhash"));
     try {
-      await pool.call("sendTransaction", [tx.raw.toString("base64"), { encoding: "base64", skipPreflight: false, maxRetries: 3 }], { attempts: 4, timeoutMs: 15_000 });
+      await pool.call("sendTransaction", [tx.raw.toString("base64"), { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }], { attempts: 4, timeoutMs: 15_000 });
     } catch (e) {
       // a simulation failure (no funds, bad account) will not get better by trying again
       if (/simulation failed|insufficient|invalid/i.test((e as Error).message)) throw new Error(`the network rejected the transaction: ${(e as Error).message}`);

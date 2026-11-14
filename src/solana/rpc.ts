@@ -111,6 +111,7 @@ interface Job {
   queued: boolean;  // waiting in a queue right now
   flying: number;   // copies of this call currently in flight
   limited: number;  // how often this call was turned away by a rate limit
+  invalid: number;  // how many endpoints called the request itself wrong
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
 }
@@ -154,6 +155,25 @@ const MAX_BATCH = 64;
 function retryAfter(res: Response): number | undefined {
   const ra = Number(res.headers.get("retry-after"));
   return isFinite(ra) && ra > 0 ? ra * 1000 : undefined;
+}
+
+/** How much an endpoint may send as one answer. (A full block is tens of megabytes.) */
+const MAX_BODY = 512 << 20;
+
+/** Reads an HTTP answer as text, giving up on one that never ends. */
+async function readBody(res: Response): Promise<string> {
+  const reader = res.body?.getReader?.();
+  if (!reader) return res.text();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > MAX_BODY) { void reader.cancel().catch(() => {}); throw new RpcError("server", `the answer is larger than ${MAX_BODY >> 20} MB`); }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 export class RpcPool {
@@ -240,7 +260,7 @@ export class RpcPool {
       const job: Job = {
         method, params, opts, tried: new Set(), rounds: 0, notBefore: 0, lastError: null,
         attemptsLeft: opts.attempts ?? Math.max(8, this.#eps.length * 4),
-        settled: false, queued: true, flying: 0, limited: 0,
+        settled: false, queued: true, flying: 0, limited: 0, invalid: 0,
         resolve: resolve as (v: unknown) => void, reject,
       };
       (opts.urgent ? this.#urgent : this.#queue).push(job);
@@ -419,7 +439,7 @@ export class RpcPool {
             clean = false;
             if (r.kind === "rate-limit") { if (!limited) this.#onFailure(ep, job.method, r); limited = true; this.#forgive(ep, job); }
             else this.#onFailure(ep, job.method, r);
-            if (r.kind === "invalid") this.#settle(job, r); else this.#retry(job, r);
+            if (r.kind === "invalid") this.#invalid(job, r); else this.#retry(job, r);
             return;
           }
           if (job.opts.accept && !job.opts.accept(r)) {
@@ -454,7 +474,7 @@ export class RpcPool {
         this.#onFailure(ep, method, err);
         for (const job of jobs) {
           if (err.kind === "rate-limit") this.#forgive(ep, job);
-          if (err.kind === "invalid") this.#settle(job, err); else this.#retry(job, err);
+          if (err.kind === "invalid") this.#invalid(job, err); else this.#retry(job, err);
         }
       },
     ).finally(() => { clearTimeout(hedge); this.#pump(); });
@@ -475,6 +495,19 @@ export class RpcPool {
     if (job.settled) return;
     job.settled = true;
     if (err) job.reject(err); else job.resolve(result);
+  }
+
+  /**
+   * An endpoint said the request itself is wrong. That is final when a second endpoint says
+   * the same, or when there is nobody else to ask: one endpoint that does not know a parameter
+   * must not fail a call the others can answer.
+   */
+  #invalid(job: Job, err: RpcError): void {
+    job.invalid++;
+    const now = Date.now();
+    const other = this.#eps.some((e) => !e.removed && !job.tried.has(e) && !this.#isUnsupported(e, job.method, now));
+    if (job.invalid >= 2 || !other || job.attemptsLeft <= 0) this.#settle(job, err);
+    else this.#retry(job, err);
   }
 
   #retry(job: Job, err: RpcError): void {
@@ -552,8 +585,9 @@ export class RpcPool {
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(timeoutMs),
         });
-        text = await res.text();
+        text = await readBody(res);
       } catch (e) {
+        if (e instanceof RpcError) throw e;
         const name = (e as Error).name;
         throw new RpcError("network", name === "TimeoutError" || name === "AbortError" ? `timeout after ${timeoutMs} ms` : `network error: ${(e as Error).message}`);
       }
@@ -606,10 +640,17 @@ export class RpcPool {
    * within `timeoutMs`. For questions where one endpoint could be behind or lie about what is newest.
    */
   async callEach<T = unknown>(method: string, params: unknown, count = 3, timeoutMs = 6000): Promise<T[]> {
+    return (await this.askEach<T>(method, params, count, timeoutMs)).answers;
+  }
+
+  /** Like callEach, and also says how many endpoints were asked (so a caller can tell "nobody has it" from "few answered"). */
+  async askEach<T = unknown>(method: string, params: unknown, count = 3, timeoutMs = 6000): Promise<{ answers: T[]; asked: number }> {
     const now = Date.now();
     const usable = this.#eps.filter((e) => !e.removed && !this.#isUnsupported(e, method, now));
     const fit = usable.filter((e) => e.disabledUntil <= now && e.coolUntil <= now);
-    const targets = (fit.length ? fit : usable).slice().sort((a, b) => (a.latency || 400) - (b.latency || 400)).slice(0, Math.max(1, count));
+    // (endpoints that are resting come last, but are asked when the fit ones are too few)
+    const order = [...fit.slice().sort((a, b) => (a.latency || 400) - (b.latency || 400)), ...usable.filter((e) => !fit.includes(e))];
+    const targets = order.slice(0, Math.max(1, count));
     const answers: T[] = [];
     await Promise.all(targets.map(async (ep) => {
       this.#takeTokens(ep, Date.now(), 1);
@@ -617,7 +658,7 @@ export class RpcPool {
       catch (e) { this.#onFailure(ep, method, e as RpcError); }
     }));
     this.#kick();
-    return answers;
+    return { answers, asked: targets.length };
   }
 
   /** Resolves when nothing is queued or in flight (useful in tests and before exit). */
