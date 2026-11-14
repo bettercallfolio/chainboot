@@ -293,6 +293,30 @@ test("two machines of one image can start at the same moment, and a session neve
     assert.ok(fs.existsSync(path.join(dir, "closed")));
     // the next start clears it
     assert.equal(enterMachine(home, "a", startMachine(home, "a"), ["/bin/sh", "-c", "exit 3"]), 3);
+
+    // A start that was interrupted: the machine's first process exists, but the command that
+    // started it ended before it could note the machine as running. (Made here from a running
+    // machine by taking that note away, which leaves exactly what such a command leaves.)
+    const first = initPid(dir)!;
+    const parent = Number(/^PPid:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${first}/status`, "utf8"))![1]);
+    const startOf = (p: number) => { const stat = fs.readFileSync(`/proc/${p}/stat`, "utf8"); return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]; };
+    const gone = (p: number) => { try { const st = fs.readFileSync(`/proc/${p}/stat`, "utf8"); return /\) [ZX] /.test(st); } catch { return true; } };
+    fs.writeFileSync(path.join(dir, "starting"), `${parent} ${startOf(parent)}\n`);
+    fs.rmSync(path.join(dir, "pid"));
+    assert.equal(initPid(dir), null, "no command knows this machine as running");
+    // the next start ends what was left and starts the machine once
+    const second = startMachine(home, "a");
+    assert.notEqual(second, first);
+    assert.ok(gone(first) && gone(parent), "the process of the interrupted start is gone");
+    assert.ok(!fs.existsSync(path.join(dir, "starting")));
+    assert.equal(enterMachine(home, "a", second, ["/bin/sh", "-c", "cat /data/d0/f0"]), 0);
+    // and "stop" ends such a leftover too, although nothing says that the machine runs
+    const parent2 = Number(/^PPid:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${second}/status`, "utf8"))![1]);
+    fs.writeFileSync(path.join(dir, "starting"), `${parent2} ${startOf(parent2)}\n`);
+    fs.rmSync(path.join(dir, "pid"));
+    assert.equal(stopMachine(home, "a"), true);
+    assert.ok(gone(second) && gone(parent2));
+    assert.equal(stopMachine(home, "a"), false);
   } finally {
     for (const n of ["a", "b"]) removeMachine(home, n);
     fs.rmSync(work, { recursive: true, force: true });

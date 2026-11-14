@@ -447,6 +447,26 @@ function lockStart(dir: string, name: string, file = "start.lock"): () => void {
   return () => { fs.rmSync(lock, { recursive: true, force: true }); };
 }
 
+/**
+ * Ends what a start left behind that never finished: the command that was starting the
+ * machine was interrupted (Ctrl+C, a closed terminal) after the machine's first process was
+ * made and before the machine was noted as running. That process would go on for a while with
+ * the machine's files mounted, unknown to every later command; a second start beside it would
+ * mount the same files twice. Called with the start lock held: a start that is still under
+ * way holds that lock, so what is found here belongs to nobody.
+ */
+function endInterrupted(dir: string): void {
+  const note = path.join(dir, "starting");
+  const left = readPid(note);
+  if (left) {
+    // the process leads a group of its own (it was started detached): everything it started goes with it
+    try { process.kill(-left, "SIGKILL"); } catch { try { process.kill(left, "SIGKILL"); } catch { /* already gone */ } }
+    for (let i = 0; i < 100 && readPid(note); i++) sleepMs(50);
+    sleepMs(200); // let the kernel drop its mounts
+  }
+  fs.rmSync(note, { force: true });
+}
+
 /** Unpacks the image if needed, creates the machine's directories and returns what a mount needs. */
 function prepare(home: EngineHome, info: MachineInfo, opts: StartOptions): { dir: string; lower: string; overlay: string; lazy: string } {
   const dir = machineDir(home, info.name);
@@ -519,6 +539,7 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
   try {
     const running = initPid(dir);
     if (running) { if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); return running; }
+    endInterrupted(dir);
     const { lower, overlay, lazy } = prepare(home, info, opts);
     for (const f of ["ready", "failed", "attached", "closed", "pid", "holder", "boot", "netns", "booted", "go", "init.pid"]) fs.rmSync(path.join(dir, f), { force: true });
     if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); else fs.rmSync(path.join(dir, "keep"), { force: true });
@@ -548,6 +569,7 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
         child.unref();
         const holder = started = child.pid;
         if (!holder) throw new Error("could not start the machine (unshare did not run)");
+        fs.writeFileSync(path.join(dir, "starting"), `${holder} ${startTime(holder)}\n`);
         waitReady(dir, name, holder, 60_000);
         pid = Number(fs.readFileSync(path.join(dir, "init.pid"), "utf8"));
         if (!Number.isInteger(pid) || pid <= 1) throw new Error(`machine "${name}" started but its init process was not found`);
@@ -564,6 +586,8 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
         child.unref();
         const unsharePid = started = child.pid;
         if (!unsharePid) throw new Error("could not start the machine (unshare did not run)");
+        // noted the moment it exists: if this command is interrupted before the machine is up, the next one finds it (see endInterrupted)
+        fs.writeFileSync(path.join(dir, "starting"), `${unsharePid} ${startTime(unsharePid)}\n`);
         waitReady(dir, name, unsharePid, lazy ? 40_000 : 10_000);
         // PID 1 of the new namespace is the child of `unshare` (for a lazy machine the image server
         // is a child too: the init is the one that lives in another process namespace than we do)
@@ -575,12 +599,14 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
     } catch (e) {
       // a start that did not complete leaves nothing running: what was started is ended, with everything in it
       if (started) { try { process.kill(-started, "SIGKILL"); } catch { /* already gone */ } }
-      for (const f of ["pid", "holder", "boot", "netns", "init.pid"]) fs.rmSync(path.join(dir, f), { force: true });
+      for (const f of ["pid", "holder", "boot", "netns", "init.pid", "starting"]) fs.rmSync(path.join(dir, f), { force: true });
       throw e;
     } finally {
       fs.closeSync(log);
     }
     fs.writeFileSync(path.join(dir, "pid"), `${pid} ${startTime(pid)}\n`);
+    // the machine is known as running from here on: the note of its start has done its work
+    fs.rmSync(path.join(dir, "starting"), { force: true });
     return pid;
   } finally {
     unlock();
@@ -675,7 +701,8 @@ export function stopMachine(home: EngineHome, name: string): boolean {
 function stopLocked(dir: string): boolean {
   const pid = initPid(dir), holder = readPid(path.join(dir, "holder"));
   fs.rmSync(path.join(dir, "keep"), { force: true });
-  if (!pid) return false;
+  // (a start that was interrupted may have left a machine half up that is not noted as running: it is ended as well)
+  if (!pid) { const left = readPid(path.join(dir, "starting")) !== null; endInterrupted(dir); return left; }
   if (bootKind(dir) === "systemd") {
     // an orderly shutdown first: services stop and write what they hold in memory
     try { process.kill(pid, SIG_POWEROFF); } catch { /* already gone */ }
