@@ -106,8 +106,8 @@ and on Linux. The list below is in rough order of importance.
 
 **Soon**
 
-- Fetch only the files a program actually opens (lazy loading), so even very large systems
-  start in a second.
+- Lazy machines that keep fetching in the background until the image is complete, and
+  lazy variants of the official images for ARM64.
 
 **Later**
 

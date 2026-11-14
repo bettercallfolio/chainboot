@@ -7,7 +7,7 @@ import { decompressAuto, readTar } from "../image/tar.ts";
 import { serializeManifest, type ImageManifest } from "../image/manifest.ts";
 import { hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource, saveConfig, type Config, type Source, networkLabel } from "../local/home.ts";
 import { formatList, isList, parseList, readList, type ListView } from "../registry/lists.ts";
-import { endorseImage, parseImageName, publishImage, pullImage, readCatalog, unlistImage, type Catalog, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
+import { endorseImage, parseImageName, publishImage, pullImage, pullManifest, readCatalog, unlistImage, type Catalog, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
 import { publishPrivateImage, readPrivateCatalog, unlistPrivateImage } from "../registry/private.ts";
 import { Keypair } from "../solana/keys.ts";
 import { loadVault, type Vault } from "../state/vault.ts";
@@ -94,6 +94,17 @@ export async function pull(store: ChainStore, publisher: string, ref: StoredRef 
   return pulled;
 }
 
+/** Fetches only the list of an image's files (for a lazy machine, which gets the contents when they are read). */
+export async function pullList(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean; publisher?: string; key?: string }, label: string): Promise<ImageManifest> {
+  const manifest = await pullManifest(store, publisher, ref, { cacheDir: paths.cache(), vault: ref.private ? loadVault(paths.vault(), loadConfig().cluster) ?? undefined : undefined });
+  const dir = path.join(paths.images(), manifest.digest);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "manifest.json"), serializeManifest(manifest));
+  fs.writeFileSync(path.join(dir, "origin.json"), JSON.stringify({ publisher, ref }, null, 2));
+  info(dim(`${label}: ${manifest.tree.length} entries listed; their contents are fetched as they are read`));
+  return manifest;
+}
+
 export const PUBLISH_HELP = `Usage:
   chainboot publish <rootfs.tar[.gz|.xz|.zst]> --name <name> --version <version> [options]
 
@@ -110,6 +121,13 @@ Options:
   --description <text>   One line shown in "chainboot list"
   --source-url <url>     Where the archive came from (recorded so others can verify it)
   --reuse <image>        Do not store files again that <image> already has on chain; repeatable
+  --lazy                 Store the files in many small packs, by directory, so that a lazy machine
+                         (chainboot run <image> --lazy) fetches only what it opens. The image
+                         gets somewhat larger; everybody can still run it the ordinary way.
+  --start-files <file>   With --lazy: a list of the files a start of the system reads (one path per
+                         line). They are stored first and fetched ahead, so a lazy machine starts
+                         without waiting. A lazy machine writes such a list when it stops:
+                         ~/.chainboot/machines/<name>/lazy-files.txt
   --cmd <command>        Command started by "chainboot run" (default: a root login shell)
   --public               Publish for everyone, unencrypted, in the public catalog of --keypair.
                          Others run it with: chainboot run <your-address>/<name>
@@ -141,11 +159,15 @@ export async function cmdPublish(a: Args): Promise<void> {
     reuse.push((await pull(store!, found.publisher, { ...found.ref, private: found.private }, r)).manifest);
   }
   const cmd = flag(a, "cmd");
+  let startFiles: string[] | undefined;
+  if (flag(a, "start-files")) {
+    try { startFiles = fs.readFileSync(flag(a, "start-files")!, "utf8").split("\n").map((l) => l.trim()).filter(Boolean); } catch (e) { throw new Error(`could not read the list of start files: ${(e as Error).message}`); }
+  }
   const built = buildImage(entries, {
     name, version, arch, description: flag(a, "description"),
     source: { ...(flag(a, "source-url") && { url: flag(a, "source-url") }), sha256: toHex(sha256(packed)) },
     ...(cmd && { config: { cmd: ["/bin/sh", "-c", cmd] } }),
-  }, { reuse, onProgress: note });
+  }, { reuse, onProgress: note, ...((has(a, "lazy") || startFiles) && { layout: "lazy" as const }), ...(startFiles && { startFiles }) });
   const m = built.manifest;
   const manifestBytes = serializeManifest(m).length;
   const newBytes = [...built.newPacks.values()].reduce((n, b) => n + b.length, 0);

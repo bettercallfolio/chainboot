@@ -129,6 +129,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | Reader for browsers (`dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
 | Lists that several publishers keep together (`list:2:A,B,C`, `chainboot endorse`) | Works. Tested on devnet with three keys. |
 | Pointers in accounts (`chainboot accounts on`): one request finds the newest catalog or save | Works. Tested on devnet. |
+| Lazy machines (`chainboot run <image> --lazy`): start at once, fetch files when they are first read | Works. Tested with Solinux, with `sudo` and without administrator rights, also with `--boot`. |
 | Bootable disks (`chainboot disk`): a machine as a UEFI disk with its own kernel | Works. Solinux was built and booted in QEMU with UEFI firmware; **not yet tried on real hardware.** |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |

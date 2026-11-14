@@ -10,7 +10,7 @@ import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, sa
 import { loadVault, type Vault } from "../state/vault.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
 import { readXattrs } from "../util/xattr.ts";
-import { imageRootfs, inMachineFiles, initPid, machineDir, readMachine, stopMachine, type EngineHome } from "./linux.ts";
+import { inMachineFiles, initPid, machineDir, machineLower, readMachine, stopMachine, type EngineHome } from "./linux.ts";
 
 /** What this computer knows about a machine's saved state (machines/<name>/save.json). */
 export interface SaveStatus {
@@ -192,7 +192,7 @@ export async function restoreInner(home: EngineHome, name: string, seq: number |
   if (snap.image.digest !== info.image.digest) throw new Error(`save #${picked} belongs to image ${snap.image.name}:${snap.image.tag} (${snap.image.digest.slice(0, 12)}), but this machine uses ${info.image.digest.slice(0, 12)}`);
   const base = parseManifest(fs.readFileSync(path.join(home.images, info.image.digest, "manifest.json")));
   // content that the image already has is copied from the unpacked image instead of being downloaded again
-  const lower = imageRootfs(home, info.image.digest);
+  const lower = machineLower(home, info);
   const inImage = new Map<string, string>();
   for (const n of base.tree) if (n[1] === "f" && n[6] > 0 && !inImage.has(n[7])) inImage.set(n[7], n[0]);
   const local = (n: FileNode) => inImage.has(n[7]);

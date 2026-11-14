@@ -19,6 +19,7 @@ import { extractImage } from "../image/extract.ts";
 import { parseManifest, type ImageManifest } from "../image/manifest.ts";
 import { loadConfig, paths } from "../local/home.ts";
 import { loadVault, openEither } from "../state/vault.ts";
+import { imageHas, lazyLower } from "./lazy.ts";
 import { inUserNs } from "./rootless.ts";
 
 export interface MachineInfo {
@@ -36,6 +37,11 @@ export interface MachineInfo {
    * starts the system's services, like on a server. It stays up until it is stopped.
    */
   boot?: boolean;
+  /**
+   * True for a lazy machine: its image is not unpacked. A file's content is fetched from the
+   * chain when a program first opens it.
+   */
+  lazy?: boolean;
 }
 
 export interface EngineHome { images: string; machines: string; cache: string }
@@ -178,6 +184,31 @@ while [ "$free" -lt 4 ] || [ -e "$CB_DIR/keep" ]; do
 done
 `;
 
+// For a lazy machine: starts the process that shows the image as a file system at $CB_LOWER and
+// waits until it is there. "$CB_DIR/lazy.sh" runs chainboot's own program; it is given the PID
+// of this shell, which is the process the machine's namespaces hang on, and ends when that does.
+const LAZY_START = String.raw`
+if [ -n "$CB_LAZY" ]; then
+  rm -f "$CB_DIR/lower.ready"
+  sh "$CB_DIR/lazy.sh" $$ </dev/null >>"$CB_DIR/lazy.log" 2>&1 &
+  n=0
+  while [ ! -e "$CB_DIR/lower.ready" ]; do
+    [ ! -e "$CB_DIR/failed" ] || exit 1
+    n=$((n+1)); [ "$n" -le 600 ] || { echo "the image could not be shown as a file system in time (see lazy.log)" > "$CB_DIR/failed"; exit 1; }
+    sleep 0.05
+  done
+fi`;
+
+// Wrapper around INIT_SCRIPT for a lazy machine that does not boot: the image's file system has
+// to be served from outside the machine's process namespace, so the mount namespace is made
+// first, the server started in it, and only then the other namespaces with the init in them.
+const LAZY_PLAIN_SCRIPT = String.raw`
+set -eu
+mount --make-rprivate /
+${LAZY_START}
+exec unshare --uts --ipc --pid --fork --kill-child sh "$CB_DIR/init.sh"
+`;
+
 // ---------------------------------------------------------------- machines that boot
 //
 // Two processes, because two views of the file system are needed:
@@ -191,6 +222,7 @@ set -eu
 fail() { echo "$1" > "$CB_DIR/failed"; exit 1; }
 trap 'fail "machine setup failed (see above)"' EXIT
 mount --make-rprivate /
+${LAZY_START}
 mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$CB_DIR/merged"
 # a control group of its own, which the machine's init manages from here on
 [ -e /sys/fs/cgroup/cgroup.controllers ] || fail "a machine that boots needs cgroup v2, which this computer does not use"
@@ -368,21 +400,36 @@ function lockStart(dir: string, name: string): () => void {
 }
 
 /** Unpacks the image if needed, creates the machine's directories and returns what a mount needs. */
-function prepare(home: EngineHome, info: MachineInfo, opts: StartOptions): { dir: string; lower: string; overlay: string } {
+function prepare(home: EngineHome, info: MachineInfo, opts: StartOptions): { dir: string; lower: string; overlay: string; lazy: string } {
   const dir = machineDir(home, info.name);
-  ensureExtracted(home, info.image.digest, opts.say ?? (() => {}), opts.progress);
-  const lower = imageRootfs(home, info.image.digest);
+  // a lazy machine's image is not unpacked: a server process shows it at <machine>/lower (see lazy.ts)
+  if (!info.lazy) ensureExtracted(home, info.image.digest, opts.say ?? (() => {}), opts.progress);
+  const lower = machineLower(home, info);
   if (/[,:\\]/.test(lower + dir)) throw new Error(`the chainboot directory path may not contain "," ":" or "\\" (${home.machines})`);
-  for (const d of ["upper", "work", "merged", "etc"]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  for (const d of ["upper", "work", "merged", "etc", ...(info.lazy ? ["lower"] : [])]) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  if (info.lazy) {
+    for (const f of ["lower.ready", "failed"]) fs.rmSync(path.join(dir, f), { force: true });
+    // chainboot's own program, as it runs now, started again as the image server
+    const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`;
+    // (CHAINBOOT_SELF names the program when the engine is used as a library, as the tests do)
+    const self = [process.execPath, ...process.execArgv.filter((x) => !x.startsWith("--test")), process.env.CHAINBOOT_SELF ?? process.argv[1]!, "_engine", path.dirname(home.images), "", "lazy-serve", info.name].map(quote).join(" ");
+    fs.writeFileSync(path.join(dir, "lazy.sh"), `exec env UV_THREADPOOL_SIZE=12 ${self} "$1"\n`);
+  }
   // inside a user namespace the overlay keeps its own notes in "user." attributes, the only kind allowed there
-  return { dir, lower, overlay: inUserNs() ? ",userxattr" : "" };
+  return { dir, lower, overlay: inUserNs() ? ",userxattr" : "", lazy: info.lazy ? "1" : "" };
+}
+
+/** Where a machine's image is found as a directory tree: the unpacked copy, or, for a lazy machine, the place its server shows it. */
+export function machineLower(home: EngineHome, info: MachineInfo): string {
+  return info.lazy ? lazyLower(machineDir(home, info.name)) : imageRootfs(home, info.image.digest);
 }
 
 /** True when a file exists in the machine (in its own layer or in its image). */
 function machineHas(home: EngineHome, info: MachineInfo, file: string): boolean {
-  return [path.join(machineDir(home, info.name), "upper"), imageRootfs(home, info.image.digest)].some((layer) => {
-    try { const st = fs.lstatSync(path.join(layer, file)); return st.isFile() || st.isSymbolicLink(); } catch { return false; }
-  });
+  const inLayer = (layer: string) => { try { const st = fs.lstatSync(path.join(layer, file)); return st.isFile() || st.isSymbolicLink(); } catch { return false; } };
+  if (inLayer(path.join(machineDir(home, info.name), "upper"))) return true;
+  // a lazy machine's image is not on disk as files; its manifest says what it contains
+  return info.lazy ? imageHas(home, info.image.digest, file) : inLayer(imageRootfs(home, info.image.digest));
 }
 
 function waitReady(dir: string, name: string, pid: number, timeoutMs: number): void {
@@ -414,13 +461,13 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
   try {
     const running = initPid(dir);
     if (running) { if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); return running; }
-    const { lower, overlay } = prepare(home, info, opts);
+    const { lower, overlay, lazy } = prepare(home, info, opts);
     for (const f of ["ready", "failed", "attached", "pid", "holder", "boot", "netns", "booted", "go", "init.pid"]) fs.rmSync(path.join(dir, f), { force: true });
     if (keep) fs.writeFileSync(path.join(dir, "keep"), ""); else fs.rmSync(path.join(dir, "keep"), { force: true });
     fs.writeFileSync(path.join(dir, "lock"), "");
     fs.writeFileSync(path.join(dir, "etc", "hostname"), `${name}\n`);
     fs.writeFileSync(path.join(dir, "etc", "hosts"), `127.0.0.1 localhost ${name}\n::1 localhost ip6-localhost ip6-loopback\n`);
-    const env: Record<string, string> = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: overlay };
+    const env: Record<string, string> = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: overlay, CB_LAZY: lazy };
     const log = fs.openSync(path.join(dir, "init.log"), "w");
     let pid: number;
     try {
@@ -450,16 +497,20 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
         fs.writeFileSync(path.join(dir, "etc", "resolv.conf"), hostResolvConf());
         // from a file, so that the process list inside the machine shows a short line for PID 1
         fs.writeFileSync(path.join(dir, "init.sh"), INIT_SCRIPT);
-        const child = spawn("unshare", ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", path.join(dir, "init.sh")], {
+        // a lazy machine gets its mount namespace first, with the image server in it; see LAZY_PLAIN_SCRIPT
+        if (lazy) fs.writeFileSync(path.join(dir, "lazy-start.sh"), LAZY_PLAIN_SCRIPT);
+        const child = spawn("unshare", lazy ? ["--mount", "sh", path.join(dir, "lazy-start.sh")] : ["--mount", "--uts", "--ipc", "--pid", "--fork", "--kill-child", "sh", path.join(dir, "init.sh")], {
           detached: true, stdio: ["ignore", log, log], env,
         });
         child.unref();
         const unsharePid = child.pid;
         if (!unsharePid) throw new Error("could not start the machine (unshare did not run)");
-        waitReady(dir, name, unsharePid, 10_000);
-        // PID 1 of the new namespace is the child of `unshare`
+        waitReady(dir, name, unsharePid, lazy ? 40_000 : 10_000);
+        // PID 1 of the new namespace is the child of `unshare` (for a lazy machine the image server
+        // is a child too: the init is the one that lives in another process namespace than we do)
         const kids = fs.readFileSync(`/proc/${unsharePid}/task/${unsharePid}/children`, "utf8").trim().split(/\s+/).filter(Boolean);
-        pid = Number(kids[0]);
+        const pidNs = (p: string) => { try { return fs.readlinkSync(`/proc/${p}/ns/pid`); } catch { return ""; } };
+        pid = Number(kids.find((k) => pidNs(k) && pidNs(k) !== pidNs("self")) ?? kids[0]);
         if (!Number.isInteger(pid) || pid <= 1) throw new Error(`machine "${name}" started but its init process was not found`);
       }
     } finally {
@@ -492,9 +543,9 @@ export function inMachineFiles(home: EngineHome, name: string, command: string[]
   if (running && initPid(dir)) return withLock(running);
   const unlock = lockStart(dir, name);
   try {
-    const { lower, overlay } = prepare(home, info, {});
-    const script = 'set -e; mount --make-rprivate /; mount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$CB_DIR/merged"; shift; exec "$@"';
-    const r = spawnSync("unshare", ["--mount", "sh", "-c", script, "sh", "--", ...command], { stdio, env: { ...process.env, CB_DIR: dir, CB_LOWER: lower, CB_OVERLAY: overlay } });
+    const { lower, overlay, lazy } = prepare(home, info, {});
+    const script = `set -e; mount --make-rprivate /; ${LAZY_START}\nmount -t overlay overlay -o "lowerdir=$CB_LOWER,upperdir=$CB_DIR/upper,workdir=$CB_DIR/work$CB_OVERLAY" "$CB_DIR/merged"; shift; exec "$@"`;
+    const r = spawnSync("unshare", ["--mount", "sh", "-c", script, "sh", "--", ...command], { stdio, env: { ...process.env, CB_DIR: dir, CB_LOWER: lower, CB_OVERLAY: overlay, CB_LAZY: lazy } });
     if (r.error) throw new Error(`could not mount the files of machine "${name}": ${r.error.message}`);
     return r.status ?? 1;
   } finally {

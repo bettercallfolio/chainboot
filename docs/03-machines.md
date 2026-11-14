@@ -128,6 +128,40 @@ What it needs: an image with an init system (Solinux has systemd; `solinux-minim
 a systemd user session, which a normal login gives you. Saving, restoring and exporting work
 the same; a restore stops the machine first.
 
+## Lazy machines: start before the download is done
+
+Normally chainboot downloads a whole image and unpacks it before the first start. A **lazy**
+machine skips both. It gets only the list of the image's files, starts at once, and fetches
+a file's content from the chain when a program first opens it:
+
+```sh
+chainboot run solinux:lazy --lazy --name quick
+```
+
+How it works: beside the machine runs a small server process that shows the image as a file
+system (through the kernel's FUSE interface, which needs no extra software). When something
+reads a file, the server fetches the pack that holds it, checks it against the manifest and
+keeps it in the cache; from then on that file is read from disk. Nothing is unpacked, so a
+large system does not spend ten seconds writing thirty thousand files it may never use.
+
+- **Use an image stored for it.** Any image can be run with `--lazy`, but an ordinary image
+  is stored in a few large packs, and reading one file means fetching the pack it is in.
+  Images published with `--lazy` are stored in many small packs, with the files that a start
+  needs first; those are fetched ahead while the machine comes up. The official images have
+  such a variant under the tag `lazy` (`solinux:lazy`, `solinux-minimal:lazy`; amd64).
+- **The first use of a program can pause** for a moment while its files arrive. After that
+  it is as fast as in any machine, and nothing is fetched twice.
+- **It needs the network while files are still missing.** A machine that has read everything
+  it uses works offline; `chainboot pull <image>` fetches the rest.
+- **Everything else is the same**: changes, saving, restoring, sharing, `--boot`, with or
+  without administrator rights. The server runs outside the machine; programs in the
+  machine neither see it nor can they stop it.
+- **What it reads is written down.** When a lazy machine stops, the list of files it read,
+  in order, is in `~/.chainboot/machines/<name>/lazy-files.txt`. A publisher uses that list
+  to store those files first ([Publishing](05-publishing.md#images-for-lazy-machines)).
+
+Needs `/dev/fuse`, which every mainstream Linux has.
+
 ## From a machine to the disk of a real computer
 
 A machine borrows the kernel of the computer it runs on. A real computer, or a virtual

@@ -169,6 +169,18 @@ export interface PulledImage {
   pack(index: number): Buffer;
 }
 
+/** Downloads (or takes from cache) only the manifest of an image: the list of its files, without their contents. */
+export async function pullManifest(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean; publisher?: string; key?: string }, opts: { cacheDir: string; signal?: AbortSignal; vault?: Vault }): Promise<ImageManifest> {
+  const objects = path.join(opts.cacheDir, "objects");
+  fs.mkdirSync(objects, { recursive: true });
+  let body = await store.get({ sig: ref.sig, sha256: ref.sha256, size: ref.size }, { signers: [addressToBytes(ref.publisher ?? publisher)], cacheDir: objects, signal: opts.signal });
+  if (ref.private && !ref.key && !opts.vault) throw new Error("this is a private image: sign in with the wallet that published it (chainboot login)");
+  if (ref.private) body = openEither(opts.vault?.encKey, ref.key, body, "image-manifest");
+  const manifest = parseManifest(decompress(ref.codec, body, ref.rawSize));
+  if (manifest.digest !== ref.digest) throw new Error(`the manifest of ${manifest.name} does not match its catalog entry`);
+  return manifest;
+}
+
 /** Downloads (or takes from cache) the manifest and all packs of an image, fully verified. */
 export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean; publisher?: string; key?: string }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal; vault?: Vault }): Promise<PulledImage> {
   const key = addressToBytes(ref.publisher ?? publisher);

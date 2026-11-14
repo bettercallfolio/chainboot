@@ -10,6 +10,7 @@ import {
 import { CHECK_NEWER_CLEAN, CHECK_NEWER_CONFLICT, autosaveInBackground, checkInner, exportInner, insideMachine, watchInBackground, watchLoop, readSaveStatus, resetLayer, restoreInner, saveInProgress, saveInner } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
 import { DISK_FILE, DISK_NEEDS_PACKAGES, DISK_NEEDS_PASSWORD, DISK_NO_SPACE, DISK_SCRIPT, DISK_WORK } from "../engine/disk.ts";
+import { lazyServe } from "../engine/lazy.ts";
 import { engineMode, inUserNs, runInUserNs, scopeCommand, support } from "../engine/rootless.ts";
 import { homeDir, hostArch, loadConfig, openStore, paths } from "../local/home.ts";
 import { readIndex } from "../state/snapshot.ts";
@@ -17,7 +18,7 @@ import { loadVault } from "../state/vault.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { fmtBytes } from "../util/bytes.ts";
 import { UsageError, flag, has, type Args } from "./args.ts";
-import { confirm, pull, resolveImage } from "./cmd-image.ts";
+import { confirm, pull, pullList, resolveImage } from "./cmd-image.ts";
 import { ProgressLine, bold, dim, green, info, ok, out, table, yellow } from "./term.ts";
 
 export function engineHome(home = homeDir()): EngineHome {
@@ -87,6 +88,7 @@ changes. Several terminals can be inside one machine at once; it stops when the 
   chainboot run solinux --no-autosave        Create the machine with automatic saving turned off
   chainboot run solinux --fresh              Do not bring back a saved machine of the same name
   chainboot run solinux --boot               A machine that boots like a server (see: chainboot boot --help)
+  chainboot run solinux --lazy               Start at once: files are fetched from the chain when they are first read
 
 Keeping a machine up (for services such as a web server):
   chainboot start <machine>     Start it and keep it running without an open terminal
@@ -121,25 +123,31 @@ export async function cmdRun(a: Args): Promise<void> {
     if (saved) {
       info(`You have a saved machine named ${bold(name)} on chain. Bringing it back instead of starting from scratch.`);
       info(dim(`(To start a new, empty one, use another name: chainboot run ${text} --name <name>)`));
-      if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, { ...saved.image.manifest, digest: saved.image.digest, private: saved.image.private }, `${saved.image.name}:${saved.image.tag}`);
+      const lazy = !!saved.lazy || has(a, "lazy");
+      const savedRef = { ...saved.image.manifest, digest: saved.image.digest, private: saved.image.private }, savedLabel = `${saved.image.name}:${saved.image.tag}`;
+      if (lazy) { if (!listed(home, saved.image.digest, savedRef.sig)) await pullList(store, saved.image.publisher, savedRef, savedLabel); }
+      else if (!imageReady(home, saved.image.digest)) await pull(store, saved.image.publisher, savedRef, savedLabel);
       fs.mkdirSync(machineDir(home, name), { recursive: true });
-      fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created, ...((saved.boot || has(a, "boot")) && { boot: true }) }, null, 2) + "\n");
+      fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created, ...((saved.boot || has(a, "boot")) && { boot: true }), ...(lazy && { lazy: true }) }, null, 2) + "\n");
       if (asRoot(["restore", name, "latest"]) !== 0) throw new Error(`could not restore "${name}". Remove the half-made machine with "chainboot rm ${name}" and try again.`);
       process.exitCode = asRoot(["enter", name, "--", ...command]);
       return;
     }
     const found = await resolveImage(store, c, text, flag(a, "arch") ?? hostArch());
     let digest = found.ref.digest;
-    if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, { ...found.ref, private: found.private }, `${found.name}:${found.tag}`)).manifest.digest;
+    const lazy = has(a, "lazy");
+    if (lazy) { if (!listed(home, digest, found.ref.sig)) digest = (await pullList(store, found.publisher, { ...found.ref, private: found.private }, `${found.name}:${found.tag}`)).digest; }
+    else if (!imageReady(home, digest)) digest = (await pull(store, found.publisher, { ...found.ref, private: found.private }, `${found.name}:${found.tag}`)).manifest.digest;
     const r = found.ref;
     machine = {
       name, created: Math.floor(Date.now() / 1000),
       image: { publisher: r.publisher ?? found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, ...(found.private && { private: true }), manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize, ...(r.key && { key: r.key }) } },
       ...(has(a, "boot") && { boot: true }),
+      ...(lazy && { lazy: true }),
     };
     fs.mkdirSync(machineDir(home, name), { recursive: true });
     fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
-    ok(`created machine ${bold(name)} from ${found.name}:${found.tag}${machine.boot ? " (boots its own system)" : ""}`);
+    ok(`created machine ${bold(name)} from ${found.name}:${found.tag}${machine.boot ? " (boots its own system)" : ""}${machine.lazy ? " (lazy: files are fetched when they are first read)" : ""}`);
     if (has(a, "no-autosave")) asRoot(["autosave", name, "off"]);
   }
   else if (has(a, "boot") && !machine.boot) info(dim(`${name} already exists and does not boot. Change that with: chainboot boot ${name} on`));
@@ -185,6 +193,15 @@ export function cmdBoot(a: Args): void {
   if (value === "on") machine.boot = true; else delete machine.boot;
   fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify(machine, null, 2) + "\n");
   ok(value === "on" ? `${name} boots its own system from the next start on` : `${name} starts with a shell only from the next start on`);
+}
+
+/**
+ * True when the image's list of files (its manifest) is on this computer, as stored under `sig`.
+ * The same image can be on chain in more than one packing (a lazy one and a small one have the
+ * same digest); a lazy machine wants the list that goes with the packing it was asked for.
+ */
+function listed(home: EngineHome, digest: string, sig: string): boolean {
+  try { return fs.existsSync(path.join(home.images, digest, "manifest.json")) && (JSON.parse(fs.readFileSync(path.join(home.images, digest, "origin.json"), "utf8")) as { ref?: { sig?: string } }).ref?.sig === sig; } catch { return false; }
 }
 
 export function cmdMachines(): void {
@@ -345,6 +362,7 @@ export function cmdEngine(argv: string[]): void | Promise<void> {
     try { return /^y(es)?$/i.test((await rl.question(`${q} [y/N] `)).trim()); } finally { rl.close(); }
   };
   if (op === "check-inner") return checkInner(home, name).then((code) => { process.exit(code); });
+  if (op === "lazy-serve") return lazyServe(home, name, Number(rest[0]));
   if (op === "enter") {
     line.start("Unpacking");
     let unpacked = false;

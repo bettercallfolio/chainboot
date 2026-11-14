@@ -91,7 +91,7 @@ export async function getPointer<T>(store: ChainStore, v: Vault, tag: Buffer, pu
 
 // ---- the list of saved machines of a vault
 
-export interface MachineIndex { machines: Record<string, { image: MachineInfo["image"]; created: number; boot?: boolean }> }
+export interface MachineIndex { machines: Record<string, { image: MachineInfo["image"]; created: number; boot?: boolean; lazy?: boolean }> }
 
 export async function readIndex(store: ChainStore, v: Vault): Promise<MachineIndex> {
   const p = await getPointer<object>(store, v, indexTag(v), "index");
@@ -221,7 +221,7 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
   const ref = await putDoc(store, v, stateTag(v, machine.name), "snapshot", snapshot, { seq, time }, { journalDir: opts.journalDir, commitment: opts.commitment });
   if (!prev) {
     const index = await readIndex(store, v);
-    if (!index.machines[machine.name]) { index.machines[machine.name] = { image: machine.image, created: machine.created, ...(machine.boot && { boot: true }) }; await writeIndex(store, v, index, opts.commitment); }
+    if (!index.machines[machine.name]) { index.machines[machine.name] = { image: machine.image, created: machine.created, ...(machine.boot && { boot: true }), ...(machine.lazy && { lazy: true }) }; await writeIndex(store, v, index, opts.commitment); }
   }
   opts.onProgress?.("finishing", 1, 1);
   return { head: { seq, time, ref }, plan };

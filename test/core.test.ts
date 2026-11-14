@@ -666,3 +666,41 @@ test("sender: a transaction that fails on chain is not paid for again and again"
   const data = crypto.randomBytes(20_000);
   assert.ok((await store.get(await store.put(payer, data, { commitment: "confirmed" }))).equals(data));
 });
+
+test("lazy layout: the same image in small packs, with the files a start reads first", async () => {
+  const { buildImage, LAZY_PACK_RAW } = await import("../src/image/build.ts");
+  const { buildInodes } = await import("../src/engine/fuse.ts");
+  const own = { uid: 0, gid: 0, mtime: 1_700_000_000 };
+  const file = (p: string, size: number, mode = 0o644) => ({ path: p, type: "f" as const, mode, ...own, data: crypto.randomBytes(size) });
+  const dir = (p: string) => ({ path: p, type: "d" as const, mode: 0o755, ...own });
+  const entries = [dir("bin"), file("bin/sh", 900_000, 0o755), file("bin/big", 3_000_000, 0o755), dir("etc"), file("etc/passwd", 2_000), file("etc/hosts", 300), dir("usr"), dir("usr/lib"),
+    ...Array.from({ length: 12 }, (_, i) => file(`usr/lib/lib${String(i).padStart(2, "0")}.so`, 1_000_000)), file("usr/lib/libc.so", 2_000_000),
+    { path: "bin/link", type: "l" as const, mode: 0o777, ...own, link: "sh" }, { path: "bin/hard", type: "h" as const, mode: 0o755, ...own, link: "bin/sh" }];
+  const meta = { name: "demo", version: "1", arch: "amd64" };
+  const small = buildImage(entries, meta), lazy = buildImage(entries, meta, { layout: "lazy" });
+  const guided = buildImage(entries, meta, { layout: "lazy", startFiles: ["/usr/lib/libc.so", "bin/sh", "etc/passwd", "not/in/the/image"] });
+  assert.equal(small.manifest.packs.length, 1);
+  assert.equal(lazy.manifest.digest, small.manifest.digest, "the packing does not change what the image is");
+  assert.equal(guided.manifest.digest, small.manifest.digest);
+  assert.ok(lazy.manifest.packs.length >= 5 && lazy.manifest.packs.every((p) => p.rawSize <= LAZY_PACK_RAW), `packs of a few megabytes: ${lazy.manifest.packs.map((p) => p.rawSize)}`);
+  const packOf = (b: typeof lazy, p: string) => (b.manifest.tree.find((n) => n[0] === p) as unknown as unknown[])[8] as number;
+  // by path: neighbours in a directory share a pack
+  assert.equal(packOf(lazy, "etc/passwd"), packOf(lazy, "etc/hosts"));
+  // with a list of start files: exactly those come first, in a pack of their own, in the order given
+  assert.deepEqual(["usr/lib/libc.so", "bin/sh", "etc/passwd"].map((p) => packOf(guided, p)), [0, 0, 0]);
+  assert.equal(guided.manifest.packs[0]!.rawSize, 2_000_000 + 900_000 + 2_000, "nothing else is in the start pack");
+  const offsets = ["usr/lib/libc.so", "bin/sh", "etc/passwd"].map((p) => (guided.manifest.tree.find((n) => n[0] === p) as unknown as unknown[])[9] as number);
+  assert.deepEqual(offsets, [0, 2_000_000, 2_900_000]);
+  assert.ok(packOf(guided, "etc/hosts") > 0 && packOf(guided, "bin/big") > 0);
+
+  // the tree as the lazy file system sees it
+  const inodes = buildInodes(guided.manifest);
+  const root = inodes[0]!;
+  assert.deepEqual([...root.children!.keys()].sort(), ["bin", "etc", "usr"]);
+  const bin = root.children!.get("bin")!;
+  assert.equal(bin.children!.get("hard"), bin.children!.get("sh"), "a hard link is the same inode under a second name");
+  assert.equal(bin.children!.get("sh")!.nlink, 2);
+  assert.equal(bin.children!.get("link")!.target, "sh");
+  assert.equal(root.nlink, 2 + 3, "a directory counts its sub-directories");
+  assert.equal(new Set(inodes.map((i) => i.ino)).size, inodes.length);
+});

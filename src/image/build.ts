@@ -7,6 +7,8 @@ import type { Entry } from "./tar.ts";
 
 /** Largest pack before compression. One pack is one solid stream, so this also bounds memory use. */
 export const MAX_PACK_RAW = 128 << 20;
+/** Raw bytes per pack in the lazy layout: small enough to fetch in a moment, large enough to compress well. */
+export const LAZY_PACK_RAW = 4 << 20;
 
 export interface ImageMeta {
   name: string;
@@ -22,6 +24,20 @@ export interface BuildOptions {
   codec?: Codec;
   /** Manifests of images already on chain: files they contain are referenced instead of stored again. */
   reuse?: ImageManifest[];
+  /**
+   * How the file contents are laid out in packs:
+   *   "small" (default)  few large packs, similar files next to each other: the smallest image
+   *   "lazy"             many packs of a few megabytes, files of one directory together: a
+   *                      reader that fetches only what a program opens gets it in small pieces.
+   *                      Costs some compression (each pack is compressed on its own).
+   */
+  layout?: "small" | "lazy";
+  /**
+   * For the lazy layout: paths (without a leading slash) of the files a start of the system
+   * reads, in that order. They are stored first, in packs of their own, which a lazy machine
+   * fetches before anything asks for them. A lazy machine records such a list as it runs.
+   */
+  startFiles?: string[];
   onProgress?: (text: string) => void;
 }
 
@@ -116,7 +132,13 @@ export function buildImage(input: Entry[], meta: ImageMeta, opts: BuildOptions =
   // 3. order the remaining contents so that similar data sits together: machine code first, then by
   //    file type, bigger files first. (Measured on Ubuntu: this beats archive order and name order.)
   const fresh = [...unique.entries()].filter(([h]) => !where.has(h)).map(([h, e]) => ({ h, e, elf: isElf(e.data!), ext: extension(e.path) }));
-  fresh.sort((a, b) => Number(b.elf) - Number(a.elf) || (a.ext < b.ext ? -1 : a.ext > b.ext ? 1 : 0) || b.e.data!.length - a.e.data!.length || comparePaths(a.e.path, b.e.path));
+  const lazy = opts.layout === "lazy";
+  // (for the lazy layout: by path, so that what a program opens together was stored together)
+  const startRank = new Map((opts.startFiles ?? []).map((p, i) => [p.replace(/^\/+/, ""), i]));
+  const rank = (p: string) => startRank.get(p) ?? Infinity;
+  if (lazy) fresh.sort((a, b) => (rank(a.e.path) === rank(b.e.path) ? 0 : rank(a.e.path) < rank(b.e.path) ? -1 : 1) || comparePaths(a.e.path, b.e.path));
+  else fresh.sort((a, b) => Number(b.elf) - Number(a.elf) || (a.ext < b.ext ? -1 : a.ext > b.ext ? 1 : 0) || b.e.data!.length - a.e.data!.length || comparePaths(a.e.path, b.e.path));
+  const packLimit = lazy ? LAZY_PACK_RAW : MAX_PACK_RAW;
 
   // 4. cut into packs and compress
   const newPacks = new Map<number, Buffer>();
@@ -135,8 +157,11 @@ export function buildImage(input: Entry[], meta: ImageMeta, opts: BuildOptions =
     newPacks.set(index, packed.data);
     group = []; groupSize = 0;
   };
+  let inStart = lazy && startRank.size > 0;
   for (const f of fresh) {
-    if (groupSize && groupSize + f.e.data!.length > MAX_PACK_RAW) flush();
+    // the start files end with a pack boundary: what follows is not fetched ahead with them
+    if (inStart && rank(f.e.path) === Infinity) { flush(); inStart = false; }
+    if (groupSize && groupSize + f.e.data!.length > packLimit) flush();
     group.push(f); groupSize += f.e.data!.length;
   }
   flush();

@@ -159,3 +159,57 @@ test("a machine that boots runs the image's init as PID 1, stays up, and its fil
     fs.rmSync(work, { recursive: true, force: true });
   }
 });
+
+const canLazy = usable && fs.existsSync("/dev/fuse");
+
+test("a lazy machine runs from an image that is not unpacked, and its image server comes and goes with it", { skip: !canLazy && "needs Linux, root and /dev/fuse" }, () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "cb-e2e-lazy-"));
+  const home: EngineHome = { images: path.join(work, "images"), machines: path.join(work, "machines"), cache: path.join(work, "cache") };
+  const rootfs = path.join(work, "rootfs");
+  tinyRootfs(rootfs);
+  fs.symlinkSync("os-release", path.join(rootfs, "etc/release-link"));
+  fs.linkSync(path.join(rootfs, "data/keep/a.txt"), path.join(rootfs, "data/keep/hard.txt"));
+  execFileSync("tar", ["-cf", path.join(work, "rootfs.tar"), "-C", rootfs, "."]);
+  const built = buildImage(readTar(fs.readFileSync(path.join(work, "rootfs.tar"))), { name: "tiny", version: "1", arch: "amd64" }, { layout: "lazy", startFiles: ["bin/sh", "etc/os-release"] });
+  const m = built.manifest;
+  for (const [i, data] of built.newPacks) { m.packs[i]!.sig = "local"; fs.mkdirSync(path.join(home.cache, "objects"), { recursive: true }); fs.writeFileSync(path.join(home.cache, "objects", m.packs[i]!.sha256), data); }
+  fs.mkdirSync(path.join(home.images, m.digest), { recursive: true });
+  fs.writeFileSync(path.join(home.images, m.digest, "manifest.json"), serializeManifest(m));
+  const name = `lazy${process.pid}`;
+  const info: MachineInfo = { name, created: 1, lazy: true, image: { publisher: "local", name: "tiny", tag: "1", arch: "amd64", digest: m.digest, manifest: { sig: "local", sha256: "0".repeat(64), size: 1, codec: "raw", rawSize: 1 } } };
+  const dir = machineDir(home, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "machine.json"), JSON.stringify(info));
+  // the image server is chainboot's own program, started again
+  process.env.CHAINBOOT_SELF = path.join(import.meta.dirname, "../../src/cli/main.ts");
+  const servers = () => spawnSync("pgrep", ["-f", `[l]azy-serve ${name}`]).stdout.toString().trim().split("\n").filter(Boolean).length;
+
+  try {
+    const pid = startMachine(home, name);
+    assert.ok(pid > 1 && initPid(dir) === pid);
+    assert.ok(!fs.existsSync(path.join(home.images, m.digest, "rootfs")), "the image was not unpacked");
+    assert.equal(servers(), 1, "one image server runs beside the machine");
+    const sh = (script: string) => enterMachine(home, name, initPid(dir) ?? startMachine(home, name), ["/bin/sh", "-c", script]);
+    assert.equal(sh('[ "$(cat /etc/os-release)" = NAME=tiny ] && [ "$(cat /etc/release-link)" = NAME=tiny ] && [ "$(cat /data/keep/hard.txt)" = a ] && [ "$(cat /data/old/b.txt)" = b ] && [ "$$" != 1 ]'), 0, "files, a symbolic link and a hard link read as in the image");
+    // (the pattern is written in two pieces so that this very command line does not match it)
+    assert.equal(sh('for p in /proc/[0-9]*; do read c < $p/cmdline 2>/dev/null || true; case "$c" in *lazy-ser""ve*) exit 1 ;; esac; done; exit 0'), 0, "the server is not among the machine's processes");
+    assert.equal(sh("echo new > /root/new.txt && rm /etc/os-release && echo changed > /data/keep/a.txt && cat /data/keep/a.txt > /dev/null"), 0, "the machine's own layer takes the changes");
+    assert.equal(fs.readFileSync(path.join(dir, "upper/root/new.txt"), "utf8"), "new\n");
+    assert.ok(fs.existsSync(path.join(home.cache, "raw", m.packs[0]!.rawSha256)), "the packs that were read are in the cache, verified and decompressed");
+
+    // files of a stopped lazy machine can be reached too (as a save does), with a server of its own for that moment
+    assert.ok(stopMachine(home, name));
+    for (let i = 0; i < 60 && servers(); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    assert.equal(servers(), 0, "the server ended with the machine");
+    assert.equal(sh("[ -e /root/new.txt ] && [ ! -e /etc/os-release ] && [ \"$(cat /data/keep/a.txt)\" = changed ]"), 0, "changes survive a restart");
+    stopMachine(home, name);
+    for (let i = 0; i < 60 && servers(); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    assert.equal(servers(), 0);
+    assert.ok(!fs.readFileSync("/proc/mounts", "utf8").includes(work), "no mount is left on the host");
+    assert.match(fs.readFileSync(path.join(dir, "lazy-files.txt"), "utf8"), /^\/bin\/sh$/m, "what was read is written down for a publisher");
+  } finally {
+    delete process.env.CHAINBOOT_SELF;
+    try { removeMachine(home, name); } catch { /* best effort */ }
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});

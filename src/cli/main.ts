@@ -89,7 +89,7 @@ async function cmdEngineInfo(rest: string[]): Promise<void> {
 interface Command { run: (a: Args) => Promise<void> | void; help: string; options: string[]; booleans?: string[] }
 
 const COMMANDS: Record<string, Command> = {
-  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave", "fresh", "boot"], booleans: ["no-autosave", "fresh", "boot"] },
+  run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave", "fresh", "boot", "lazy"], booleans: ["no-autosave", "fresh", "boot", "lazy"] },
   boot: { run: cmdBoot, help: BOOT_HELP, options: [] },
   share: { run: cmdShare, help: SHARE_HELP, options: ["with", "note", "arch", "yes"], booleans: ["yes"] },
   shared: { run: cmdShared, help: SHARE_HELP, options: ["name", "yes"], booleans: ["yes"] },
@@ -132,7 +132,7 @@ const COMMANDS: Record<string, Command> = {
   accounts: { run: cmdAccounts, help: ACCOUNTS_HELP, options: ["keypair"] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
-  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public"], booleans: ["dry-run", "yes", "private", "public"] },
+  publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public", "lazy", "start-files"], booleans: ["dry-run", "yes", "private", "public", "lazy"] },
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
   publisher: { run: cmdPublisher, help: PUBLISHER_HELP, options: [] },
   endorse: { run: cmdEndorse, help: PUBLISHER_HELP, options: ["keypair", "as", "arch", "yes"], booleans: ["yes"] },

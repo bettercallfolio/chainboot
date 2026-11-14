@@ -137,6 +137,35 @@ A system built on top of Solinux minimal that adds 30 MB of software costs 30 MB
 The reused image can belong to any publisher. Readers check its packs by hash, so they do
 not have to trust that publisher.
 
+## Images for lazy machines
+
+A lazy machine ([Machines](03-machines.md#lazy-machines-start-before-the-download-is-done))
+fetches a file when it is first opened. For that to be quick, the image has to be stored
+differently: in many small packs instead of a few large ones, with files of one directory
+together.
+
+```sh
+chainboot publish rootfs.tar --name mydistro --version 1.0 --lazy
+```
+
+The image gets a little larger, because each small pack is compressed on its own (Solinux
+minimal: 23.3 MB instead of 21.6 MB). It is the same image, with the same digest, and
+everybody can still run it the ordinary way.
+
+Better still, tell chainboot which files a start of your system reads. They are then stored
+first, in packs of their own, and a lazy machine fetches those ahead instead of stumbling
+over them one by one:
+
+```sh
+chainboot run mydistro --lazy --name probe      # use it the way people will: a shell, the package manager, ...
+chainboot stop probe
+chainboot publish rootfs.tar --name mydistro --version 1.0 --lazy \
+    --start-files ~/.chainboot/machines/probe/lazy-files.txt
+```
+
+A common arrangement is to publish both: the ordinary packing under the version and
+`latest`, and the lazy one under its own tag (`--tag lazy`).
+
 ## Updating and removing
 
 Publishing again under the same name and tag moves the tag to the new image. Machines that
