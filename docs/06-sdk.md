@@ -64,7 +64,10 @@ const latest = await store.getPointer(tag, [me.publicKey]);
 console.log(JSON.parse(latest.payload.toString()), latest.slot, latest.blockTime);
 ```
 
-A pointer holds up to about 3.8 kB. For more, store a file and point at it. `getPointer`
+A pointer holds up to about 3.8 kB. For more, store a file and point at it. With
+`new ChainStore(pool, { accounts: true })`, or `putPointer(..., { account: true })`, a pointer
+of up to 400 bytes is also kept in an account, where `getPointer` reads it with one request
+(a deposit of about 0.0033 SOL, returned by `closePointerAccount`). `getPointer`
 asks up to three endpoints which record is the newest and merges the answers, so one endpoint
 that is behind (or hides something) does not decide what you see.
 

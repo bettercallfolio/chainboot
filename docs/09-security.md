@@ -33,6 +33,13 @@ record, and since every record is checked by signature, an endpoint cannot add o
 a reason to configure endpoints of more than one provider: with a single endpoint there is
 nobody to compare with.
 
+**Pointers in accounts.** A publisher or a vault may also keep its newest pointer in an
+account ([Networks and costs](08-networks-and-costs.md#accounts-a-deposit-instead-of-a-fee)).
+What an endpoint says about an account cannot be checked the way a transaction can, so the
+record in the account carries the owner's signature and names its tag: an endpoint can show
+an older record, as it can hide a newer transaction, but it cannot make one up or move one
+to another name. Anything that does not verify is ignored and the transactions are read.
+
 **The network path.** Because of the above, it does not matter who can see or change the
 traffic between you and an endpoint, as far as integrity goes. (They can still see which
 data you fetch.)

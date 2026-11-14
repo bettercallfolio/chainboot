@@ -77,6 +77,29 @@ instead of 0.0013. Without a tip, uploads still complete, because chainboot send
 whatever did not land, but they can take longer. In the SDK: `new ChainStore(pool, {
 priorityFeeLamports })`, or per call.
 
+### Accounts: a deposit instead of a fee
+
+Everything above is about transactions: you pay once and the data is in the ledger. Solana
+has a second kind of storage, **accounts**. An account holds only a current value, every
+endpoint keeps it in memory, and one request reads it. It is not paid for but backed by a
+deposit ("rent") of about 7 SOL per megabyte, which comes back when the account is closed.
+
+That makes accounts wrong for systems (Solinux would need 800 SOL) and right for the few
+small records that are read all the time: the pointers that say "this is my newest catalog"
+or "this is the newest save of this machine". chainboot can keep them in accounts as well:
+
+```sh
+chainboot accounts on            # from now on, pointers you write are also kept in accounts
+chainboot accounts               # show the setting
+chainboot accounts close         # close them and get the deposits back
+```
+
+Each pointer account holds a deposit of about 0.0033 SOL. Readers need no setting: they look
+for the account first, check the owner's signature inside it, and read the transactions as
+before if there is none. The pointer is still written to the ledger too, in the same
+transaction, so nothing depends on the account staying open. chainboot deploys no program
+for this; it uses the SPL Record program, which is on devnet and mainnet.
+
 ## How fast is it
 
 Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):
@@ -89,6 +112,10 @@ Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal 
 
 The public endpoints are meant for light use and limit requests strictly. A free account at
 any provider is the single biggest speed-up.
+
+Finding the newest pointer (the first step of every `list`, `run` and `restore`) takes one
+request when its owner keeps it in an account, instead of a history lookup and a second
+request: on devnet about 0.3 seconds instead of 0.6.
 
 Uploading runs at several hundred transactions per second with a handful of endpoints:
 Solinux minimal takes about 20 seconds, plus 40 seconds to compress it.

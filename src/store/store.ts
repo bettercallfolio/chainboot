@@ -25,8 +25,9 @@ import { b58decodeFixed, b58encode } from "../util/base58.ts";
 import { concat, equal, sha256, toHex } from "../util/bytes.ts";
 import type { Keypair } from "../solana/keys.ts";
 import type { RpcPool } from "../solana/rpc.ts";
-import { NOOP_PROGRAM, noopCapacity, parseTransaction, verifyPayerSignature, type ParsedTx, type TxVersion } from "../solana/tx.ts";
-import { TxSender, itemKey, type Commitment, type Landed, type SendItem, type SenderProgress } from "./sender.ts";
+import { NOOP_PROGRAM, buildTransaction, computeBudgetInstructions, noopCapacity, noopInstruction, parseTransaction, verifyPayerSignature, type Instruction, type ParsedTx, type TxVersion } from "../solana/tx.ts";
+import { ACCOUNT_PAYLOAD_MAX, ACCOUNT_SPACE, RECORD_HEADER, RECORD_PROGRAM, accountAddress, closeInstruction, createInstructions, decodeRecord, encodeRecord, writeInstruction, type AccountRecord } from "./accounts.ts";
+import { TxSender, itemKey, sendAndConfirm, type Commitment, type Landed, type SendItem, type SenderProgress } from "./sender.ts";
 
 export const MAGIC = 0xcb;
 export const KIND_LEAF = 0x00, KIND_BRANCH = 0x01, KIND_HEAD = 0x02, KIND_INLINE = 0x03, KIND_POINTER = 0x10;
@@ -38,6 +39,8 @@ const HINT_MIN_NODES = 16;
 /** Block mode pays off only when a block holds several of the object's transactions. */
 const BLOCK_MODE_MIN_DENSITY = 4;
 const NO_HINT = Buffer.alloc(SIG);
+/** Compute units asked for by the small transactions that create or update a pointer account. */
+const ACCOUNT_TX_UNITS = 60_000;
 
 export interface ObjectRef {
   /** Signature of the head transaction (base58): the address of the object. */
@@ -83,7 +86,22 @@ export interface GetOptions {
 }
 export interface GetProgress { total: number; done: number; bytes: number; size: number }
 
-export interface PointerRecord { payload: Buffer; signature: string; slot: number; blockTime: number | null; payer: Buffer }
+export interface PointerRecord {
+  payload: Buffer;
+  /** Signature of the pointer transaction ("" when the record was read from an account). */
+  signature: string;
+  slot: number; blockTime: number | null; payer: Buffer;
+  /** Address of the account the record was read from, when it came from one. */
+  account?: string;
+}
+
+/** Settings a store applies to every write. */
+export interface StoreDefaults extends TxOptions {
+  /** Also keep new pointers in accounts, where one request reads them (costs a refundable deposit per pointer). */
+  accounts?: boolean;
+}
+
+interface AccountInfo { value: { owner: string; lamports: number; data: [string, string] } | null }
 
 interface TxResult {
   slot: number;
@@ -152,9 +170,9 @@ const key = (sig: Uint8Array) => Buffer.from(sig.buffer, sig.byteOffset, sig.byt
 export class ChainStore {
   readonly pool: RpcPool;
   /** Applied to every write that does not set its own (for example a priority fee from the settings). */
-  readonly defaults: TxOptions;
+  readonly defaults: StoreDefaults;
 
-  constructor(pool: RpcPool, defaults: TxOptions = {}) {
+  constructor(pool: RpcPool, defaults: StoreDefaults = {}) {
     this.pool = pool;
     this.defaults = defaults;
   }
@@ -222,16 +240,68 @@ export class ChainStore {
   }
 
   /** Publishes a small record that can be found again through `tag` (see tagAddress). */
-  async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment } = {}): Promise<string> {
+  async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment; account?: boolean } = {}): Promise<string> {
     const opts = { ...this.defaults, ...options };
     const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1 }) - 3;
     if (payload.length > cap) throw new Error(`pointer payload is ${payload.length} bytes, the limit is ${cap}`);
     const data = concat([Uint8Array.of(MAGIC, KIND_POINTER, FORMAT_VERSION), payload]);
+
+    // An account that mirrors this pointer must never be left showing an older one: once it
+    // exists it is kept up to date with every write, whatever the settings say now.
+    const mirror = await this.#account(payer.publicKey, tag).catch(() => null);
+    const wanted = options.account ?? this.defaults.accounts ?? false;
+    if (mirror?.exists || wanted) {
+      const fits = payload.length <= ACCOUNT_PAYLOAD_MAX;
+      const budget = (opts.priorityFeeLamports ?? 0) > 0 ? computeBudgetInstructions(ACCOUNT_TX_UNITS, Math.ceil(((opts.priorityFeeLamports ?? 0) * 1e6) / ACCOUNT_TX_UNITS)) : [];
+      const send = (instructions: Instruction[]) => sendAndConfirm(this.pool, (bh) => buildTransaction(payer, [...budget, ...instructions], bh, { version: "legacy" }));
+      // later than anything written before, also when this computer's clock is behind the last writer's
+      const seq = (() => { const now = BigInt(Date.now()); return mirror?.record && mirror.record.seq >= now ? mirror.record.seq + 1n : now; })();
+      if (fits) {
+        if (!mirror?.exists) {
+          const rent = await this.pool.call<number>("getMinimumBalanceForRentExemption", [ACCOUNT_SPACE]);
+          await send(createInstructions(payer.publicKey, tag, rent));
+        }
+        // one transaction carries the pointer and updates the account: both happen or neither does
+        return send([noopInstruction(data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))]);
+      }
+      // too long for the account: it is told to send readers to the transactions, then the pointer is written as usual
+      if (mirror?.exists) await send([writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, null, seq))]);
+    }
+
     // the key includes the time so that publishing the same pointer twice still creates a new, newer transaction
     const [landed] = await new TxSender(this.pool, payer).sendAll(
       [{ data, readonlyAccounts: [tag], key: itemKey(concat([data, Buffer.from(String(Date.now()))])) }],
       { commitment: opts.commitment, txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports });
     return landed!.signature;
+  }
+
+  /**
+   * The account that mirrors the pointer of `owner` under `tag`: whether it exists, and the
+   * newest valid record that the asked endpoints showed.
+   */
+  async #account(owner: Uint8Array, tag: Uint8Array, endpoints = 2): Promise<{ exists: boolean; address: string; lamports: number; record: AccountRecord | null }> {
+    const address = b58encode(accountAddress(owner, tag));
+    const params = [address, { encoding: "base64", commitment: "confirmed" }];
+    let answers = await this.pool.callEach<AccountInfo>("getAccountInfo", params, endpoints);
+    // nobody answered in time: the patient, retrying path (a write must know whether the account exists)
+    if (!answers.length) answers = [await this.pool.call<AccountInfo>("getAccountInfo", params)];
+    let exists = false, lamports = 0, record: AccountRecord | null = null;
+    for (const a of answers) {
+      const v = a?.value;
+      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data)) continue;
+      exists = true; lamports = Math.max(lamports, v.lamports);
+      const r = decodeRecord(Buffer.from(v.data[0], "base64").subarray(RECORD_HEADER), tag, owner);
+      if (r && (!record || r.seq > record.seq)) record = r;
+    }
+    return { exists, address, lamports, record };
+  }
+
+  /** Closes the account that mirrors `payer`'s pointer under `tag` and returns the lamports that came back (0 when there is none). */
+  async closePointerAccount(payer: Keypair, tag: Uint8Array): Promise<number> {
+    const a = await this.#account(payer.publicKey, tag, 3);
+    if (!a.exists) return 0;
+    await sendAndConfirm(this.pool, (bh) => buildTransaction(payer, [closeInstruction(payer.publicKey, tag)], bh, { version: "legacy" }));
+    return a.lamports;
   }
 
   // ------------------------------------------------------------------ read
@@ -501,7 +571,13 @@ export class ChainStore {
    * up-to-date endpoint is enough to see the newest record. Every candidate is still verified
    * by signature, so an endpoint cannot add a record, only fail to mention one.
    */
-  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number } = {}): Promise<PointerRecord | null> {
+  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number; accounts?: boolean } = {}): Promise<PointerRecord | null> {
+    // the quick way first: an account that mirrors the pointer, read with one request and
+    // checked by the signature inside it. Anything short of a valid record falls through.
+    if (opts.accounts !== false && signers.length === 1) {
+      const a = await this.#account(signers[0]!, tag, opts.endpoints ?? 2).catch(() => null);
+      if (a?.record?.payload) return { payload: a.record.payload, signature: "", slot: 0, blockTime: Number(a.record.seq / 1000n), payer: Buffer.from(signers[0]!), account: a.address };
+    }
     for await (const record of this.#pointers(tag, signers, opts)) return record;
     return null;
   }

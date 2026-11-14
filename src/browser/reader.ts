@@ -95,6 +95,8 @@ export async function tagAddress(...parts: (string | Uint8Array)[]): Promise<Uin
 // ---------------------------------------------------------------- transactions
 
 const NOOP_PROGRAM = b58decode("noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV", 32);
+/** SPL Record: the program through which a publisher may keep a pointer in an account as well. */
+const RECORD_PROGRAM = b58decode("recr1L3PCGKLbckBqMNcJhuuyU1zgo8nBhfLVsJNwr5", 32);
 const MAGIC = 0xcb, KIND_LEAF = 0x00, KIND_BRANCH = 0x01, KIND_HEAD = 0x02, KIND_INLINE = 0x03, KIND_POINTER = 0x10, FORMAT_VERSION = 1;
 const SIG = 64, HEAD_FIXED = 2 + 1 + 1 + 2 + 8 + 32 + SIG;
 
@@ -440,8 +442,39 @@ export class Reader {
 
   // ---- pointers
 
+  /**
+   * The pointer of `owner` under `tag` as kept in an account, if the owner keeps one: read with
+   * one request per endpoint and accepted only with the owner's signature inside it. Null when
+   * there is no account, no valid record, or the record says to look in the transactions.
+   */
+  async #accountPointer(tag: Uint8Array, owner: Uint8Array, signal?: AbortSignal): Promise<{ payload: Uint8Array; seq: bigint; address: string } | null> {
+    const seed = utf8.encode(`cb${toHex(tag.subarray(0, 15))}`);
+    const address = b58encode(await sha256(concat([owner, seed, RECORD_PROGRAM])));
+    type Info = { value: { owner: string; data: [string, string] } | null };
+    const answers = await Promise.all(this.#endpoints.slice(0, 2).map(() => this.rpc<Info>("getAccountInfo", [address, { encoding: "base64", commitment: "confirmed" }], (a) => !!a && "value" in a, signal).catch(() => null)));
+    let best: { payload: Uint8Array | null; seq: bigint } | null = null;
+    for (const a of answers) {
+      const v = a?.value;
+      if (!v || v.owner !== b58encode(RECORD_PROGRAM) || !Array.isArray(v.data)) continue;
+      const d = fromBase64(v.data[0]).subarray(33);
+      if (d.length < 78 || d[0] !== MAGIC || d[1] !== 0x11 || d[2] !== 1) continue;
+      const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
+      const flags = d[3]!, seq = view.getBigUint64(4, true), len = view.getUint16(12, true);
+      if (len > 400 || d.length < 78 + len) continue;
+      const payload = d.subarray(14, 14 + len);
+      const signed = concat([utf8.encode("chainboot:account-record:v1"), tag, Uint8Array.of(flags), d.subarray(4, 12), payload]);
+      if (!(await verifyEd25519(owner, signed, d.subarray(14 + len, 78 + len)))) continue;
+      if (!best || seq > best.seq) best = { payload: flags & 1 ? null : payload.slice(), seq };
+    }
+    return best?.payload ? { payload: best.payload, seq: best.seq, address } : null;
+  }
+
   /** The newest pointer record under `tag` that was published by one of `signers`, or null. */
-  async pointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; signal?: AbortSignal } = {}): Promise<{ payload: Uint8Array; signature: string; slot: number; blockTime: number | null } | null> {
+  async pointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; signal?: AbortSignal; accounts?: boolean } = {}): Promise<{ payload: Uint8Array; signature: string; slot: number; blockTime: number | null; account?: string } | null> {
+    if (opts.accounts !== false && signers.length === 1) {
+      const a = await this.#accountPointer(tag, signers[0]!, opts.signal).catch(() => null);
+      if (a) return { payload: a.payload, signature: "", slot: 0, blockTime: Number(a.seq / 1000n), account: a.address };
+    }
     type Listed = { signature: string; err: unknown; slot?: number };
     const params = [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }];
     // "newest" is a question an endpoint could answer wrongly by being behind: ask up to three and merge
@@ -471,7 +504,7 @@ export class Reader {
     const key = b58decode(publisher, 32);
     const p = await this.pointer(await tagAddress("catalog", key), [key], { signal });
     if (!p) return { chainboot: 1, kind: "catalog", publisher, updated: 0, images: {} };
-    this.#say(`catalog pointer: signed by ${publisher} (transaction ${p.signature.slice(0, 12)}…)`);
+    this.#say(p.account ? `catalog pointer: signed by ${publisher} (read from account ${p.account.slice(0, 12)}…)` : `catalog pointer: signed by ${publisher} (transaction ${p.signature.slice(0, 12)}…)`);
     const ref = JSON.parse(text.decode(p.payload)) as StoredRef;
     const raw = unpack(ref.codec, await this.object(ref, { signers: [key], signal }), ref.rawSize);
     const cat = JSON.parse(text.decode(raw)) as Catalog;

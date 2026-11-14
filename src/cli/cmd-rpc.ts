@@ -3,6 +3,69 @@ import { loadConfig, rpcUrls, saveConfig, NO_RPC_HELP } from "../local/home.ts";
 import { UsageError, type Args } from "./args.ts";
 import { bold, dim, green, info, ok, out, red, table } from "./term.ts";
 
+export const ACCOUNTS_HELP = `Usage:
+  chainboot accounts                     Show the setting
+  chainboot accounts on | off            Keep new pointers in accounts as well, or not
+  chainboot accounts close [--keypair <file>]
+                                         Close them again and get the deposits back
+
+chainboot stores everything in transactions. To find the newest catalog of a publisher, or
+the newest save of a machine, a reader asks an endpoint for the history of an address, which
+is the slowest question an endpoint answers. With this setting on, each pointer you write is
+also kept in an account: there one request reads it, on every endpoint.
+
+  - Each pointer account holds a deposit of about 0.0033 SOL (Solana calls it rent). It comes
+    back when the account is closed.
+  - Readers need no setting. They look for the account first and check the signature in it;
+    without one they read the transactions as before.
+  - Once an account exists it is kept up to date by every later write, also with the setting
+    off, so it never shows an old pointer. To stop using accounts, close them.
+  - "close" without a keypair closes the accounts of the signed-in wallet's vault (machine
+    list, saves, private catalog); with --keypair, the account of that publisher's catalog.
+
+It uses the SPL Record program, which is on devnet and mainnet.`;
+
+export async function cmdAccounts(a: Args): Promise<void> {
+  const c = loadConfig();
+  const want = a._[0];
+  if (!want) {
+    out(c.accounts ? "New pointers are kept in accounts as well (one request reads them)." : "Pointers are kept in transactions only.");
+    info(dim(c.accounts ? "Turn it off with: chainboot accounts off   Get the deposits back with: chainboot accounts close" : "Turn it on with: chainboot accounts on   (a deposit of about 0.0033 SOL per pointer, returned on close)"));
+    return;
+  }
+  if (want === "on" || want === "off") {
+    if (want === "on") c.accounts = true; else delete c.accounts;
+    saveConfig(c);
+    ok(want === "on" ? "new pointers are kept in accounts as well" : "new pointers are no longer put into accounts");
+    if (want === "off") info(dim("Accounts that exist are still kept up to date. Close them with: chainboot accounts close"));
+    return;
+  }
+  if (want !== "close") throw new UsageError("use: chainboot accounts [on|off|close]");
+  const { openStore, paths } = await import("../local/home.ts");
+  const { loadKeypair } = await import("./cmd-image.ts");
+  const store = await openStore(c, (t) => info(dim(t)));
+  const closed: [string, number][] = [];
+  if (a.flags.has("keypair") || process.env.CHAINBOOT_KEYPAIR) {
+    const { catalogTagOf } = await import("../registry/registry.ts");
+    const payer = loadKeypair(a);
+    closed.push([`catalog of ${payer.address}`, await store.closePointerAccount(payer, catalogTagOf(payer.publicKey))]);
+  } else {
+    const { loadVault } = await import("../state/vault.ts");
+    const { indexTagOf, readIndex, stateTagOf } = await import("../state/snapshot.ts");
+    const { privateTagOf } = await import("../registry/private.ts");
+    const v = loadVault(paths.vault(), c.cluster);
+    if (!v) throw new Error("nobody is signed in. Sign in (chainboot login), or name a publisher's keypair: chainboot accounts close --keypair <file>");
+    const index = await readIndex(store, v);
+    for (const name of Object.keys(index.machines)) closed.push([`save of ${name}`, await store.closePointerAccount(v.signer, stateTagOf(v, name))]);
+    closed.push(["machine list", await store.closePointerAccount(v.signer, indexTagOf(v))]);
+    closed.push(["private catalog", await store.closePointerAccount(v.signer, privateTagOf(v))]);
+  }
+  const done = closed.filter(([, lamports]) => lamports > 0);
+  if (!done.length) { info("There was no pointer account to close."); return; }
+  out(table(done.map(([what, lamports]) => [what, `${(lamports / 1e9).toFixed(6)} SOL`]), ["closed", "deposit returned"]));
+  ok(`${done.length} account(s) closed, ${(done.reduce((n, [, l]) => n + l, 0) / 1e9).toFixed(6)} SOL returned. The pointers stay in the ledger.`);
+}
+
 export const RPC_HELP = `Usage:
   chainboot rpc add <url> [<url> ...]   Add RPC endpoints for the current network
   chainboot rpc list                    Show the endpoints (API keys are hidden)

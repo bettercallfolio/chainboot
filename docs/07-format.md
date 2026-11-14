@@ -109,6 +109,30 @@ anyone else are ignored.
 | `"state"`, vault public key, machine name | vault | encrypted JSON `{ ref, seq, time }` |
 | `"machines"`, vault public key | vault | encrypted JSON `{ ref }` of the machine list |
 
+**Pointers in accounts.** The owner of a pointer may keep it in an account as well, so that
+one `getAccountInfo` reads it. The account belongs to the SPL Record program
+(`recr1L3PCGKLbckBqMNcJhuuyU1zgo8nBhfLVsJNwr5`) and sits at an address anyone can compute:
+
+```
+seed    = "cb" || hex(first 15 bytes of the tag address)                    (32 characters)
+address = SHA-256( owner public key || seed || Record program id )          (as created by createAccountWithSeed)
+```
+
+Its data is the Record program's header (1 byte version, 32 bytes authority) followed by:
+
+```
+0xCB || 0x11 || version (1) || flags || sequence (u64 LE) || length (u16 LE) || payload || Ed25519 signature (64)
+
+signature = owner's signature of "chainboot:account-record:v1" || tag address || flags || sequence || payload
+```
+
+`payload` is what the pointer transaction carries (at most 400 bytes; longer pointers are not
+kept in accounts). Flag bit 0 means "the newest pointer is in the transactions only". The
+sequence is the writer's clock in milliseconds and only ever grows. A reader accepts a record
+only with a valid signature of the expected owner, prefers the highest sequence among the
+endpoints it asked, and otherwise reads the pointer transactions. Writers update the account
+in the same transaction that carries the pointer.
+
 A **stored reference** is JSON: `{ "sig", "sha256", "size", "codec", "rawSize" }`, where
 `sig`, `sha256` and `size` describe the object as stored, `codec` is `"xz"`, `"zstd"` or
 `"raw"`, and `rawSize` is the size after decompression.

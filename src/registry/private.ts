@@ -23,6 +23,8 @@ import type { Catalog, ImageRef, Progress } from "./registry.ts";
 export interface PrivateCatalog { chainboot: 1; kind: "private-catalog"; updated: number; images: Catalog["images"] }
 
 const privateTag = (v: Vault) => tagAddress("private-images", v.signer.publicKey);
+/** The tag under which a vault's newest private catalog is named. */
+export const privateTagOf = privateTag;
 
 /** The signed-in wallet's private images. Empty when it has none. */
 export async function readPrivateCatalog(store: ChainStore, v: Vault): Promise<PrivateCatalog> {

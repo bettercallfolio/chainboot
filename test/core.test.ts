@@ -504,3 +504,86 @@ test("lists: an image counts when enough publishers have the same content; one k
   await assert.rejects(readList(store, spec), /only 1 of the list's 3 catalogs could be read/);
   await assert.rejects(web.list(spec.members, spec.threshold), /only 1 of the list's 3 catalogs could be read/);
 });
+
+test("accounts: a pointer kept in an account is read with one request, cannot be made up, and is never left behind", async () => {
+  const { accountAddress, decodeRecord, encodeRecord, ACCOUNT_PAYLOAD_MAX } = await import("../src/store/accounts.ts");
+  const { Reader, tagAddress: webTag } = await import("../src/browser/reader.ts");
+  const chain = new FakeChain();
+  const pool = () => new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 500 });
+  const fast = new ChainStore(pool(), { accounts: true }), plain = new ChainStore(pool());
+  const owner = Keypair.generate(), stranger = Keypair.generate();
+  const tag = tagAddress("demo", owner.publicKey);
+  const address = b58encode(accountAddress(owner.publicKey, tag));
+  const opts = { commitment: "confirmed" as const };
+
+  // the record itself: only the owner's signature for this tag makes it valid
+  const rec = encodeRecord(owner, tag, Buffer.from("hello"), 5n);
+  assert.deepEqual(decodeRecord(rec, tag, owner.publicKey), { seq: 5n, payload: Buffer.from("hello") });
+  assert.equal(decodeRecord(rec, tag, stranger.publicKey), null);
+  assert.equal(decodeRecord(rec, tagAddress("other", owner.publicKey), owner.publicKey), null, "a record cannot be moved to another tag");
+  assert.equal(decodeRecord(encodeRecord(stranger, tag, Buffer.from("hello"), 9n), tag, owner.publicKey), null);
+  assert.deepEqual(decodeRecord(encodeRecord(owner, tag, null, 6n), tag, owner.publicKey), { seq: 6n, payload: null });
+  assert.throws(() => encodeRecord(owner, tag, Buffer.alloc(ACCOUNT_PAYLOAD_MAX + 1), 1n), /does not fit/);
+
+  // without the setting nothing changes: no account, the pointer is found through the transactions
+  await plain.putPointer(owner, tag, Buffer.from("v0"), opts);
+  assert.equal(chain.accounts.size, 0);
+  assert.equal((await plain.getPointer(tag, [owner.publicKey]))!.account, undefined);
+
+  // with it: the account is created, and one transaction carries the pointer and the account's new content
+  const before = chain.txs.size;
+  const sig1 = await fast.putPointer(owner, tag, Buffer.from("v1"), opts);
+  assert.equal(chain.txs.size - before, 2, "one transaction to create the account, one for pointer and record together");
+  assert.ok(chain.accounts.has(address));
+  let got = (await plain.getPointer(tag, [owner.publicKey]))!;
+  assert.equal(got.payload.toString(), "v1");
+  assert.equal(got.account, address, "readers find the account by themselves");
+  const viaTx = (await plain.getPointer(tag, [owner.publicKey], { accounts: false }))!;
+  assert.equal(viaTx.payload.toString(), "v1");
+  assert.equal(viaTx.signature, sig1, "the same transaction is the pointer in the ledger");
+
+  // every later write keeps it current, also from a writer that has the setting off
+  await plain.putPointer(owner, tag, Buffer.from("v2"), opts);
+  got = (await plain.getPointer(tag, [owner.publicKey]))!;
+  assert.deepEqual([got.payload.toString(), got.account], ["v2", address]);
+
+  // a pointer too long for the account: the account sends readers to the transactions instead of showing the old one
+  const long = crypto.randomBytes(ACCOUNT_PAYLOAD_MAX + 100);
+  await plain.putPointer(owner, tag, long, opts);
+  got = (await plain.getPointer(tag, [owner.publicKey]))!;
+  assert.ok(got.payload.equals(long));
+  assert.equal(got.account, undefined);
+  await plain.putPointer(owner, tag, Buffer.from("v4"), opts);
+  got = (await plain.getPointer(tag, [owner.publicKey]))!;
+  assert.deepEqual([got.payload.toString(), got.account], ["v4", address]);
+
+  // endpoints that make account data up are not believed: the reader falls back to the transactions
+  for (const u of chain.urls(2)) chain.faults.set(u, { forgeAccounts: true });
+  got = (await new ChainStore(pool()).getPointer(tag, [owner.publicKey]))!;
+  assert.deepEqual([got.payload.toString(), got.account], ["v4", undefined]);
+  // one endpoint that is behind (shows the account as it was) loses against one that is not
+  chain.faults.clear();
+  chain.faults.set(chain.urls(2)[0]!, { staleAccounts: true });
+  got = (await new ChainStore(pool()).getPointer(tag, [owner.publicKey]))!;
+  assert.equal(got.payload.toString(), "v4");
+  chain.faults.clear();
+
+  // nobody else can write into the owner's account, and a stranger's own account is at another address
+  await fast.putPointer(stranger, tag, Buffer.from("evil"), opts);
+  assert.notEqual(b58encode(accountAddress(stranger.publicKey, tag)), address);
+  assert.equal((await plain.getPointer(tag, [owner.publicKey]))!.payload.toString(), "v4");
+
+  // the browser reader takes the same quick way
+  const web = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch });
+  const seen = (await web.pointer(await webTag("demo", owner.publicKey), [owner.publicKey]))!;
+  assert.deepEqual([Buffer.from(seen.payload).toString(), seen.account], ["v4", address]);
+  assert.equal(Buffer.from((await web.pointer(await webTag("demo", owner.publicKey), [owner.publicKey], { accounts: false }))!.payload).toString(), "v4");
+
+  // closing gives the deposit back; the pointer is still in the ledger
+  const back = await plain.closePointerAccount(owner, tag);
+  assert.ok(back > 3_000_000 && back < 6_000_000, `deposit returned: ${back}`);
+  assert.ok(!chain.accounts.has(address));
+  assert.equal(await plain.closePointerAccount(owner, tag), 0);
+  got = (await plain.getPointer(tag, [owner.publicKey]))!;
+  assert.deepEqual([got.payload.toString(), got.account], ["v4", undefined]);
+});

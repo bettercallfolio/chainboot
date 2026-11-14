@@ -86,7 +86,7 @@ await store.putPointer(me, tag, Buffer.from(JSON.stringify({ file: ref.sig, vers
 <span class="c">// anyone can read it; records written by other keys under the same tag are ignored</span>
 const latest = await store.getPointer(tag, [me.publicKey]);
 console.log(JSON.parse(latest.payload.toString()), latest.slot, latest.blockTime);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
-<p>A pointer holds up to about 3.8 kB. For more, store a file and point at it. <code>getPointer</code> asks up to three endpoints which record is the newest and merges the answers, so one endpoint that is behind (or hides something) does not decide what you see.</p>
+<p>A pointer holds up to about 3.8 kB. For more, store a file and point at it. With <code>new ChainStore(pool, { accounts: true })</code>, or <code>putPointer(..., { account: true })</code>, a pointer of up to 400 bytes is also kept in an account, where <code>getPointer</code> reads it with one request (a deposit of about 0.0033 SOL, returned by <code>closePointerAccount</code>). <code>getPointer</code> asks up to three endpoints which record is the newest and merges the answers, so one endpoint that is behind (or hides something) does not decide what you see.</p>
 <h2 id="3-many-endpoints-one-pool"><a class="anchor" href="#3-many-endpoints-one-pool" aria-hidden="true" tabindex="-1">#</a>3. Many endpoints, one pool</h2>
 <div class="code-wrap"><pre><code>const pool = new RpcPool([url1, url2, url3], { onNote: console.log });
 await pool.probe(GENESIS[&quot;mainnet-beta&quot;]);

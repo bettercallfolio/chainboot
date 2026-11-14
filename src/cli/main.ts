@@ -8,7 +8,7 @@ import { runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, loadConfig } from "../local/home.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { SHARE_HELP, cmdShare, cmdShared } from "./cmd-share.ts";
-import { FEE_HELP, RPC_HELP, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
+import { ACCOUNTS_HELP, FEE_HELP, RPC_HELP, cmdAccounts, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
 import { BOOT_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
@@ -56,6 +56,7 @@ ${bold("Settings")}
   rpc add|list|remove|test       Manage RPC endpoints
   network [name]                 Show or switch the network (devnet, testnet, mainnet-beta)
   priority-fee [lamports|off]    Tip added to every transaction, for busy times
+  accounts [on|off|close]        Keep pointers in accounts too, where one request reads them
   keygen <file>                  Create a new Solana keypair file
   engine [rootless|sudo]         How machines run: without administrator rights, or through sudo
 
@@ -126,6 +127,7 @@ const COMMANDS: Record<string, Command> = {
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
   "priority-fee": { run: cmdPriorityFee, help: FEE_HELP, options: [] },
+  accounts: { run: cmdAccounts, help: ACCOUNTS_HELP, options: ["keypair"] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
   publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public"], booleans: ["dry-run", "yes", "private", "public"] },
@@ -150,6 +152,8 @@ const COMMANDS: Record<string, Command> = {
 
 // Commands that never need Linux: they run on this computer even where machines live in an engine.
 const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine", "endorse", "publisher"]);
+// (the "accounts" setting is read where pointers are written, so it is not one of these: on
+// Windows and macOS it is set inside the engine, where saves are made)
 
 async function main(): Promise<void> {
   const [name, ...rest] = process.argv.slice(2);

@@ -63,6 +63,8 @@ const stateTag = (v: Vault, machine: string) => tagAddress("state", v.signer.pub
 /** The tag under which a machine's newest save is named. */
 export const stateTagOf = stateTag;
 const indexTag = (v: Vault) => tagAddress("machines", v.signer.publicKey);
+/** The tag under which a vault's list of saved machines is named. */
+export const indexTagOf = indexTag;
 
 // ---- small encrypted documents: an object on chain plus a pointer to its newest version
 

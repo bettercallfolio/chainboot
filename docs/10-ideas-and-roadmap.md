@@ -111,7 +111,6 @@ and on Linux. The list below is in rough order of importance.
 
 **Later**
 
-- Accounts as a second storage backend for small, instantly readable data.
 - Other chains.
 - Bootable images for real hardware and virtual machines, including the kernel.
 

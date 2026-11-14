@@ -49,6 +49,8 @@ export interface Catalog {
 export interface Progress { phase: string; done: number; total: number; detail?: string }
 
 const catalogTag = (publisher: Uint8Array) => tagAddress("catalog", publisher);
+/** The tag under which a publisher's newest catalog is named. */
+export const catalogTagOf = catalogTag;
 
 async function putStored(store: ChainStore, payer: Keypair, raw: Buffer, opts: { arch?: string; journalDir?: string; commitment?: Commitment; onProgress?: (p: PutProgress) => void }): Promise<StoredRef> {
   const packed = compress(raw, { arch: opts.arch });
