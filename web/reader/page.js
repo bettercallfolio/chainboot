@@ -201,7 +201,8 @@ async function start() {
   $("read").addEventListener("click", readCatalog);
   $("stop").addEventListener("click", () => stopper?.abort());
   $("filter").addEventListener("input", () => { if (image) showFiles(); });
-  $("publisher").addEventListener("keydown", (e) => { if (e.key === "Enter") readCatalog(); });
+  // (Enter does what the button does, and like the button, nothing while something is being read)
+  $("publisher").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("read").disabled) readCatalog(); });
   if (!(await canVerify())) {
     $("read").disabled = true;
     $("status").textContent = "This browser cannot check Ed25519 signatures, so the reader will not run here. Current versions of Chrome, Edge, Firefox and Safari can.";
