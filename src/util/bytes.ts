@@ -4,7 +4,12 @@ import { createHash } from "node:crypto";
 export type Bytes = Uint8Array;
 
 export function sha256(data: Bytes): Buffer {
-  return createHash("sha256").update(data).digest();
+  const h = createHash("sha256");
+  // (one update takes less than 2 GiB; the archive of a full system can be larger)
+  const step = 1 << 30;
+  if (data.length <= step) h.update(data);
+  else for (let at = 0; at < data.length; at += step) h.update(data.subarray(at, at + step));
+  return h.digest();
 }
 
 export function toHex(b: Bytes): string {

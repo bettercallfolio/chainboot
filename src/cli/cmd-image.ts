@@ -138,6 +138,22 @@ Options:
   --dry-run              Build and show the cost, but send nothing
   --yes                  Do not ask for confirmation`;
 
+/** A whole file in memory. (Reading a file in one call stops at 2 GiB; a full system can be larger.) */
+function readWhole(file: string): Buffer {
+  const size = fs.statSync(file).size;
+  if (size < 0x7fff0000) return fs.readFileSync(file);
+  const buf = Buffer.allocUnsafe(size);
+  const fd = fs.openSync(file, "r");
+  try {
+    for (let at = 0; at < size;) {
+      const n = fs.readSync(fd, buf, at, Math.min(1 << 30, size - at), at);
+      if (n <= 0) throw new Error(`could not read all of ${file}`);
+      at += n;
+    }
+  } finally { fs.closeSync(fd); }
+  return buf;
+}
+
 export async function cmdPublish(a: Args): Promise<void> {
   const file = a._[0], name = flag(a, "name"), version = flag(a, "version");
   if (!file || !name || !version) throw new UsageError("publish needs an archive, --name and --version");
@@ -152,7 +168,7 @@ export async function cmdPublish(a: Args): Promise<void> {
   const vault = isPublic ? null : has(a, "dry-run") ? loadVault(paths.vault(), c.cluster) : requireLogin(c);
   const payer = vault ? vault.signer : has(a, "dry-run") && !flag(a, "keypair") && !process.env.CHAINBOOT_KEYPAIR ? null : loadKeypair(a);
   info(`Reading ${file}`);
-  const packed = fs.readFileSync(file);
+  const packed = readWhole(file);
   const entries = readTar(decompressAuto(packed));
   const store = has(a, "dry-run") && !flags(a, "reuse").length ? null : await openStore(c, note);
   const reuse: ImageManifest[] = [];
