@@ -137,9 +137,20 @@ chainboot rm test                            # delete one
 chainboot ui
 ```
 
-A page opens in your browser: add endpoints, pick a system, open your machines, connect your
-wallet. The page is served by chainboot on your own computer (`127.0.0.1`) and can only be
-reached from it.
+A page opens in your browser. It is served by chainboot on your own computer (`127.0.0.1`)
+and can only be reached from it. What the page does, section by section:
+
+| Section | What you can do there |
+|---|---|
+| Endpoints | Add, remove and test RPC endpoints. |
+| Systems | See a publisher's systems (the official ones, another publisher's, a list's, or your private ones). **Options** on a card: pick a version, name the machine, make it boot like a server, start it lazily. For a private system: share it, or remove it from your catalog. |
+| Machines | Open, keep running, stop, save, turn autosave on or off, delete. **More** on a machine: turn booting on or off, show its saves, share it with another wallet, write it out as a bootable disk or as an archive. |
+| Save to chain | Sign in with your wallet, add SOL to the vault, copy your share address, see your saved machines, keep what others shared with you. |
+| Settings | How machines run (with or without administrator rights), pointer accounts, the priority fee, other chains, short names for publishers and lists. |
+
+Opening a machine needs a terminal: the page opens one for you where it can, and otherwise
+shows the command to type. On Windows and macOS the page runs inside the engine, so for
+actions that write a file on your computer (a disk, an archive) it shows the command instead.
 
 ## Platform notes
 
@@ -154,6 +165,11 @@ Windows Terminal.
 **macOS.** The same idea with a container: chainboot creates one named `chainboot` in
 OrbStack, Docker Desktop or Podman, or a Lima virtual machine if you use Lima. Your machines
 live inside it.
+
+Files stay on your side: `chainboot export` and `chainboot disk` make their file inside that
+environment and copy it to the place you named on your computer, and commands that read a
+file (`publish`, anything with `--keypair`) run on your computer. Settings changed on either
+side, by a command or by the web interface, are kept the same on both.
 
 On Windows and macOS, `chainboot engine` shows where machines run, and `chainboot engine
 reset` removes that environment with all machines in it (saves on chain are not affected).

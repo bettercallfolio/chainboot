@@ -184,27 +184,101 @@ export async function ensureEngine(kind: EngineKind): Promise<void> {
     must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_APP}/app.new && tar -x -C ${ENGINE_APP}/app.new && rm -rf ${ENGINE_APP}/app && mv ${ENGINE_APP}/app.new ${ENGINE_APP}/app`], app.tar), "copying chainboot into the engine");
     state.app = app.id;
   }
-  // settings (network, RPC endpoints) are edited on this side and mirrored into the engine
-  let config = "";
-  try { config = fs.readFileSync(paths.config(), "utf8"); } catch { /* no settings yet */ }
-  const configId = createHash("sha256").update(config).digest("hex");
-  if (state.config !== configId && config) {
-    must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_HOME} && cat > ${ENGINE_HOME}/config.json && chmod 600 ${ENGINE_HOME}/config.json`], Buffer.from(config)), "copying settings into the engine");
-    state.config = configId;
-  }
   writeState(state);
+  syncConfig(kind);
   if (fresh) say("The engine is ready.");
+}
+
+const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * Keeps the settings (network, endpoints, saved names, ...) the same on both sides. They are
+ * changed on this side by commands such as "chainboot rpc add", and inside the engine by the
+ * web interface, which runs there. Whichever side changed since the two last agreed is copied
+ * to the other; if both did, this side wins.
+ */
+export function syncConfig(kind: EngineKind): void {
+  const state = readState();
+  if (!state || state.kind !== kind) return;
+  let here = "";
+  try { here = fs.readFileSync(paths.config(), "utf8"); } catch { /* no settings on this side yet */ }
+  const r = inEngine(kind, ["sh", "-c", `if [ -f ${ENGINE_HOME}/config.json ]; then cat ${ENGINE_HOME}/config.json; fi`]);
+  if (r.error || r.status !== 0) return; // the engine cannot be asked now: next time
+  const there = r.stdout.toString("utf8");
+  const agreed = state.config || hashOf("");
+  if (hashOf(here) === hashOf(there)) { if (state.config !== hashOf(here)) writeState({ ...state, config: hashOf(here) }); return; }
+  const thereChanged = hashOf(there) !== agreed, hereChanged = hashOf(here) !== agreed;
+  if (there && thereChanged && (!hereChanged || !here)) {
+    try { JSON.parse(there); } catch { return; } // half-written: take it next time
+    fs.mkdirSync(homeDir(), { recursive: true, mode: 0o700 });
+    const tmp = `${paths.config()}.tmp${process.pid}`;
+    fs.writeFileSync(tmp, there, { mode: 0o600 });
+    fs.renameSync(tmp, paths.config());
+    writeState({ ...state, config: hashOf(there) });
+    return;
+  }
+  if (!here) return;
+  must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_HOME} && cat > ${ENGINE_HOME}/config.json.tmp && chmod 600 ${ENGINE_HOME}/config.json.tmp && mv ${ENGINE_HOME}/config.json.tmp ${ENGINE_HOME}/config.json`], Buffer.from(here)), "copying settings into the engine");
+  writeState({ ...state, config: hashOf(here) });
+}
+
+/** The engine this computer already has, without looking for one (which can take a moment): for commands that only want to keep in step with it. */
+export function knownEngine(): EngineKind | null {
+  if (process.env.CHAINBOOT_ENGINE === "native") return null;
+  if (process.platform === "linux" && !process.env.CHAINBOOT_ENGINE) return null;
+  return readState()?.kind ?? null;
+}
+
+/** Where commands that produce a file write it inside the engine, before it is copied to this side. */
+export const ENGINE_OUT = `${ENGINE_HOME}/out`;
+
+/** Copies a file out of the engine to this computer. Never overwrites. */
+export function copyOut(kind: EngineKind, inside: string, target: string): Promise<void> {
+  const p = [...prefix(kind, false), "cat", inside];
+  return new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(target, { flags: "wx" });
+    const child = spawn(p[0]!, p.slice(1), { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    const failed = (why: string) => { out.destroy(); fs.rmSync(target, { force: true }); reject(new Error(`could not copy the file out of the engine: ${why}`)); };
+    out.on("error", (e) => { child.kill(); reject(new Error(`could not write ${target}: ${e.message}`)); });
+    child.on("error", (e) => failed(e.message));
+    child.stdout!.pipe(out);
+    child.on("close", (code) => { if (code !== 0) failed(`exit status ${code}`); else if (out.writableFinished) resolve(); else out.on("finish", () => resolve()); });
+  });
+}
+
+/**
+ * Stops an interface that is still serving inside the engine. Ending the command on this side
+ * (Ctrl+C, a closed window) does not always reach the program in there.
+ */
+export function stopEngineUi(kind: EngineKind): void {
+  inEngine(kind, ["sh", "-c", `if [ -f ${ENGINE_HOME}/ui.pid ]; then kill "$(cat ${ENGINE_HOME}/ui.pid)" 2>/dev/null; fi; true`]);
+}
+
+/** Runs a small command inside the engine; true when it succeeded. */
+export function engineRun(kind: EngineKind, cmd: string[]): boolean {
+  const r = inEngine(kind, cmd);
+  return !r.error && r.status === 0;
+}
+
+/** A network's name or genesis hash becomes part of a file name inside the engine: nothing else may be in it. */
+function checkNetworkId(id: string): void {
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new Error(`"${id}" is not a network name`);
 }
 
 /** Copies a login made on this side (with a keypair file) into the engine. */
 export function pushVault(kind: EngineKind, cluster: string): void {
+  checkNetworkId(cluster);
   const file = path.join(paths.vault(), `${cluster}.json`);
   must(inEngine(kind, ["sh", "-c", `mkdir -p ${ENGINE_HOME}/vault && chmod 700 ${ENGINE_HOME}/vault && cat > ${ENGINE_HOME}/vault/${cluster}.json && chmod 600 ${ENGINE_HOME}/vault/${cluster}.json`], fs.readFileSync(file)), "copying the login into the engine");
 }
 
 /** Copies a login made inside the engine (with a browser wallet) to this side, for commands that run here. */
 export function pullVault(kind: EngineKind, cluster: string): boolean {
-  const r = inEngine(kind, ["sh", "-c", `cat ${ENGINE_HOME}/vault/${cluster}.json 2>/dev/null`]);
+  checkNetworkId(cluster);
+  const mine = path.join(paths.vault(), `${cluster}.json`);
+  const r = inEngine(kind, ["sh", "-c", `if [ -f ${ENGINE_HOME}/vault/${cluster}.json ]; then cat ${ENGINE_HOME}/vault/${cluster}.json; else exit 44; fi`]);
+  // nobody is signed in inside the engine: a copy left on this side from an earlier login must not be used
+  if (r.status === 44) { fs.rmSync(mine, { force: true }); return false; }
   if (r.status !== 0 || !r.stdout?.length) return false;
   try { JSON.parse(r.stdout.toString("utf8")); } catch { return false; }
   fs.mkdirSync(paths.vault(), { recursive: true, mode: 0o700 });

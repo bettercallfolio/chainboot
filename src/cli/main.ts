@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { Keypair } from "../solana/keys.ts";
 import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISHER_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdEndorse, cmdList, cmdPublish, cmdPublisher, cmdPull, cmdUnlist } from "./cmd-image.ts";
-import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } from "../engine/remote.ts";
+import { ENGINE_OUT, copyOut, engineKind, engineRun, ensureEngine, knownEngine, proxy, pullVault, pushVault, removeEngine, stopEngineUi, syncConfig, type EngineKind } from "../engine/remote.ts";
 import { runInUserNs, support } from "../engine/rootless.ts";
-import { homeDir, loadConfig } from "../local/home.ts";
+import { homeDir, loadConfig, paths } from "../local/home.ts";
+import { forgetVault } from "../state/vault.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { SHARE_HELP, cmdShare, cmdShared } from "./cmd-share.ts";
 import { ACCOUNTS_HELP, FEE_HELP, NETWORK_HELP, RPC_HELP, cmdAccounts, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
@@ -84,6 +87,33 @@ async function cmdEngineInfo(rest: string[]): Promise<void> {
   }
   out(`Machines on this computer run inside ${names[kind]}.`);
   info(dim("Remove it (and all machines in it) with: chainboot engine reset"));
+}
+
+/**
+ * "export" and "disk" write a file. Where machines live in an engine, the file is made in
+ * there and then copied to the place the user named on this computer.
+ */
+async function fileCommand(kind: EngineKind, name: string, rest: string[]): Promise<number> {
+  const cmd = COMMANDS[name]!;
+  const args = parseArgs(rest, cmd.booleans);
+  allow(args, cmd.options);
+  const [machine, file, ...more] = args._;
+  if (!machine || !file || more.length) throw new UsageError(`usage: chainboot ${name} <machine> <file>`);
+  const target = path.resolve(file);
+  if (fs.existsSync(target)) throw new Error(`${target} already exists`);
+  if (!fs.existsSync(path.dirname(target))) throw new Error(`${path.dirname(target)} does not exist`);
+  const inside = `${ENGINE_OUT}/${randomBytes(8).toString("hex")}${name === "disk" ? ".img" : ".tar"}`;
+  if (!engineRun(kind, ["mkdir", "-p", ENGINE_OUT])) throw new Error("could not prepare the engine for writing a file");
+  try {
+    const code = await proxy(kind, [name, machine, inside, ...[...args.flags].flatMap(([k, values]) => values.map((v) => `--${k}=${v}`))]);
+    if (code !== 0) return code;
+    info(dim(`Copying the file out of the engine to ${target}`));
+    await copyOut(kind, inside, target);
+    ok(`wrote ${target} (${(fs.statSync(target).size / 1e6).toFixed(1)} MB)`);
+    return 0;
+  } finally {
+    engineRun(kind, ["rm", "-f", inside]);
+  }
 }
 
 interface Command { run: (a: Args) => Promise<void> | void; help: string; options: string[]; booleans?: string[] }
@@ -170,25 +200,42 @@ async function main(): Promise<void> {
     process.exitCode = runInUserNs(homeDir(), s.ids, rest).status;
     return;
   }
+  // (what follows "--" belongs to the command that runs inside a machine, not to chainboot)
+  const own = rest.includes("--") ? rest.slice(0, rest.indexOf("--")) : rest;
+  const help = own.includes("--help") || own.includes("-h");
   // private images need the login, which lives in the engine: listing and unlisting run there,
   // publishing runs here (it reads a local file) with a copy of the login
-  const privateHere = name === "publish" && !rest.includes("--public");
+  const privateHere = name === "publish" && !own.includes("--public");
   const privateThere = (name === "list" && rest[0] === "me") || (name === "unlist" && (rest[0] ?? "").startsWith("me/"));
-  if (privateHere && !rest.includes("--help")) {
+  // a keypair is a file on this computer, which the engine cannot see: what uses one runs here
+  const withKeypair = own.some((a) => a === "--keypair" || a.startsWith("--keypair=")) || !!process.env.CHAINBOOT_KEYPAIR;
+  const keypairHere = withKeypair && (name === "fund" || (name === "accounts" && rest[0] === "close"));
+  if ((privateHere || (keypairHere && name === "fund")) && !help) {
     const kind = engineKind();
     if (kind) { await ensureEngine(kind); pullVault(kind, loadConfig().cluster); }
   }
-  if (COMMANDS[name] && (!HOST_COMMANDS.has(name) || privateThere) && !rest.includes("--help") && !rest.includes("-h")) {
+  if (COMMANDS[name] && (!HOST_COMMANDS.has(name) || privateThere) && !keypairHere && !help) {
     const kind = engineKind();
     if (kind) {
-      const keypairLogin = name === "login" && rest.includes("--keypair");
+      const keypairLogin = name === "login" && withKeypair;
       if (keypairLogin) { const args = parseArgs(rest); allow(args, COMMANDS.login!.options); await COMMANDS.login!.run(args); }
       await ensureEngine(kind);
       if (keypairLogin) { pushVault(kind, loadConfig().cluster); return; }
+      if (name === "export" || name === "disk") { process.exitCode = await fileCommand(kind, name, rest); return; }
       const { openBrowser } = await import("../ui/server.ts");
       process.exitCode = await proxy(kind, [name, ...rest], (url) => { openBrowser(url); });
+      // what was changed inside the engine comes back to this side: settings (the interface and
+      // "accounts" change them there), and a login that ended
+      if (name === "ui" || name === "login" || name === "fund") stopEngineUi(kind);
+      try { syncConfig(kind); } catch { /* next time */ }
+      if (name === "logout") forgetVault(paths.vault(), loadConfig().cluster);
       return;
     }
+  } else if (COMMANDS[name] && !help) {
+    // a command that runs on this side, on a computer whose machines live in an engine: take over
+    // the settings that were changed in there (by the interface) before reading them
+    const kind = knownEngine();
+    if (kind) { try { syncConfig(kind); } catch { /* the engine is not running: nothing new in it */ } }
   }
   const cmd = COMMANDS[name];
   if (!cmd) throw new UsageError(`unknown command "${name}". Run "chainboot help" to see what is available.`);
