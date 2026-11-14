@@ -8,7 +8,7 @@ import { runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, loadConfig } from "../local/home.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
 import { SHARE_HELP, cmdShare, cmdShared } from "./cmd-share.ts";
-import { ACCOUNTS_HELP, FEE_HELP, RPC_HELP, cmdAccounts, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
+import { ACCOUNTS_HELP, FEE_HELP, NETWORK_HELP, RPC_HELP, cmdAccounts, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
 import { BOOT_HELP, DISK_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdDisk, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
@@ -55,7 +55,7 @@ ${bold("Images")}
 
 ${bold("Settings")}
   rpc add|list|remove|test       Manage RPC endpoints
-  network [name]                 Show or switch the network (devnet, testnet, mainnet-beta)
+  network [name|add|list]        Show or switch the network; add other chains that speak Solana's RPC
   priority-fee [lamports|off]    Tip added to every transaction, for busy times
   accounts [on|off|close]        Keep pointers in accounts too, where one request reads them
   keygen <file>                  Create a new Solana keypair file
@@ -127,7 +127,7 @@ const COMMANDS: Record<string, Command> = {
     },
   },
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
-  network: { run: cmdNetwork, help: RPC_HELP, options: [] },
+  network: { run: cmdNetwork, help: NETWORK_HELP, options: [] },
   "priority-fee": { run: cmdPriorityFee, help: FEE_HELP, options: [] },
   accounts: { run: cmdAccounts, help: ACCOUNTS_HELP, options: ["keypair"] },
   list: { run: cmdList, help: LIST_HELP, options: [] },

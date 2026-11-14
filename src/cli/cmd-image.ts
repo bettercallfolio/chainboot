@@ -5,7 +5,7 @@ import readline from "node:readline/promises";
 import { buildImage } from "../image/build.ts";
 import { decompressAuto, readTar } from "../image/tar.ts";
 import { serializeManifest, type ImageManifest } from "../image/manifest.ts";
-import { hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource, saveConfig, type Config, type Source } from "../local/home.ts";
+import { hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource, saveConfig, type Config, type Source, networkLabel } from "../local/home.ts";
 import { formatList, isList, parseList, readList, type ListView } from "../registry/lists.ts";
 import { endorseImage, parseImageName, publishImage, pullImage, readCatalog, unlistImage, type Catalog, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
 import { publishPrivateImage, readPrivateCatalog, unlistPrivateImage } from "../registry/private.ts";
@@ -73,7 +73,7 @@ export const PRIVATE_PREFIX = "me";
 
 export function requireLogin(c: Config): Vault {
   const v = loadVault(paths.vault(), c.cluster);
-  if (!v) throw new Error(`private images belong to a wallet, and you are not signed in on ${c.cluster}. Sign in first: chainboot login`);
+  if (!v) throw new Error(`private images belong to a wallet, and you are not signed in on ${networkLabel(c)}. Sign in first: chainboot login`);
   return v;
 }
 
@@ -150,8 +150,8 @@ export async function cmdPublish(a: Args): Promise<void> {
   const manifestBytes = serializeManifest(m).length;
   const newBytes = [...built.newPacks.values()].reduce((n, b) => n + b.length, 0);
   const perTx = 5000 + (c.priorityFeeLamports ?? 0);
-  let tx = ChainStore.plan(Math.ceil(manifestBytes / 4)).transactions + 3; // manifest compresses about 4x; catalog + pointer
-  for (const b of built.newPacks.values()) tx += ChainStore.plan(b.length).transactions;
+  let tx = ChainStore.plan(Math.ceil(manifestBytes / 4), store?.defaults).transactions + 3; // manifest compresses about 4x; catalog + pointer
+  for (const b of built.newPacks.values()) tx += ChainStore.plan(b.length, store?.defaults).transactions;
   out(table([
     ["image", `${bold(m.name)}:${m.version} (${m.arch})`],
     ["visibility", isPublic ? "PUBLIC: everyone can read it, forever" : "private: encrypted, only your wallet can read it"],
@@ -159,7 +159,7 @@ export async function cmdPublish(a: Args): Promise<void> {
     ["contents", `${m.fileCount} entries, ${fmtBytes(m.rawSize)} unpacked`],
     ["to upload", `${fmtBytes(newBytes)} in ${built.newPacks.size} pack(s)` + (reuse.length ? dim(` (${m.packs.length - built.newPacks.size} pack(s) reused)`) : "")],
     ["transactions", `about ${tx}`],
-    ["cost", `about ${((tx * perTx) / 1e9).toFixed(4)} SOL on ${c.cluster}` + (c.priorityFeeLamports ? dim(` (includes a tip of ${c.priorityFeeLamports} lamports per transaction)`) : "")],
+    ["cost", `about ${((tx * perTx) / 1e9).toFixed(4)} SOL on ${networkLabel(c)}` + (c.priorityFeeLamports ? dim(` (includes a tip of ${c.priorityFeeLamports} lamports per transaction)`) : "")],
   ]));
   if (has(a, "dry-run")) { info(dim("dry run: nothing was sent")); return; }
   const balance = (await store!.pool.call<{ value: number }>("getBalance", [payer!.address])).value;
@@ -209,17 +209,17 @@ export async function cmdList(a: Args): Promise<void> {
     }
   }
   if (view) {
-    info(`List ${bold(publisher)} on ${c.cluster}: an image counts when ${view.spec.threshold} of these ${view.spec.members.length} publishers have it.`);
+    info(`List ${bold(publisher)} on ${networkLabel(c)}: an image counts when ${view.spec.threshold} of these ${view.spec.members.length} publishers have it.`);
     out(table(view.members.map((m) => [m.address, m.ok ? `${m.images} image(s)` : `could not be read: ${m.error}`]), ["publisher", "catalog"]));
   }
-  if (!rows.length) { info(mine ? `You have no private images on ${c.cluster}. Publish one with: chainboot publish <archive> --name <name> --version <version>` : view ? "Its publishers agree on no image yet." : `${publisher} has not published any images on ${c.cluster}.`); }
+  if (!rows.length) { info(mine ? `You have no private images on ${networkLabel(c)}. Publish one with: chainboot publish <archive> --name <name> --version <version>` : view ? "Its publishers agree on no image yet." : `${publisher} has not published any images on ${networkLabel(c)}.`); }
   else out(table(rows, ["image", "tag", "arch", "download", "on disk", ...(view ? ["agreed"] : []), "description"]));
   if (view?.waiting.length) {
     info(dim("Waiting for more publishers to agree:"));
     out(table(view.waiting.slice(0, 12).map((w) => [w.name, w.tag, w.arch, w.version, `${w.agreed.length} of ${view.spec.members.length}`, w.digest.slice(0, 12)]), ["image", "tag", "arch", "version", "agreed", "digest"]));
     if (view.waiting.length > 12) info(dim(`and ${view.waiting.length - 12} more`));
   }
-  if (!view && rows.length) info(dim(`publisher ${publisher} on ${c.cluster}`));
+  if (!view && rows.length) info(dim(`publisher ${publisher} on ${networkLabel(c)}`));
 }
 
 export const PUBLISHER_HELP = `Usage:

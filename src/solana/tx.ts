@@ -22,6 +22,16 @@ export const SYSTEM_PROGRAM = b58decodeFixed("11111111111111111111111111111111",
 export const COMPUTE_BUDGET_PROGRAM = b58decodeFixed("ComputeBudget111111111111111111111111111111", 32);
 /** SPL Noop: a program that accepts any data and does nothing. Deployed on devnet, testnet and mainnet. */
 export const NOOP_PROGRAM = b58decodeFixed("noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV", 32);
+/** SPL Memo: accepts UTF-8 text and writes it to the log. Present on practically every chain that runs Solana programs. */
+export const MEMO_PROGRAM = b58decodeFixed("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", 32);
+
+/**
+ * Which program a data transaction addresses:
+ *   "noop"  the Noop program takes the bytes as they are (Solana's own networks)
+ *   "memo"  for chains without Noop: the bytes travel as base64 text in a memo, which costs a
+ *           third more room, and a tag address is named by a transfer of nothing to it
+ */
+export type Carrier = "noop" | "memo";
 
 export interface AccountMeta { pubkey: Uint8Array; isSigner: boolean; isWritable: boolean }
 export interface Instruction { programId: Uint8Array; keys: AccountMeta[]; data: Uint8Array }
@@ -251,6 +261,28 @@ export function noopInstruction(data: Uint8Array, readonlyAccounts: Uint8Array[]
   return { programId: NOOP_PROGRAM, keys: readonlyAccounts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })), data };
 }
 
+/** The instructions that put `data` into a transaction and make it findable under `tags`. */
+export function dataInstructions(carrier: Carrier, payer: Uint8Array, data: Uint8Array, tags: Uint8Array[] = []): Instruction[] {
+  if (carrier === "noop") return [noopInstruction(data, tags)];
+  // the memo program insists that every account it is given has signed, so tags cannot ride along
+  // with it: a transfer of 0 lamports names each one instead (it moves nothing and creates nothing)
+  return [
+    { programId: MEMO_PROGRAM, keys: [], data: Buffer.from(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("base64"), "ascii") },
+    ...tags.map((tag) => transferInstruction(payer, tag, 0)),
+  ];
+}
+
+/** The bytes an instruction carries for chainboot, whichever program carries them; null when it is not one of ours. */
+export function carriedData(programId: Uint8Array, data: Uint8Array, magic: number): Uint8Array | null {
+  const is = (program: Uint8Array) => program.every((b, i) => b === programId[i]);
+  if (is(NOOP_PROGRAM)) return data.length >= 2 && data[0] === magic ? data : null;
+  if (!is(MEMO_PROGRAM) || data.length < 4) return null;
+  const text = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("latin1");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text)) return null;
+  const raw = Buffer.from(text, "base64");
+  return raw.length >= 2 && raw[0] === magic ? raw : null;
+}
+
 export function transferInstruction(from: Uint8Array, to: Uint8Array, lamports: number | bigint): Instruction {
   return {
     programId: SYSTEM_PROGRAM,
@@ -269,11 +301,20 @@ export function computeBudgetInstructions(unitLimit: number, microLamportsPerUni
 
 /** Compute units and loaded-account bytes a chainboot data transaction asks for (a Noop call needs very little). */
 export const NOOP_COMPUTE_UNITS = 20_000;
+/** Compute units the Memo program was seen to use per character of text on devnet (about 360), with room to spare. */
+export const MEMO_UNITS_PER_CHAR = 500;
 export const NOOP_LOADED_BYTES = 256 * 1024;
 
 /** How many bytes of instruction data fit into one Noop transaction. */
-export function noopCapacity(opts: { version?: TxVersion; readonlyAccounts?: number; priorityFee?: boolean } = {}): number {
+export function noopCapacity(opts: { version?: TxVersion; readonlyAccounts?: number; priorityFee?: boolean; carrier?: Carrier } = {}): number {
   const ro = opts.readonlyAccounts ?? 0;
+  if (opts.carrier === "memo") {
+    // always the legacy format: payer, memo program, compute budget program, (system program and the tags)
+    const accounts = 3 + (ro ? 1 + ro : 0);
+    const budget = (1 + 1 + 1 + 5) + (opts.priorityFee ? 1 + 1 + 1 + 9 : 0);
+    const text = MAX_TX_SIZE_LEGACY - (1 + 64 + 3 + 1 + 32 * accounts + 32 + 1 + budget + (1 + 1 + 2) + ro * (1 + 1 + 2 + 1 + 12));
+    return Math.floor(text / 4) * 3;
+  }
   if ((opts.version ?? 1) === 1) {
     const config = 8 + (opts.priorityFee ? 8 : 0); // compute limit + loaded size (+ priority fee)
     return MAX_TX_SIZE_V1 - (1 + 3 + 4 + 32 + 1 + 1 + 32 * (2 + ro) + config + 4 + ro + 64);
@@ -288,9 +329,18 @@ export function noopCapacity(opts: { version?: TxVersion; readonlyAccounts?: num
  * A complete data transaction: one Noop instruction carrying `data`, with the fee and
  * resource settings in the place each format expects them.
  */
-export function buildNoopTransaction(payer: Keypair, data: Uint8Array, recentBlockhash: Uint8Array, opts: { version?: TxVersion; readonlyAccounts?: Uint8Array[]; priorityFeeLamports?: number } = {}): SignedTx {
+export function buildNoopTransaction(payer: Keypair, data: Uint8Array, recentBlockhash: Uint8Array, opts: { version?: TxVersion; readonlyAccounts?: Uint8Array[]; priorityFeeLamports?: number; carrier?: Carrier } = {}): SignedTx {
   const version = opts.version ?? 1;
   const fee = opts.priorityFeeLamports ?? 0;
+  if (opts.carrier === "memo") {
+    // The memo program checks and logs its text, at a few hundred compute units per character:
+    // a full memo needs more than the 200,000 units a transaction gets without asking. The
+    // limit is asked for in every memo transaction (it costs nothing by itself).
+    const ixs = dataInstructions("memo", payer.publicKey, data, opts.readonlyAccounts);
+    const units = Math.min(1_400_000, 20_000 + ixs[0]!.data.length * MEMO_UNITS_PER_CHAR);
+    const budget = computeBudgetInstructions(units, fee > 0 ? Math.ceil((fee * 1_000_000) / units) : 0);
+    return buildTransaction(payer, [...(fee > 0 ? budget : budget.slice(0, 1)), ...ixs], recentBlockhash, { version: "legacy" });
+  }
   if (version === 1) {
     return buildTransaction(payer, [noopInstruction(data, opts.readonlyAccounts)], recentBlockhash, {
       version: 1,

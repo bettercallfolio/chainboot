@@ -29,6 +29,13 @@ The instruction data always starts with the magic byte `0xCB` and a kind byte:
 Transactions of kinds 0x00 to 0x03 reference no accounts besides the payer and the Noop
 program. A pointer transaction additionally references its tag address as a read-only account.
 
+**On chains without the Noop program** the same bytes travel in an instruction for the Memo
+program (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`), as base64 text, in a legacy-format
+transaction that also asks for the compute units a long memo needs. The Memo program accepts
+no accounts that have not signed, so a tag address (section 3) is named by a second
+instruction in the same transaction: a System transfer of 0 lamports from the payer to the
+tag address. A reader takes the data from whichever of the two programs carries it.
+
 ## 2. Objects
 
 An **object** is a byte string of any length, identified by the signature of its head (or

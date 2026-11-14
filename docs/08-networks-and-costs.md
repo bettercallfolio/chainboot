@@ -22,6 +22,43 @@ Each network has its own list of RPC endpoints, its own login and its own vault.
 checks every endpoint you add and refuses one that belongs to a different network, because
 mixing networks would silently break uploads.
 
+## Other chains
+
+chainboot is not tied to Solana's own three networks. It works on any chain that runs Solana
+programs and answers Solana's RPC (these are often called SVM chains; Eclipse, Sonic and SOON
+are examples). Adding one takes a name and one endpoint:
+
+```sh
+chainboot network add eclipse https://mainnetbeta-rpc.eclipse.xyz
+chainboot network list
+chainboot network devnet            # back to Solana's devnet
+```
+
+chainboot asks the endpoint which chain it serves and remembers the chain by its genesis
+hash, so every endpoint you add later is checked against it. Then everything works as on
+Solana: publish, list, run, save, share. Each chain has its own logins, vault and saves.
+
+What is different there:
+
+- **Transactions are smaller.** chainboot uses the transaction format every such chain has,
+  1232 bytes instead of Solana's newer 4096, so the same data takes about four times as many
+  transactions.
+- **The carrier may be the Memo program.** On Solana the data rides in instructions for the
+  Noop program, which takes any bytes. Where Noop is not deployed (chainboot checks when you
+  add the chain), the Memo program carries it as base64 text, which needs a third more room
+  and far more compute. Readers understand both without a setting.
+- **No official catalog.** Name a publisher (`<address>/<image>`) or publish your own.
+- **Fees are the chain's own**, in its own currency.
+
+Honest status: adding chains and reading from them was tried against the public endpoints of
+Eclipse, Sonic and SOON. Writing through the Memo program was tried on Solana devnet, which
+has the same program; nothing has been published on another chain yet.
+
+A chain that is not SVM (Ethereum and its relatives, for example) would need a second
+implementation of four things: putting bytes into a signed transaction, fetching a
+transaction by its ID, checking who signed it, and listing the transactions that name a tag.
+The formats above that layer ([The on-chain format](07-format.md)) would stay as they are.
+
 ## What is where today
 
 - **Devnet:** the official catalog with Solinux and Alpine. This is where chainboot was

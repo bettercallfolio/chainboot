@@ -16,7 +16,7 @@ import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
 import { engineMode } from "../engine/rootless.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
-import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, resolveSource, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
+import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, networkGenesis, networkLabel, resolveSource, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
 import { readSource } from "../cli/cmd-image.ts";
 import { readPrivateCatalog } from "../registry/private.ts";
 import { addressToBytes } from "../solana/keys.ts";
@@ -140,7 +140,9 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     } catch { /* none yet */ }
     return {
       ui: UI_VERSION, platform: process.platform, arch: hostArch(), canRun: process.platform === "linux",
-      cluster: c.cluster, clusters: Object.keys(GENESIS), officialPublisher: OFFICIAL_PUBLISHER[c.cluster],
+      cluster: c.cluster, clusters: [...Object.keys(GENESIS), ...Object.keys(c.networks ?? {})], officialPublisher: OFFICIAL_PUBLISHER[c.cluster] ?? null,
+      // networks are identified by a name (Solana's own) or a genesis hash (added chains); this is what to show for each
+      clusterNames: Object.fromEntries([...Object.keys(GENESIS), ...Object.keys(c.networks ?? {})].map((id) => [id, networkLabel(c, id)])),
       endpoints: rpcUrls(c).map((u, i) => ({ index: i, label: maskRpcUrl(u) })), endpointsFromEnv: !!process.env.CHAINBOOT_RPC,
       login: vault ? { wallet: vault.wallet, vault: vault.signer.address } : null,
       machines: listMachines(home).map((m) => ({ ...m, save: readSaveStatus(machineDir(home, m.name)), autosave: !fs.existsSync(path.join(machineDir(home, m.name), "autosave-off")) })),
@@ -160,14 +162,15 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
       return { vault, wallet };
     },
     "POST /api/network": (b) => {
-      if (!(b.cluster in GENESIS)) throw new Error("unknown network");
-      const c = loadConfig(); c.cluster = b.cluster; saveConfig(c); return state();
+      const c = loadConfig();
+      if (!(b.cluster in GENESIS) && !c.networks?.[b.cluster]) throw new Error("unknown network");
+      c.cluster = b.cluster; saveConfig(c); return state();
     },
     "POST /api/rpc/add": async (b) => {
       const url = String(b.url ?? "").trim();
       const c = loadConfig();
       const report = await new RpcPool([url]).probe().catch((e: Error) => { throw new Error(e.message.split("\n").slice(1).join(" ").trim() || e.message); });
-      if (report[0]!.detail !== c.cluster) throw new Error(`that endpoint serves ${report[0]!.detail}, but the current network is ${c.cluster}`);
+      if ((GENESIS[report[0]!.detail] ?? report[0]!.genesis) !== networkGenesis(c)) throw new Error(`that endpoint serves ${report[0]!.detail}, but the current network is ${networkLabel(c)}`);
       const list = c.rpcs[c.cluster] ?? [];
       if (!list.includes(url)) { c.rpcs[c.cluster] = [...list, url]; saveConfig(c); }
       return state();
@@ -180,7 +183,7 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     "POST /api/rpc/test": async () => {
       const c = loadConfig(), urls = rpcUrls(c);
       if (!urls.length) return [];
-      return await new RpcPool(urls).probe().then((r) => r.map((x) => ({ ...x, ok: x.ok && x.detail === c.cluster }))).catch(() => urls.map((u) => ({ label: maskRpcUrl(u), ok: false, detail: "no answer" })));
+      return await new RpcPool(urls).probe().then((r) => r.map((x) => ({ label: x.label, detail: x.detail in GENESIS ? x.detail : networkLabel(c, x.genesis ?? ""), ok: x.ok && (GENESIS[x.detail] ?? x.genesis) === networkGenesis(c) }))).catch(() => urls.map((u) => ({ label: maskRpcUrl(u), ok: false, detail: "no answer" })));
     },
     "POST /api/catalog": async (b) => {
       const c = loadConfig();

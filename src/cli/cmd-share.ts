@@ -1,6 +1,6 @@
 // `chainboot share` and `chainboot shared`: giving a private image or a saved machine to another wallet.
 import path from "node:path";
-import { hostArch, loadConfig, openStore, paths } from "../local/home.ts";
+import { hostArch, loadConfig, openStore, paths, networkLabel } from "../local/home.ts";
 import { parseImageName } from "../registry/registry.ts";
 import { acceptImage, acceptMachine, listShares, myShareAddress, shareImage, shareMachine, type Received } from "../share/share.ts";
 import { loadVault, parseShareAddress, type Vault } from "../state/vault.ts";
@@ -44,7 +44,7 @@ What to know before sharing:
 function login(): Vault {
   const c = loadConfig();
   const v = loadVault(paths.vault(), c.cluster);
-  if (!v) throw new Error(`sharing belongs to a wallet, and you are not signed in on ${c.cluster}. Sign in first: chainboot login`);
+  if (!v) throw new Error(`sharing belongs to a wallet, and you are not signed in on ${networkLabel(c)}. Sign in first: chainboot login`);
   return v;
 }
 

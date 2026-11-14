@@ -1,5 +1,5 @@
-import { GENESIS, RpcPool, maskRpcUrl, type Cluster } from "../solana/rpc.ts";
-import { loadConfig, rpcUrls, saveConfig, NO_RPC_HELP } from "../local/home.ts";
+import { GENESIS, RpcPool, clusterName, maskRpcUrl } from "../solana/rpc.ts";
+import { detectCarrier, findNetwork, loadConfig, networkGenesis, networkLabel, rpcUrls, saveConfig, NO_RPC_HELP } from "../local/home.ts";
 import { UsageError, type Args } from "./args.ts";
 import { bold, dim, green, info, ok, out, red, table } from "./term.ts";
 
@@ -88,23 +88,25 @@ export async function cmdRpc(a: Args): Promise<void> {
     if (!urls.length) throw new UsageError("give at least one URL: chainboot rpc add https://...");
     const fresh = urls.filter((u) => !list.includes(u));
     const report = await new RpcPool(urls).probe().catch((e: Error) => { throw new Error(e.message); });
-    const good: string[] = [];
+    const good: string[] = [], here = networkGenesis(c);
     urls.forEach((u, i) => {
       const r = report[i]!;
       if (!r.ok) { info(`${red("✖")} ${r.label}: ${r.detail}`); return; }
-      if (r.detail !== c.cluster) { info(`${red("✖")} ${r.label} is a ${r.detail} endpoint, but the current network is ${c.cluster}. Switch with: chainboot network ${r.detail}`); return; }
+      // the probe names Solana's own networks; anything else it reports by its genesis hash
+      const serves = (GENESIS[r.detail] ?? r.genesis) === here;
+      if (!serves) { info(`${red("✖")} ${r.label} is an endpoint of ${r.detail in GENESIS ? r.detail : networkLabel(c, r.genesis ?? "")}, but the current network is ${networkLabel(c)}. Switch with: chainboot network <name>`); return; }
       if (fresh.includes(u)) good.push(u);
-      info(`${green("✔")} ${r.label} (${r.detail})${fresh.includes(u) ? "" : dim(" already saved")}`);
+      info(`${green("✔")} ${r.label} (${networkLabel(c)})${fresh.includes(u) ? "" : dim(" already saved")}`);
     });
     if (good.length) { c.rpcs[c.cluster] = [...list, ...good]; saveConfig(c); }
-    ok(`${c.rpcs[c.cluster]?.length ?? 0} endpoint(s) saved for ${c.cluster}`);
+    ok(`${c.rpcs[c.cluster]?.length ?? 0} endpoint(s) saved for ${networkLabel(c)}`);
     return;
   }
   if (sub === "list") {
     const env = !!process.env.CHAINBOOT_RPC;
     const urls = rpcUrls(c);
     if (!urls.length) { info(NO_RPC_HELP); return; }
-    out(table(urls.map((u, i) => [String(i + 1), maskRpcUrl(u)]), ["#", `endpoint (${c.cluster}${env ? ", from CHAINBOOT_RPC" : ""})`]));
+    out(table(urls.map((u, i) => [String(i + 1), maskRpcUrl(u)]), ["#", `endpoint (${networkLabel(c)}${env ? ", from CHAINBOOT_RPC" : ""})`]));
     return;
   }
   if (sub === "remove") {
@@ -121,12 +123,13 @@ export async function cmdRpc(a: Args): Promise<void> {
     const urls = rpcUrls(c);
     if (!urls.length) { info(NO_RPC_HELP); process.exitCode = 1; return; }
     const pool = new RpcPool(urls);
-    const report = await pool.probe().catch(() => [] as { label: string; ok: boolean; detail: string }[]);
+    const report = await pool.probe().catch(() => [] as { label: string; ok: boolean; detail: string; genesis?: string }[]);
     let bad = 0;
+    const here = networkGenesis(c);
     out(table(report.map((r) => {
-      const fine = r.ok && r.detail === c.cluster;
+      const fine = r.ok && (GENESIS[r.detail] ?? r.genesis) === here;
       if (!fine) bad++;
-      return [fine ? green("✔") : red("✖"), r.label, r.ok && !fine ? `${r.detail} (current network is ${c.cluster})` : r.detail];
+      return [fine ? green("✔") : red("✖"), r.label, fine ? networkLabel(c) : r.ok ? `${r.detail} (current network is ${networkLabel(c)})` : r.detail];
     }), ["", "endpoint", "result"]));
     if (!report.length) throw new Error("none of the endpoints answered");
     if (bad) process.exitCode = 1;
@@ -161,13 +164,72 @@ export function cmdPriorityFee(a: Args): void {
   if (n > 100_000) info(dim("That is a large tip: storing 1 MB (261 transactions) will cost " + ((261 * (5000 + n)) / 1e9).toFixed(4) + " SOL."));
 }
 
-export function cmdNetwork(a: Args): void {
+export const NETWORK_HELP = `Usage:
+  chainboot network                        Show the current network
+  chainboot network <name>                 Switch: devnet, testnet, mainnet-beta, or a chain you added
+  chainboot network list                   Show all networks
+  chainboot network add <name> <rpc-url>   Add another chain that speaks Solana's RPC
+  chainboot network remove <name>          Forget an added chain
+
+chainboot works on Solana's own networks out of the box. It also works on other chains that
+run Solana programs and answer Solana's RPC (often called SVM chains). Adding one takes its
+name and one endpoint; chainboot asks the endpoint which chain it is and remembers the chain
+by its genesis hash, so every endpoint you add later is checked against it.
+
+  chainboot network add mychain https://rpc.mychain.example
+  chainboot rpc add https://another-endpoint.example      # more endpoints for it
+  chainboot network devnet                                # back to Solana's devnet
+
+On such a chain chainboot uses the transaction format every chain has (1232 bytes instead of
+4096) and, where the Noop program is not deployed, the Memo program, which carries the data
+as text. Both make storing data cost more transactions than on Solana. There is no official
+catalog there: name a publisher (<address>/<image>) or publish your own. Each chain has its
+own logins, vault and saves.`;
+
+export async function cmdNetwork(a: Args): Promise<void> {
   const c = loadConfig();
-  const want = a._[0];
-  if (!want) { out(`${bold(c.cluster)} ${dim(`(${(c.rpcs[c.cluster] ?? []).length} saved endpoint(s))`)}`); return; }
-  const name = want === "mainnet" ? "mainnet-beta" : want;
-  if (!(name in GENESIS)) throw new UsageError(`unknown network "${want}". Choose devnet, testnet or mainnet-beta.`);
-  c.cluster = name as Cluster; saveConfig(c);
-  ok(`network is now ${name}`);
-  if (!(c.rpcs[c.cluster] ?? []).length) info(dim(`no endpoints saved for ${name} yet: chainboot rpc add <url>`));
+  const [want, name, url] = a._;
+  if (!want) {
+    out(`${bold(networkLabel(c))} ${dim(`(${(c.rpcs[c.cluster] ?? []).length} saved endpoint(s)${c.cluster in GENESIS ? "" : `, genesis ${c.cluster}`})`)}`);
+    return;
+  }
+  if (want === "list") {
+    const rows = [...Object.keys(GENESIS).map((id) => [id, "Solana", GENESIS[id]!]), ...Object.entries(c.networks ?? {}).map(([id, n]) => [n.name, `added chain${n.carrier ? ` (data through the ${n.carrier === "memo" ? "Memo" : "Noop"} program)` : ""}`, id])];
+    out(table(rows.map(([label, kind, id]) => [(c.cluster in GENESIS ? c.cluster === label : c.cluster === id) ? green("●") : " ", bold(label!), kind!, String((c.rpcs[label! in GENESIS ? label! : id!] ?? []).length), id!]), ["", "network", "kind", "endpoints", "genesis hash"]));
+    return;
+  }
+  if (want === "add") {
+    if (!name || !url) throw new UsageError("usage: chainboot network add <name> <rpc-url>");
+    if (!/^[a-z0-9][a-z0-9._-]{0,30}$/.test(name) || name in GENESIS || ["mainnet", "list", "add", "remove"].includes(name)) throw new UsageError(`"${name}" cannot be used as a network name: use lower-case letters, digits, ".", "_" or "-", and not the name of a Solana network`);
+    const pool = new RpcPool([url]);
+    const report = await pool.probe().catch((e: Error) => { throw new Error(e.message); });
+    const genesis = report[0]?.genesis;
+    if (!report[0]?.ok || !genesis) throw new Error(`${maskRpcUrl(url)} did not answer like a Solana RPC endpoint: ${report[0]?.detail ?? "no answer"}`);
+    if (Object.values(GENESIS).includes(genesis)) throw new Error(`that endpoint serves Solana ${clusterName(genesis)}, which chainboot knows already. Use: chainboot network ${clusterName(genesis)}   chainboot rpc add ${maskRpcUrl(url)}`);
+    const taken = Object.entries(c.networks ?? {}).find(([id, n]) => n.name === name && id !== genesis);
+    if (taken) throw new Error(`the name "${name}" is already used for another chain (genesis ${taken[0]})`);
+    const carrier = await detectCarrier(pool);
+    c.networks = { ...c.networks, [genesis]: { name, carrier } };
+    if (!(c.rpcs[genesis] ?? []).includes(url)) c.rpcs[genesis] = [...(c.rpcs[genesis] ?? []), url];
+    c.cluster = genesis;
+    saveConfig(c);
+    ok(`added ${bold(name)} and switched to it`);
+    out(table([["genesis hash", genesis], ["data travels through", carrier === "noop" ? "the Noop program (as on Solana)" : "the Memo program, as text (this chain has no Noop program)"], ["transactions", "legacy format, 1232 bytes"]]));
+    info(dim("Add more endpoints with: chainboot rpc add <url>   Go back with: chainboot network devnet"));
+    return;
+  }
+  if (want === "remove") {
+    const id = name ? findNetwork(c, name) : null;
+    if (!id || id in GENESIS) throw new Error(name ? `there is no added chain named "${name}"` : "say which one: chainboot network remove <name>");
+    if (c.cluster === id) throw new Error(`${name} is the current network. Switch first: chainboot network devnet`);
+    delete c.networks![id]; delete c.rpcs[id];
+    saveConfig(c);
+    ok(`forgot ${name} and its endpoints`);
+    return;
+  }
+  const id = findNetwork(c, want);
+  if (!id) throw new UsageError(`unknown network "${want}". Choose devnet, testnet or mainnet-beta, or add a chain: chainboot network add <name> <rpc-url>`);
+  c.cluster = id; saveConfig(c);
+  ok(`network is now ${networkLabel(c)}`);
+  if (!(c.rpcs[c.cluster] ?? []).length) info(dim(`no endpoints saved for ${networkLabel(c)} yet: chainboot rpc add <url>`));
 }

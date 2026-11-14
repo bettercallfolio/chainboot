@@ -134,6 +134,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |
 | Mainnet | Same code and commands. No official images are published there yet. |
+| Other SVM chains (`chainboot network add <name> <rpc-url>`) | Adding and reading tried on Eclipse, Sonic and SOON; writing through the Memo program tried on devnet. **Nothing published on another chain yet.** |
 
 Known limits, so nothing surprises you:
 

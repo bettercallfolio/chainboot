@@ -11,7 +11,7 @@ import { b58decodeFixed } from "../util/base58.ts";
 import { sha256, sleep, toHex } from "../util/bytes.ts";
 import type { Keypair } from "../solana/keys.ts";
 import { RpcError, type RpcPool } from "../solana/rpc.ts";
-import { buildNoopTransaction, type TxVersion } from "../solana/tx.ts";
+import { buildNoopTransaction, type Carrier, type TxVersion } from "../solana/tx.ts";
 
 export type Commitment = "confirmed" | "finalized";
 
@@ -45,6 +45,8 @@ export interface SenderOptions {
   txVersion?: TxVersion;
   /** Extra fee per transaction in lamports, to get ahead on a busy network (default 0). */
   priorityFeeLamports?: number;
+  /** The program that carries the data (default: Noop). */
+  carrier?: Carrier;
 }
 
 interface Pending {
@@ -178,9 +180,11 @@ export class TxSender {
 
     let next = 0;
     const requeue: number[] = [];
+    /** How often each item landed on chain and failed there. */
+    const failed = new Map<number, number>();
     const launch = (index: number) => {
       const bh = this.#blockhash!;
-      const tx = buildNoopTransaction(this.#payer, items[index]!.data, bh.hash, { version: opts.txVersion, readonlyAccounts: items[index]!.readonlyAccounts, priorityFeeLamports: opts.priorityFeeLamports });
+      const tx = buildNoopTransaction(this.#payer, items[index]!.data, bh.hash, { version: opts.txVersion, readonlyAccounts: items[index]!.readonlyAccounts, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier });
       const p: Pending = { item: items[index]!, index, signature: tx.signature, raw: tx.raw.toString("base64"), lastValidBlockHeight: bh.lastValidBlockHeight, sentAt: Date.now(), lastSendAt: Date.now(), lastCheckAt: Date.now() - pollMs / 2, sends: 1, confirmedAt: 0 };
       pending.set(index, p);
       this.#send(p).catch((e: Error) => {
@@ -215,7 +219,17 @@ export class TxSender {
           batch.forEach((p, i) => {
             if (pending.get(p.index) !== p) return;
             const s = st[i];
-            if (s && s.err) { pending.delete(p.index); requeue.push(p.index); resent++; return; }
+            if (s && s.err) {
+              // It landed and failed: the fee is paid and the data is not stored. What a data
+              // transaction does is the same every time, so sending it again and again would
+              // only pay again and again. One more try, then stop and say why.
+              pending.delete(p.index);
+              const failures = (failed.get(p.index) ?? 0) + 1;
+              failed.set(p.index, failures);
+              if (failures >= 2) { fatal ??= new Error(`a transaction failed on chain twice and was not sent a third time: ${JSON.stringify(s.err)} (${p.signature})`); return; }
+              requeue.push(p.index); resent++;
+              return;
+            }
             const level = s?.confirmationStatus;
             if (level === "finalized" || (level === "confirmed" && commitment === "confirmed")) {
               pending.delete(p.index); result[p.index] = { signature: p.signature, slot: s!.slot }; done++; fee += feePerTx;

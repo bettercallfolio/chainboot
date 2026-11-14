@@ -65,7 +65,7 @@ function render() {
   draw("frame", [state.ui, state.platform, state.arch, state.clusters, state.cluster, state.login, state.canRun], () => {
     $("version").textContent = "interface v" + state.ui + " · " + state.platform + " " + state.arch;
     const net = $("network");
-    if (!net.options.length) for (const c of state.clusters) net.append(el("option", { value: c, text: c }));
+    if (net.options.length !== state.clusters.length) { net.textContent = ""; for (const c of state.clusters) net.append(el("option", { value: c, text: (state.clusterNames || {})[c] || c })); }
     net.value = state.cluster;
     const chip = $("wallet-chip");
     chip.textContent = state.login ? "wallet " + short(state.login.wallet) : "not signed in";
@@ -73,7 +73,8 @@ function render() {
     $("signout").classList.toggle("hidden", !state.login);
     $("private-show").classList.toggle("hidden", !state.login);
     const notes = [];
-    if (state.cluster !== "mainnet-beta") notes.push(state.cluster + " is a test network: its SOL has no value and its data can be reset.");
+    if (state.cluster === "devnet" || state.cluster === "testnet") notes.push(state.cluster + " is a test network: its SOL has no value and its data can be reset.");
+    else if (state.cluster !== "mainnet-beta") notes.push(((state.clusterNames || {})[state.cluster] || "This network") + " is a chain you added: it has no official catalog, so name a publisher or publish your own.");
     if (!state.canRun) notes.push("Open machines from a terminal on this system: chainboot run <system>.");
     $("banner").textContent = notes.join(" ");
     $("banner").classList.toggle("hidden", !notes.length);
@@ -108,7 +109,7 @@ function renderCatalog() {
     if (!state.endpoints.length) return say("Add an endpoint to see what is available.");
     if (!catalog) return say("Reading the catalog from the chain…");
     if (catalog.error) return say(catalog.error, "bad");
-    if (!catalog.images.length) return say(catalog.private ? "You have no private systems yet. Publish one with: chainboot publish <archive> --name <name> --version <version>" : "This publisher has no systems on " + state.cluster + ".");
+    if (!catalog.images.length) return say(catalog.private ? "You have no private systems yet. Publish one with: chainboot publish <archive> --name <name> --version <version>" : "This publisher has no systems on " + ((state.clusterNames || {})[state.cluster] || state.cluster) + ".");
     $("catalog-summary").textContent = catalog.private ? "your private systems: encrypted, readable by your wallet only" : "stored on Solana, verified on download";
     const prefix = catalog.publisher === state.officialPublisher ? "" : catalog.publisher + "/";
     // the full system first, then the rest by size

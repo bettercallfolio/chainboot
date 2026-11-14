@@ -95,6 +95,7 @@ export async function tagAddress(...parts: (string | Uint8Array)[]): Promise<Uin
 // ---------------------------------------------------------------- transactions
 
 const NOOP_PROGRAM = b58decode("noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV", 32);
+const MEMO_PROGRAM = b58decode("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", 32);
 /** SPL Record: the program through which a publisher may keep a pointer in an account as well. */
 const RECORD_PROGRAM = b58decode("recr1L3PCGKLbckBqMNcJhuuyU1zgo8nBhfLVsJNwr5", 32);
 const MAGIC = 0xcb, KIND_LEAF = 0x00, KIND_BRANCH = 0x01, KIND_HEAD = 0x02, KIND_INLINE = 0x03, KIND_POINTER = 0x10, FORMAT_VERSION = 1;
@@ -123,7 +124,16 @@ function shortU16(buf: Uint8Array, at: number): [number, number] {
 /** Parses a serialised transaction (legacy or v1 wire format) as far as a reader needs. */
 function parseTx(raw: Uint8Array): Tx {
   const need = (end: number) => { if (end > raw.length) throw new Error("transaction truncated"); };
-  const payload = (program: Uint8Array | undefined, data: Uint8Array) => (program && equal(program, NOOP_PROGRAM) && data.length >= 2 && data[0] === MAGIC ? data : null);
+  // the data travels through the Noop program, or, on chains without it, as base64 text in a memo
+  const payload = (program: Uint8Array | undefined, data: Uint8Array): Uint8Array | null => {
+    if (!program) return null;
+    if (equal(program, NOOP_PROGRAM)) return data.length >= 2 && data[0] === MAGIC ? data : null;
+    if (!equal(program, MEMO_PROGRAM) || data.length < 4) return null;
+    try {
+      const raw = fromBase64(String.fromCharCode(...data.subarray(0, 4096)));
+      return raw.length >= 2 && raw[0] === MAGIC ? raw : null;
+    } catch { return null; }
+  };
   let found: Uint8Array | null = null;
   if (raw[0] === 0x81) {
     // v1: [0x81][3 header bytes][config mask u32][blockhash 32][instructions u8][accounts u8][accounts][config values][instruction heads][payloads][signatures]

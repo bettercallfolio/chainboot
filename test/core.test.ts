@@ -599,3 +599,70 @@ test("disk: the script that builds a bootable disk is valid shell", { skip: proc
   const { isUnsaved } = await import("../src/state/scan.ts");
   assert.ok(isUnsaved(DISK_FILE));
 });
+
+test("other chains: without the Noop program the data travels as a memo, and every reader understands both", async () => {
+  const { publishImage, pullImage, readCatalog } = await import("../src/registry/registry.ts");
+  const { buildImage } = await import("../src/image/build.ts");
+  const { Reader } = await import("../src/browser/reader.ts");
+  const { MEMO_PROGRAM, NOOP_PROGRAM, dataInstructions, carriedData, noopCapacity } = await import("../src/solana/tx.ts");
+  const chain = new FakeChain();
+  const pool = () => new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 500 });
+  const memo = new ChainStore(pool(), { carrier: "memo", txVersion: "legacy" }), plain = new ChainStore(pool());
+  const payer = Keypair.generate();
+
+  // the carrier itself
+  const bytes = Buffer.concat([Buffer.from([0xcb, 0x00]), crypto.randomBytes(300)]);
+  const [ix, ...rest] = dataInstructions("memo", payer.publicKey, bytes, [tagAddress("t")]);
+  assert.ok(Buffer.from(ix!.programId).equals(MEMO_PROGRAM) && ix!.keys.length === 0, "the memo gets no accounts (it would demand their signatures)");
+  assert.match(Buffer.from(ix!.data).toString("ascii"), /^[A-Za-z0-9+/]+=*$/, "the memo is text");
+  assert.equal(rest.length, 1, "a tag is named by a transfer of nothing to it");
+  assert.deepEqual(Buffer.from(carriedData(MEMO_PROGRAM, ix!.data, 0xcb)!), bytes);
+  assert.equal(carriedData(MEMO_PROGRAM, Buffer.from("just a memo somebody wrote"), 0xcb), null);
+  assert.equal(carriedData(MEMO_PROGRAM, Buffer.from(Buffer.from("not ours").toString("base64")), 0xcb), null);
+  assert.deepEqual(Buffer.from(carriedData(NOOP_PROGRAM, bytes, 0xcb)!), bytes);
+  const room = noopCapacity({ carrier: "memo" }), roomTagged = noopCapacity({ carrier: "memo", readonlyAccounts: 1 });
+  assert.ok(room > 700 && room < noopCapacity({ version: "legacy" }) && roomTagged < room, `a memo carries less: ${room} bytes, ${roomTagged} with a tag`);
+
+  // objects and pointers written as memos fit their transactions and come back intact
+  const data = crypto.randomBytes(40_000);
+  const ref = await memo.put(payer, data, { commitment: "confirmed" });
+  for (const t of chain.txs.values()) assert.ok(Buffer.from(t.raw, "base64").length <= 1232, "every transaction keeps the legacy size limit");
+  assert.ok(chain.txs.size > 50, "40 kB take more transactions this way");
+  assert.ok((await plain.get(ref)).equals(data), "a reader needs no setting to read them");
+  const tag = tagAddress("demo", payer.publicKey);
+  await memo.putPointer(payer, tag, Buffer.from("first"), { commitment: "confirmed" });
+  await memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 3, 7), { commitment: "confirmed" });
+  await assert.rejects(memo.putPointer(payer, tag, Buffer.alloc(roomTagged - 2), { commitment: "confirmed" }), /the limit is/);
+  assert.ok((await plain.getPointer(tag, [payer.publicKey]))!.payload.equals(Buffer.alloc(roomTagged - 3, 7)));
+  assert.equal(await plain.getPointer(tag, [Keypair.generate().publicKey]), null);
+
+  // a whole image, published and read on such a chain; also by the browser reader
+  const own = { uid: 0, gid: 0, mtime: 1_700_000_000 };
+  const built = buildImage([{ path: "etc", type: "d", mode: 0o755, ...own }, { path: "etc/os-release", type: "f", mode: 0o644, ...own, data: Buffer.from("NAME=elsewhere\n") }, { path: "etc/blob", type: "f", mode: 0o644, ...own, data: crypto.randomBytes(30_000) }], { name: "demo", version: "1", arch: "amd64" });
+  await publishImage(memo, payer, built, { commitment: "confirmed" });
+  const entry = (await readCatalog(plain, payer.address)).images.demo!.tags.latest!.amd64!;
+  assert.equal((await pullImage(plain, payer.address, entry, { cacheDir: fs.mkdtempSync(path.join(os.tmpdir(), "cb-memo-")) })).manifest.digest, built.manifest.digest);
+  const web = new Reader({ endpoints: chain.urls(2), fetch: chain.fetch });
+  const seen = (await web.catalog(payer.address)).images.demo!.tags.latest!.amd64!;
+  assert.equal((await web.manifest(payer.address, seen)).digest, built.manifest.digest);
+});
+
+test("sender: a transaction that fails on chain is not paid for again and again", async () => {
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 500 }));
+  const payer = Keypair.generate();
+  chain.failOnChain = { InstructionError: [0, "ProgramFailedToComplete"] };
+  // one small object: one transaction
+  await assert.rejects(store.put(payer, crypto.randomBytes(500), { commitment: "confirmed", pollMs: 50, resendAfterMs: 200 }), /failed on chain twice and was not sent a third time.*ProgramFailedToComplete/);
+  // (the second try is the same transaction when the blockhash has not changed, and the chain charges that only once)
+  assert.ok(chain.failedTxs.size >= 1 && chain.failedTxs.size <= 2, "it was tried once more, then given up");
+  assert.ok(chain.fees <= 10_000);
+  // a larger one: the upload stops instead of grinding through every part twice
+  const before = chain.failedTxs.size;
+  await assert.rejects(store.put(payer, crypto.randomBytes(400_000), { commitment: "confirmed", pollMs: 50, resendAfterMs: 200 }), /failed on chain twice/);
+  assert.ok(chain.failedTxs.size - before < 2 * 110, `${chain.failedTxs.size - before} failed transactions for 104 parts`);
+  // and nothing is wrong with the sender afterwards
+  chain.failOnChain = null;
+  const data = crypto.randomBytes(20_000);
+  assert.ok((await store.get(await store.put(payer, data, { commitment: "confirmed" }))).equals(data));
+});

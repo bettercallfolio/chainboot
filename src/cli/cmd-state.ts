@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { listMachines, machineDir, readMachine, type EngineHome, type MachineInfo } from "../engine/linux.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
-import { loadConfig, openStore, paths } from "../local/home.ts";
+import { loadConfig, openStore, paths, networkLabel } from "../local/home.ts";
 import { buildTransaction, transferInstruction } from "../solana/tx.ts";
 import { readHead, readIndex, readSnapshot } from "../state/snapshot.ts";
 import { myShareAddress } from "../share/share.ts";
@@ -21,7 +21,7 @@ const when = (t: number) => new Date(t * 1000).toISOString().replace("T", " ").s
 function currentVault(): Vault {
   const c = loadConfig();
   const v = loadVault(paths.vault(), c.cluster);
-  if (!v) throw new Error(`you are not signed in on ${c.cluster}. Sign in first: chainboot login`);
+  if (!v) throw new Error(`you are not signed in on ${networkLabel(c)}. Sign in first: chainboot login`);
   return v;
 }
 
@@ -46,7 +46,7 @@ export async function cmdLogin(a: Args): Promise<void> {
   }
   const v = vaultFromKeypair(loadKeypair(a), c.cluster);
   saveVault(paths.vault(), v);
-  ok(`signed in as ${bold(v.wallet)} on ${c.cluster}`);
+  ok(`signed in as ${bold(v.wallet)} on ${networkLabel(c)}`);
   await showVault(v);
 }
 
@@ -55,7 +55,7 @@ async function showVault(v: Vault): Promise<void> {
   try { balance = (await (await openStore(loadConfig(), note)).pool.call<{ value: number }>("getBalance", [v.signer.address, { commitment: "confirmed" }])).value; } catch { /* offline: show what we know */ }
   out(table([
     ["wallet", v.wallet],
-    ["network", v.cluster],
+    ["network", networkLabel(loadConfig(), v.cluster)],
     ["vault", v.signer.address],
     ["vault balance", balance === null ? dim("unknown (no RPC answer)") : sol(balance)],
     ["share address", myShareAddress(v)],
@@ -66,14 +66,14 @@ async function showVault(v: Vault): Promise<void> {
 
 export function cmdLogout(): void {
   const c = loadConfig();
-  if (forgetVault(paths.vault(), c.cluster)) ok(`signed out on ${c.cluster}. Your saves stay on chain; sign in again to reach them.`);
+  if (forgetVault(paths.vault(), c.cluster)) ok(`signed out on ${networkLabel(c)}. Your saves stay on chain; sign in again to reach them.`);
   else info("nobody is signed in");
 }
 
 export async function cmdWhoami(): Promise<void> {
   const c = loadConfig();
   const v = loadVault(paths.vault(), c.cluster);
-  if (!v) { info(`nobody is signed in on ${c.cluster}. Sign in with: chainboot login`); process.exitCode = 1; return; }
+  if (!v) { info(`nobody is signed in on ${networkLabel(c)}. Sign in with: chainboot login`); process.exitCode = 1; return; }
   await showVault(v);
 }
 
@@ -182,7 +182,7 @@ export async function cmdHistory(a: Args): Promise<void> {
 export async function cmdStatus(): Promise<void> {
   const c = loadConfig();
   const v = loadVault(paths.vault(), c.cluster);
-  if (v) await showVault(v); else info(`Not signed in on ${c.cluster} (machines are not saved to chain). Sign in with: chainboot login`);
+  if (v) await showVault(v); else info(`Not signed in on ${networkLabel(c)} (machines are not saved to chain). Sign in with: chainboot login`);
   const home: EngineHome = engineHome();
   const machines = listMachines(home);
   if (!machines.length) return;

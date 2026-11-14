@@ -51,6 +51,9 @@ export class FakeChain {
   readonly #t0 = Date.now();
   get slot(): number { return 1000 + Math.floor((Date.now() - this.#t0) / this.slotMs); }
   blockCalls = 0;
+  /** When set, every transaction lands but fails on chain with this error (the fee is still charged). */
+  failOnChain: unknown = null;
+  readonly failedTxs = new Set<string>();
   balance = 10_000_000_000;
   requests = 0;
   /** Lamports the chain charged for all transactions so far. */
@@ -163,6 +166,8 @@ export class FakeChain {
         if (!verifyPayerSignature(tx)) return { error: { code: -32602, message: "signature verification failed" } };
         const sig = b58encode(tx.signatures[0]!);
         if (f.drop && Math.random() < f.drop) return { result: sig };
+        if (this.failOnChain && !this.failedTxs.has(sig)) { this.failedTxs.add(sig); this.fees += 5000; this.balance -= 5000; return { result: sig }; }
+        if (this.failedTxs.has(sig)) return { result: sig };
         if (!this.txs.has(sig)) {
           const failure = this.#execute(tx);
           if (failure) return { error: { code: -32002, message: `Transaction simulation failed: ${failure}` } };
@@ -184,7 +189,7 @@ export class FakeChain {
       }
       case "getMinimumBalanceForRentExemption": return { result: (128 + Number(params[0])) * 6960 };
       case "getSignatureStatuses":
-        return { result: { value: (params[0] as string[]).map((s) => (this.txs.has(s) ? { slot: this.txs.get(s)!.slot, err: null, confirmationStatus: "finalized" } : null)) } };
+        return { result: { value: (params[0] as string[]).map((s) => (this.failedTxs.has(s) ? { slot: this.slot, err: this.failOnChain ?? { InstructionError: [0, "ProgramFailedToComplete"] }, confirmationStatus: "finalized" } : this.txs.has(s) ? { slot: this.txs.get(s)!.slot, err: null, confirmationStatus: "finalized" } : null)) } };
       case "getBlock": {
         this.blockCalls++;
         if (f.noBlocks) return { error: { code: -32601, message: "Method not found" } };

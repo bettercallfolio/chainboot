@@ -115,12 +115,18 @@ interface Job {
   reject: (e: Error) => void;
 }
 
-export const GENESIS = {
+/** Solana's own networks, by the hash of their first block. */
+export const GENESIS: Record<string, string> = {
   "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
   devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
   testnet: "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
-} as const;
-export type Cluster = keyof typeof GENESIS;
+};
+/**
+ * What identifies a network: "devnet", "testnet" or "mainnet-beta" for Solana's own, and the
+ * genesis hash itself for any other chain that speaks Solana's RPC (which people then give a
+ * name of their own; see the settings).
+ */
+export type Cluster = string;
 
 export function clusterName(genesisHash: string): string {
   for (const [name, hash] of Object.entries(GENESIS)) if (hash === genesisHash) return name;
@@ -190,23 +196,23 @@ export class RpcPool {
    * a different network than `genesisHash`. Mixing networks would silently break uploads, so
    * call this once before real work. Returns one line per endpoint for display.
    */
-  async probe(genesisHash?: string, known: ProbeCache = {}): Promise<{ label: string; ok: boolean; detail: string }[]> {
+  async probe(genesisHash?: string, known: ProbeCache = {}): Promise<{ label: string; ok: boolean; detail: string; /** the chain the endpoint serves, when it answered */ genesis?: string }[]> {
     const now = Date.now();
     const report = await Promise.all(this.#eps.map(async (e) => {
       // an endpoint does not change networks: a recent answer is reused, so commands start without waiting
       const seen = known[probeKey(e.url)];
       if (seen && now - seen.at < (seen.genesis ? 7 * 86_400_000 : 10 * 60_000)) {
         if (!seen.genesis) { e.removed = true; return { label: e.label, ok: false, detail: seen.error ?? "unreachable" }; }
-        if (genesisHash && seen.genesis !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(seen.genesis)})` }; }
-        return { label: e.label, ok: true, detail: clusterName(seen.genesis) };
+        if (genesisHash && seen.genesis !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(seen.genesis)})`, genesis: seen.genesis }; }
+        return { label: e.label, ok: true, detail: clusterName(seen.genesis), genesis: seen.genesis };
       }
       for (let attempt = 0; ; attempt++) {
         try {
           const g = await this.#single(e, "getGenesisHash", [], 8000);
           if (typeof g !== "string") throw new RpcError("server", "malformed answer");
           known[probeKey(e.url)] = { genesis: g, at: now };
-          if (genesisHash && g !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(g)})` }; }
-          return { label: e.label, ok: true, detail: clusterName(g) };
+          if (genesisHash && g !== genesisHash) { e.removed = true; return { label: e.label, ok: false, detail: `different network (${clusterName(g)})`, genesis: g }; }
+          return { label: e.label, ok: true, detail: clusterName(g), genesis: g };
         } catch (err) {
           if (attempt < 2 && (err as RpcError).kind !== "unsupported") { await sleep(400 * (attempt + 1)); continue; }
           e.removed = true;

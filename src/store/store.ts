@@ -25,7 +25,7 @@ import { b58decodeFixed, b58encode } from "../util/base58.ts";
 import { concat, equal, sha256, toHex } from "../util/bytes.ts";
 import type { Keypair } from "../solana/keys.ts";
 import type { RpcPool } from "../solana/rpc.ts";
-import { NOOP_PROGRAM, buildTransaction, computeBudgetInstructions, noopCapacity, noopInstruction, parseTransaction, verifyPayerSignature, type Instruction, type ParsedTx, type TxVersion } from "../solana/tx.ts";
+import { buildTransaction, carriedData, computeBudgetInstructions, dataInstructions, noopCapacity, parseTransaction, verifyPayerSignature, type Carrier, type Instruction, type ParsedTx, type TxVersion } from "../solana/tx.ts";
 import { ACCOUNT_PAYLOAD_MAX, ACCOUNT_SPACE, RECORD_HEADER, RECORD_PROGRAM, accountAddress, closeInstruction, createInstructions, decodeRecord, encodeRecord, writeInstruction, type AccountRecord } from "./accounts.ts";
 import { TxSender, itemKey, sendAndConfirm, type Commitment, type Landed, type SendItem, type SenderProgress } from "./sender.ts";
 
@@ -56,6 +56,8 @@ export interface TxOptions {
   txVersion?: TxVersion;
   /** Extra fee per transaction in lamports (default 0). */
   priorityFeeLamports?: number;
+  /** The program that carries the data (default: Noop; "memo" for chains that lack it, always in the legacy format). */
+  carrier?: Carrier;
 }
 
 export interface PutOptions extends TxOptions {
@@ -111,8 +113,8 @@ interface TxResult {
 }
 
 /** How many payload bytes fit in one data transaction. */
-export function capacity(opts: { txVersion?: TxVersion; priorityFee?: boolean; readonlyAccounts?: number } = {}): number {
-  return noopCapacity({ version: opts.txVersion, priorityFee: opts.priorityFee, readonlyAccounts: opts.readonlyAccounts });
+export function capacity(opts: { txVersion?: TxVersion; priorityFee?: boolean; readonlyAccounts?: number; carrier?: Carrier } = {}): number {
+  return noopCapacity({ version: opts.txVersion, priorityFee: opts.priorityFee, readonlyAccounts: opts.readonlyAccounts, carrier: opts.carrier });
 }
 
 /** A 32-byte tag address derived from text. Transactions that reference it can be listed later. */
@@ -161,7 +163,7 @@ export function decodeSlots(buf: Uint8Array): number[] {
 }
 
 function sizes(opts: TxOptions): { cap: number; leafSize: number; fan: number; headFan: number } {
-  const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0 });
+  const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, carrier: opts.carrier });
   return { cap, leafSize: cap - 2, fan: Math.floor((cap - 2) / SIG), headFan: Math.floor((cap - HEAD_FIXED) / SIG) };
 }
 
@@ -199,7 +201,7 @@ export class ChainStore {
     const journal = opts.journalDir ? path.join(opts.journalDir, `${toHex(digest)}.journal`) : undefined;
     const send = (phase: string, payloads: Uint8Array[]): Promise<Landed[]> => sender.sendAll(payloads.map((p): SendItem => ({ data: p, key: itemKey(p) })), {
       commitment: opts.commitment, journal, signal: opts.signal, resendAfterMs: opts.resendAfterMs, pollMs: opts.pollMs,
-      txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports,
+      txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier,
       onProgress: (p: SenderProgress) => opts.onProgress?.({ phase, total: p.total, done: p.done, pending: p.pending, resent: p.resent }),
     });
 
@@ -242,7 +244,7 @@ export class ChainStore {
   /** Publishes a small record that can be found again through `tag` (see tagAddress). */
   async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment; account?: boolean } = {}): Promise<string> {
     const opts = { ...this.defaults, ...options };
-    const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1 }) - 3;
+    const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1, carrier: opts.carrier }) - 3;
     if (payload.length > cap) throw new Error(`pointer payload is ${payload.length} bytes, the limit is ${cap}`);
     const data = concat([Uint8Array.of(MAGIC, KIND_POINTER, FORMAT_VERSION), payload]);
 
@@ -262,7 +264,7 @@ export class ChainStore {
           await send(createInstructions(payer.publicKey, tag, rent));
         }
         // one transaction carries the pointer and updates the account: both happen or neither does
-        return send([noopInstruction(data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))]);
+        return send([...dataInstructions(opts.carrier ?? "noop", payer.publicKey, data, [tag]), writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, payload, seq))]);
       }
       // too long for the account: it is told to send readers to the transactions, then the pointer is written as usual
       if (mirror?.exists) await send([writeInstruction(payer.publicKey, tag, encodeRecord(payer, tag, null, seq))]);
@@ -271,7 +273,7 @@ export class ChainStore {
     // the key includes the time so that publishing the same pointer twice still creates a new, newer transaction
     const [landed] = await new TxSender(this.pool, payer).sendAll(
       [{ data, readonlyAccounts: [tag], key: itemKey(concat([data, Buffer.from(String(Date.now()))])) }],
-      { commitment: opts.commitment, txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports });
+      { commitment: opts.commitment, txVersion: opts.txVersion, priorityFeeLamports: opts.priorityFeeLamports, carrier: opts.carrier });
     return landed!.signature;
   }
 
@@ -348,9 +350,11 @@ export class ChainStore {
     return good!;
   }
 
+  /** The chainboot data a transaction carries (through the Noop program, or as a memo on chains without it). */
   static #payload(tx: ParsedTx): Buffer | null {
     for (const ix of tx.instructions) {
-      if (equal(ix.programId, NOOP_PROGRAM) && ix.data.length >= 2 && ix.data[0] === MAGIC) return ix.data;
+      const data = carriedData(ix.programId, ix.data, MAGIC);
+      if (data) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     }
     return null;
   }

@@ -182,7 +182,7 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
   const storedBytes = sealedPacks.reduce((n, p) => n + p.data.length, 0);
   // packs + manifest (estimated from the tree size) + state pointer + possibly the machine list
   const manifestEstimate = 400 + scan.changes.length * 60 + scan.deleted.length * 30;
-  const transactions = sealedPacks.reduce((n, p) => n + ChainStore.plan(p.data.length).transactions, 0) + ChainStore.plan(manifestEstimate).transactions + 4;
+  const transactions = sealedPacks.reduce((n, p) => n + ChainStore.plan(p.data.length, store.defaults).transactions, 0) + ChainStore.plan(manifestEstimate, store.defaults).transactions + 4;
   const plan: SavePlan = { newBytes, storedBytes, transactions, lamports: transactions * (5000 + Math.max(0, store.defaults.priorityFeeLamports ?? 0)), reusedFiles: files.length - fresh.size, newFiles: fresh.size };
   if (opts.approve && !(await opts.approve(plan))) return null;
 

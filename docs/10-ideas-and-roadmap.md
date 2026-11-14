@@ -111,7 +111,8 @@ and on Linux. The list below is in rough order of importance.
 
 **Later**
 
-- Other chains.
+- Chains that are not SVM (the storage layer is small; see
+  [Networks and costs](08-networks-and-costs.md#other-chains)).
 
 If one of these matters to you, open an issue or send a pull request. The code is small on
 purpose.
