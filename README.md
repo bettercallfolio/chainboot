@@ -163,6 +163,10 @@ transactions possible, the RPC providers who serve the ledger, Canonical and the
 Debian and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard,
 Node.js and TypeScript. The full list is in [docs/12-thanks.md](docs/12-thanks.md).
 
+## Contact
+
+Website: https://chainboot.dev · Mail: hello@chainboot.dev
+
 ## License and names
 
 MIT, see [LICENSE](LICENSE).

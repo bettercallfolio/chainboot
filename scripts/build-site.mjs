@@ -36,6 +36,7 @@ function inline(text) {
     return hold(`<a href="${esc(to)}"${external ? ' rel="noopener"' : ""}>${inline(label)}</a>`);
   });
   s = s.replace(/https?:\/\/[^\s<>()]+[^\s<>().,;:!?]/g, (url) => hold(`<a href="${esc(url)}" rel="noopener">${esc(url)}</a>`));
+  s = s.replace(/[A-Za-z0-9._-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, (mail) => hold(`<a href="mailto:${esc(mail)}">${esc(mail)}</a>`));
   s = esc(s).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => keep[Number(i)]);
 }
@@ -158,6 +159,7 @@ function page({ title, description, body, current }) {
 <title>${esc(title)} · chainboot docs</title>
 <meta name="description" content="${esc(description)}">
 <meta name="theme-color" content="#121416">
+<link rel="canonical" href="https://chainboot.dev/docs/${current}.html">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
@@ -193,7 +195,7 @@ ${body}
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="${REPO}" data-public>github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a><a href="${REPO}" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>

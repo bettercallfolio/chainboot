@@ -103,6 +103,7 @@ Install OrbStack, Docker Desktop, Podman or Lima and run the command again.
 
 **Something else**
 Run the command with the environment variable `CHAINBOOT_DEBUG=1` to see where the error
-comes from, and open an issue with that output. Never paste your endpoint URLs or key files.
+comes from, and open an issue with that output or write to hello@chainboot.dev. Never paste
+your endpoint URLs or key files.
 
 Next: [Thank you](12-thanks.md).

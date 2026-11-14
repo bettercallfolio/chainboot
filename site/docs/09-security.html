@@ -6,6 +6,7 @@
 <title>Security · chainboot docs</title>
 <meta name="description" content="What you trust, what you do not have to, and where the limits are.">
 <meta name="theme-color" content="#121416">
+<link rel="canonical" href="https://chainboot.dev/docs/09-security.html">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../style.css">
 </head>
@@ -72,7 +73,7 @@
 <h2 id="the-installers"><a class="anchor" href="#the-installers" aria-hidden="true" tabindex="-1">#</a>The installers</h2>
 <p><code>install.sh</code> and <code>install.ps1</code> run without administrator rights and write only into your home directory. The Node.js they may download is checked against SHA-256 values written into the installer. The chainboot archive is checked against the checksum published next to it, which protects against a broken download; its authenticity rests on GitHub and HTTPS. If you want more, build from source: <code>git clone</code>, <code>npm ci</code>, <code>npm run build</code>.</p>
 <h2 id="reporting-a-problem"><a class="anchor" href="#reporting-a-problem" aria-hidden="true" tabindex="-1">#</a>Reporting a problem</h2>
-<p>If you find a security problem, please open a private security advisory on the GitHub repository instead of a public issue.</p>
+<p>If you find a security problem, please write to <a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a>, or open a private security advisory on the GitHub repository, instead of a public issue.</p>
 <nav class="pager" aria-label="More guides"><a class="pager-prev" href="08-networks-and-costs.html"><span>previous</span>Networks and costs</a><a class="pager-next" href="10-ideas-and-roadmap.html"><span>next</span>Ideas and roadmap</a></nav>
 <p class="source" data-public><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/09-security.md" rel="noopener">Edit this page on GitHub</a></p>
   </main>
@@ -80,7 +81,7 @@
 <footer>
   <div class="wrap foot">
     <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
-    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
   </div>
 </footer>
 <script src="../docs.js"></script>

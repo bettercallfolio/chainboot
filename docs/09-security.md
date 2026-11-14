@@ -101,7 +101,7 @@ you want more, build from source: `git clone`, `npm ci`, `npm run build`.
 
 ## Reporting a problem
 
-If you find a security problem, please open a private security advisory on the GitHub
-repository instead of a public issue.
+If you find a security problem, please write to hello@chainboot.dev, or open a private
+security advisory on the GitHub repository, instead of a public issue.
 
 Next: [Ideas and roadmap](10-ideas-and-roadmap.md).
