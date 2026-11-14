@@ -18,7 +18,7 @@ import { decompress } from "../codec/index.ts";
 import { verifyPack } from "../image/build.ts";
 import { extractImage } from "../image/extract.ts";
 import { parseManifest, type ImageManifest } from "../image/manifest.ts";
-import { loadConfig, paths } from "../local/home.ts";
+import { loadConfig, paths, rpcUrls, OFFICIAL_PUBLISHER } from "../local/home.ts";
 import { loadVault, openEither } from "../state/vault.ts";
 import { imageHas, lazyLower } from "./lazy.ts";
 import { inUserNs } from "./rootless.ts";
@@ -46,6 +46,23 @@ export interface MachineInfo {
 }
 
 export interface EngineHome { images: string; machines: string; cache: string }
+
+/**
+ * The RPC endpoints a machine is told about, so that programs in it (a package manager,
+ * chainboot itself) read the chain as fast as the person who runs it. An endpoint address
+ * can carry a paid key, so only machines from images the person has reason to trust get
+ * them: the official catalog, their own private images (not ones shared with them), and
+ * publishers they saved a name for. CHAINBOOT_SHARE_RPC=1 gives them to any machine, =0 to none.
+ */
+export function machineEndpoints(info: MachineInfo): { cluster: string; rpcs: Record<string, string[]> } | null {
+  const c = loadConfig();
+  const urls = rpcUrls(c);
+  if (!urls.length || process.env.CHAINBOOT_SHARE_RPC === "0") return null;
+  const p = info.image.publisher;
+  const trusted = process.env.CHAINBOOT_SHARE_RPC === "1" || (info.image.private === true && !info.image.manifest.key) || p === OFFICIAL_PUBLISHER[c.cluster]
+    || Object.values(c.publishers).some((v) => v === p);
+  return trusted ? { cluster: c.cluster, rpcs: { [c.cluster]: urls } } : null;
+}
 
 const MACHINE_RE = /^[a-z0-9][a-z0-9._-]{0,62}$/;
 export function checkMachineName(name: string): void {
@@ -157,17 +174,32 @@ mkdir -p "$M/proc" "$M/sys" "$M/dev" "$M/run" "$M/tmp" "$M/etc"
 mount -t proc -o nosuid,nodev,noexec proc "$M/proc"
 mount -t sysfs -o ro,nosuid,nodev,noexec sysfs "$M/sys" 2>/dev/null || mount --rbind /sys "$M/sys"
 mount -t tmpfs -o mode=755,nosuid,size=4m tmpfs "$M/dev"
-for d in null zero full random urandom tty ptmx; do
+for d in null zero full random urandom tty; do
   [ -e "/dev/$d" ] || continue
   : > "$M/dev/$d"; mount --bind "/dev/$d" "$M/dev/$d"
 done
 mkdir -p "$M/dev/pts" "$M/dev/shm"
-mount --bind /dev/pts "$M/dev/pts"
+# Terminals. A program that wants a new terminal opens /dev/ptmx, and the kernel looks for the
+# terminals' file system in "pts" beside it: so ptmx has to be a device node of this directory
+# (or a link into pts), not a file that is mounted on its own.
+if mknod -m 666 "$M/dev/ptmx" c 5 2 2>/dev/null; then
+  # this computer's terminals, the session's own among them
+  mount --bind /dev/pts "$M/dev/pts"
+else
+  # (without administrator rights no device node can be made) terminals of the machine's own
+  mount -t devpts -o newinstance,ptmxmode=0666,mode=620,gid=5 devpts "$M/dev/pts" 2>/dev/null \
+    || mount -t devpts -o newinstance,ptmxmode=0666,mode=620 devpts "$M/dev/pts"
+  ln -s pts/ptmx "$M/dev/ptmx"
+fi
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/dev/shm"
 ln -s /proc/self/fd "$M/dev/fd"
 ln -s /proc/self/fd/0 "$M/dev/stdin"; ln -s /proc/self/fd/1 "$M/dev/stdout"; ln -s /proc/self/fd/2 "$M/dev/stderr"
 mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$M/run"
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/tmp"
+# the endpoints of the person who runs the machine, for programs in it that read the chain
+if [ -f "$CB_DIR/rpc.json" ]; then
+  mkdir -p "$M/run/chainboot"; cp "$CB_DIR/rpc.json" "$M/run/chainboot/config.json"; chmod 600 "$M/run/chainboot/config.json"
+fi
 for f in resolv.conf hosts hostname; do
   if [ -L "$M/etc/$f" ] || [ ! -e "$M/etc/$f" ]; then rm -f "$M/etc/$f"; : > "$M/etc/$f"; fi
   mount --bind "$CB_DIR/etc/$f" "$M/etc/$f"
@@ -319,15 +351,24 @@ if [ -n "$CB_SYSTEMD" ]; then
   # terminals of its own: sessions get theirs from the machine's systemd, and so does its SSH server
   mount -t devpts -o newinstance,ptmxmode=0666,mode=620,gid=5 devpts "$M/dev/pts"
   ln -s pts/ptmx "$M/dev/ptmx"
-else
-  : > "$M/dev/ptmx"; mount --bind /dev/ptmx "$M/dev/ptmx"
+elif mknod -m 666 "$M/dev/ptmx" c 5 2 2>/dev/null; then
+  # (ptmx must be a device node beside pts, not a file mounted on its own: the kernel looks
+  # for the terminals' file system in "pts" next to it) this computer's terminals
   mount --bind /dev/pts "$M/dev/pts"
+else
+  mount -t devpts -o newinstance,ptmxmode=0666,mode=620,gid=5 devpts "$M/dev/pts" 2>/dev/null \
+    || mount -t devpts -o newinstance,ptmxmode=0666,mode=620 devpts "$M/dev/pts"
+  ln -s pts/ptmx "$M/dev/ptmx"
 fi
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/dev/shm"
 ln -s /proc/self/fd "$M/dev/fd"
 ln -s /proc/self/fd/0 "$M/dev/stdin"; ln -s /proc/self/fd/1 "$M/dev/stdout"; ln -s /proc/self/fd/2 "$M/dev/stderr"
 mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$M/run"
 mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$M/tmp"
+# the endpoints of the person who runs the machine, for programs in it that read the chain
+if [ -f "$CB_DIR/rpc.json" ]; then
+  mkdir -p "$M/run/chainboot"; cp "$CB_DIR/rpc.json" "$M/run/chainboot/config.json"; chmod 600 "$M/run/chainboot/config.json"
+fi
 # the system log lives in memory: a log that grows on disk would be uploaded again with every save
 mkdir -p "$M/run/systemd/journald.conf.d"
 printf '[Journal]\nStorage=volatile\n' > "$M/run/systemd/journald.conf.d/chainboot.conf"
@@ -565,6 +606,8 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
     fs.writeFileSync(path.join(dir, "lock"), "");
     fs.writeFileSync(path.join(dir, "etc", "hostname"), `${name}\n`);
     fs.writeFileSync(path.join(dir, "etc", "hosts"), `127.0.0.1 localhost ${name}\n::1 localhost ip6-localhost ip6-loopback\n`);
+    const given = machineEndpoints(info);
+    if (given) fs.writeFileSync(path.join(dir, "rpc.json"), JSON.stringify(given), { mode: 0o600 }); else fs.rmSync(path.join(dir, "rpc.json"), { force: true });
     const env: Record<string, string> = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: overlay, CB_LAZY: lazy,
       CB_BIND: process.env.CHAINBOOT_UI_BIND === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1", CB_PORTS: process.env.CHAINBOOT_MACHINE_PORTS ?? "" };
     const log = fs.openSync(path.join(dir, "init.log"), "w");

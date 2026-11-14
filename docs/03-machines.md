@@ -81,6 +81,13 @@ through: inside a container `CHAINBOOT_PORTS` lists the ones that are (for examp
   port (set `Port 2222` in `/etc/ssh/sshd_config`). On macOS with a container engine, the
   machine's ports are reachable inside the engine only.
 - **Fresh `/tmp` and `/run` at every start**, like after a reboot.
+- **Your RPC endpoints, if you trust the image.** Programs in a machine that read the chain
+  (chainboot itself, a package manager) find your endpoints in `/run/chainboot/config.json`
+  and are as fast as you are. The file is kept in memory and never saved with the machine.
+  An endpoint address can carry a paid key, so only machines from the official catalog, from
+  your own private images and from publishers you saved a name for
+  (`chainboot publisher add <name> <address>`) get it. `CHAINBOOT_SHARE_RPC=1` gives it to
+  any machine you start, `CHAINBOOT_SHARE_RPC=0` to none.
 - **Its own SSH host keys and machine ID**, created at first start (images do not carry them).
 
 What a machine is **not**:

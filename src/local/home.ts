@@ -84,10 +84,25 @@ export function saveConfig(c: Config): void {
   fs.renameSync(tmp, paths.config());
 }
 
-/** RPC URLs for the active network: CHAINBOOT_RPC (comma or space separated) wins over the config file. */
+/**
+ * Inside a machine: the endpoints of the person who runs it, written there by the chainboot
+ * that started the machine (see machineEndpoints in engine/linux.ts). Kept in memory only.
+ */
+export const MACHINE_CONFIG = "/run/chainboot/config.json";
+
+/**
+ * RPC URLs for the active network: CHAINBOOT_RPC (comma or space separated) wins over the
+ * config file; in a machine that has none of its own, the endpoints it was started with.
+ */
 export function rpcUrls(c: Config): string[] {
   const env = process.env.CHAINBOOT_RPC?.split(/[\s,]+/).filter(Boolean);
-  return env?.length ? env : c.rpcs[c.cluster] ?? [];
+  if (env?.length) return env;
+  const own = c.rpcs[c.cluster] ?? [];
+  if (own.length) return own;
+  try {
+    const given = (JSON.parse(fs.readFileSync(MACHINE_CONFIG, "utf8")) as { rpcs?: Record<string, unknown> }).rpcs?.[c.cluster];
+    return Array.isArray(given) ? given.filter((u): u is string => typeof u === "string") : [];
+  } catch { return []; }
 }
 
 export const NO_RPC_HELP = `No RPC endpoint is configured yet.

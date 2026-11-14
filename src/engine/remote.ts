@@ -360,7 +360,7 @@ export function proxy(kind: EngineKind, argv: string[], watchForLinks: (url: str
   if (kind === "docker" || kind === "podman") env.CHAINBOOT_MACHINE_PORTS = passedPorts(kind) ?? "";
   if (process.env.NO_COLOR) env.NO_COLOR = "1";
   // settings that chainboot takes from the environment must arrive in the engine as well
-  for (const k of ["CHAINBOOT_RPC", "CHAINBOOT_OFFLINE", "CHAINBOOT_AUTOSAVE_MINUTES", "CHAINBOOT_CARRIER", "CHAINBOOT_DEBUG"]) if (process.env[k] !== undefined) env[k] = process.env[k]!;
+  for (const k of ["CHAINBOOT_RPC", "CHAINBOOT_OFFLINE", "CHAINBOOT_AUTOSAVE_MINUTES", "CHAINBOOT_CARRIER", "CHAINBOOT_DEBUG", "CHAINBOOT_SHARE_RPC"]) if (process.env[k] !== undefined) env[k] = process.env[k]!;
   if (process.stdin.isTTY) env.CHAINBOOT_UI_TERMINAL = "1";
   const p = [...prefix(kind, interactive, env), `${ENGINE_APP}/node`, `${ENGINE_APP}/app/chainboot.mjs`, ...argv];
   const wantsLink = ["ui", "login", "fund"].includes(argv[0] ?? "");

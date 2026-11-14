@@ -101,6 +101,11 @@ of the name.
 When you run an image of a publisher you do not know, you are trusting a stranger with root
 on your computer. chainboot shows the publisher address in `chainboot list <address>`; check it.
 
+Saving a name for a publisher (`chainboot publisher add`) says that you trust it a little
+more: machines from its images are told your RPC endpoints
+([What a machine is](03-machines.md#what-a-machine-is-exactly)). Machines from publishers
+without a saved name are not.
+
 A catalog depends on one key. A **list** ([Publishing](05-publishing.md#lists-a-catalog-that-several-publishers-keep-together))
 depends on several: an image counts only when more than half of the list's publishers have
 the same content under the same name. Someone who steals one of the keys can then neither
