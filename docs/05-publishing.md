@@ -292,6 +292,7 @@ chainboot list <your-address>
 chainboot run <your-address>/mylinux
 ```
 
-In the web interface, "Look at another publisher" does the same.
+In the web interface, "Other publisher" (in the Systems section) does the same; it takes an
+address, a saved name or a list.
 
 Next: [The SDK](06-sdk.md).

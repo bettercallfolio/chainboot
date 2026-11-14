@@ -2,8 +2,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GENESIS, RpcPool, maskRpcUrl, type Cluster, type ProbeCache } from "../solana/rpc.ts";
-import { isList, parseList, type ListSpec } from "../registry/lists.ts";
+import { GENESIS, RpcPool, clusterName, maskRpcUrl, type Cluster, type ProbeCache } from "../solana/rpc.ts";
+import { formatList, isList, parseList, type ListSpec } from "../registry/lists.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { MEMO_PROGRAM, NOOP_PROGRAM, type Carrier } from "../solana/tx.ts";
 import { b58encode } from "../util/base58.ts";
@@ -167,6 +167,67 @@ export function resolvePublisher(c: Config, who: string | undefined): string {
   const s = resolveSource(c, who);
   if (s.kind === "list") throw new Error(`"${who ?? "official"}" is a list of ${s.spec.members.length} publishers, not one publisher`);
   return s.address;
+}
+
+/** Words that are commands of "chainboot network", so no chain can be named like them. */
+const RESERVED_NETWORK_NAMES = ["mainnet", "list", "add", "remove"];
+
+/**
+ * Adds another chain that speaks Solana's RPC and switches to it: asks the endpoint which chain
+ * it is (its genesis hash), finds out which program can carry data there, and saves both.
+ */
+export async function addNetwork(c: Config, name: string, url: string): Promise<{ genesis: string; carrier: Carrier }> {
+  if (!/^[a-z0-9][a-z0-9._-]{0,30}$/.test(name) || name in GENESIS || RESERVED_NETWORK_NAMES.includes(name)) {
+    throw new Error(`"${name}" cannot be used as a network name: use lower-case letters, digits, ".", "_" or "-", and not the name of a Solana network`);
+  }
+  if (!/^https?:\/\/\S+$/i.test(url)) throw new Error("an endpoint is a web address that starts with http:// or https://");
+  const pool = new RpcPool([url]);
+  const report = await pool.probe();
+  const genesis = report[0]?.genesis;
+  if (!report[0]?.ok || !genesis) throw new Error(`${maskRpcUrl(url)} did not answer like a Solana RPC endpoint: ${report[0]?.detail ?? "no answer"}`);
+  if (Object.values(GENESIS).includes(genesis)) throw new Error(`that endpoint serves Solana ${clusterName(genesis)}, which chainboot knows already. Switch to ${clusterName(genesis)} and add the endpoint there.`);
+  const taken = Object.entries(c.networks ?? {}).find(([id, n]) => n.name === name && id !== genesis);
+  if (taken) throw new Error(`the name "${name}" is already used for another chain (genesis ${taken[0]})`);
+  const carrier = await detectCarrier(pool);
+  c.networks = { ...c.networks, [genesis]: { name, carrier } };
+  if (!(c.rpcs[genesis] ?? []).includes(url)) c.rpcs[genesis] = [...(c.rpcs[genesis] ?? []), url];
+  c.cluster = genesis;
+  saveConfig(c);
+  return { genesis, carrier };
+}
+
+/** Forgets an added chain and its endpoints. `name`: its name or its genesis hash. */
+export function removeNetwork(c: Config, name: string): void {
+  const id = findNetwork(c, name);
+  if (!id || id in GENESIS) throw new Error(`there is no added chain named "${name}"`);
+  if (c.cluster === id) throw new Error(`${networkLabel(c, id)} is the current network. Switch to another one first.`);
+  delete c.networks![id]; delete c.rpcs[id];
+  saveConfig(c);
+}
+
+/** Saves a short name for a publisher address or for a list of publishers. Returns what was stored. */
+export function savePublisherName(c: Config, name: string, value: string): string {
+  if (!/^[A-Za-z0-9._-]{1,40}$/.test(name) || name === "official" || name === "me") throw new Error(`"${name}" cannot be used as a name: use letters, digits, ".", "_" or "-" (not "official" or "me")`);
+  let isAddress = true;
+  try { addressToBytes(name); } catch { isAddress = false; }
+  if (isAddress) throw new Error("a name that is itself a Solana address would hide that publisher: choose another name");
+  const stored = isList(value.trim()) ? formatList(parseList(value.trim())) : resolvePublisher({ ...c, publishers: {} }, value.trim());
+  c.publishers[name] = stored;
+  saveConfig(c);
+  return stored;
+}
+
+export function removePublisherName(c: Config, name: string): void {
+  if (!(name in c.publishers)) throw new Error(`there is no saved name "${name}"`);
+  delete c.publishers[name];
+  saveConfig(c);
+}
+
+/** Checks a priority fee (lamports per transaction) and saves it; 0 turns it off. */
+export function setPriorityFee(c: Config, lamports: number): void {
+  if (!Number.isInteger(lamports) || lamports < 0 || lamports > 10_000_000) throw new Error('give the tip in lamports, a whole number up to 10,000,000 (0.01 SOL), or "off"');
+  if (lamports === 0) delete c.priorityFeeLamports; else c.priorityFeeLamports = lamports;
+  saveConfig(c);
 }
 
 export function hostArch(): string {

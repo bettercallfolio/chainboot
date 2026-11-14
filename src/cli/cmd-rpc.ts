@@ -1,5 +1,5 @@
-import { GENESIS, RpcPool, clusterName, maskRpcUrl } from "../solana/rpc.ts";
-import { detectCarrier, findNetwork, loadConfig, networkGenesis, networkLabel, rpcUrls, saveConfig, NO_RPC_HELP } from "../local/home.ts";
+import { GENESIS, RpcPool, maskRpcUrl } from "../solana/rpc.ts";
+import { addNetwork, findNetwork, loadConfig, networkGenesis, networkLabel, removeNetwork, rpcUrls, saveConfig, setPriorityFee, NO_RPC_HELP } from "../local/home.ts";
 import { UsageError, type Args } from "./args.ts";
 import { bold, dim, green, info, ok, out, red, table } from "./term.ts";
 
@@ -156,10 +156,9 @@ export function cmdPriorityFee(a: Args): void {
     out(c.priorityFeeLamports ? `${bold(String(c.priorityFeeLamports))} lamports per transaction ${dim(`(${(c.priorityFeeLamports / 1e9).toFixed(9)} SOL on top of the 0.000005 SOL fee)`)}` : `${bold("off")} ${dim("(transactions pay only the normal fee)")}`);
     return;
   }
-  if (want === "off" || want === "0") { delete c.priorityFeeLamports; saveConfig(c); ok("priority fee is off"); return; }
-  const n = Number(want);
-  if (!Number.isInteger(n) || n < 0 || n > 10_000_000) throw new UsageError("give the tip in lamports, a whole number up to 10,000,000 (0.01 SOL), or \"off\"");
-  c.priorityFeeLamports = n; saveConfig(c);
+  if (want === "off" || want === "0") { setPriorityFee(c, 0); ok("priority fee is off"); return; }
+  const n = /^\d+$/.test(want) ? Number(want) : NaN;
+  try { setPriorityFee(c, n); } catch (e) { throw new UsageError((e as Error).message); }
   ok(`every transaction now carries a tip of ${n} lamports`);
   if (n > 100_000) info(dim("That is a large tip: storing 1 MB (261 transactions) will cost " + ((261 * (5000 + n)) / 1e9).toFixed(4) + " SOL."));
 }
@@ -200,30 +199,15 @@ export async function cmdNetwork(a: Args): Promise<void> {
   }
   if (want === "add") {
     if (!name || !url) throw new UsageError("usage: chainboot network add <name> <rpc-url>");
-    if (!/^[a-z0-9][a-z0-9._-]{0,30}$/.test(name) || name in GENESIS || ["mainnet", "list", "add", "remove"].includes(name)) throw new UsageError(`"${name}" cannot be used as a network name: use lower-case letters, digits, ".", "_" or "-", and not the name of a Solana network`);
-    const pool = new RpcPool([url]);
-    const report = await pool.probe().catch((e: Error) => { throw new Error(e.message); });
-    const genesis = report[0]?.genesis;
-    if (!report[0]?.ok || !genesis) throw new Error(`${maskRpcUrl(url)} did not answer like a Solana RPC endpoint: ${report[0]?.detail ?? "no answer"}`);
-    if (Object.values(GENESIS).includes(genesis)) throw new Error(`that endpoint serves Solana ${clusterName(genesis)}, which chainboot knows already. Use: chainboot network ${clusterName(genesis)}   chainboot rpc add ${maskRpcUrl(url)}`);
-    const taken = Object.entries(c.networks ?? {}).find(([id, n]) => n.name === name && id !== genesis);
-    if (taken) throw new Error(`the name "${name}" is already used for another chain (genesis ${taken[0]})`);
-    const carrier = await detectCarrier(pool);
-    c.networks = { ...c.networks, [genesis]: { name, carrier } };
-    if (!(c.rpcs[genesis] ?? []).includes(url)) c.rpcs[genesis] = [...(c.rpcs[genesis] ?? []), url];
-    c.cluster = genesis;
-    saveConfig(c);
+    const { genesis, carrier } = await addNetwork(c, name, url);
     ok(`added ${bold(name)} and switched to it`);
     out(table([["genesis hash", genesis], ["data travels through", carrier === "noop" ? "the Noop program (as on Solana)" : "the Memo program, as text (this chain has no Noop program)"], ["transactions", "legacy format, 1232 bytes"]]));
     info(dim("Add more endpoints with: chainboot rpc add <url>   Go back with: chainboot network devnet"));
     return;
   }
   if (want === "remove") {
-    const id = name ? findNetwork(c, name) : null;
-    if (!id || id in GENESIS) throw new Error(name ? `there is no added chain named "${name}"` : "say which one: chainboot network remove <name>");
-    if (c.cluster === id) throw new Error(`${name} is the current network. Switch first: chainboot network devnet`);
-    delete c.networks![id]; delete c.rpcs[id];
-    saveConfig(c);
+    if (!name) throw new UsageError("say which one: chainboot network remove <name>");
+    removeNetwork(c, name);
     ok(`forgot ${name} and its endpoints`);
     return;
   }

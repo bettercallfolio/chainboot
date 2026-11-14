@@ -126,8 +126,11 @@ your own files, but chainboot does not promise isolation there either.
 - only accepts a wallet's signed transaction if it is exactly the transfer from your wallet
   to your vault that the page prepared.
 
-Text that comes from the chain (image names and descriptions) is inserted into the page as
-text, never as HTML.
+- runs only a fixed set of chainboot commands for the page, and never one that names a
+  keypair file.
+
+Text that comes from the chain (image names and descriptions, the notes of shares) is
+inserted into the page as text, never as HTML.
 
 ## The installers
 

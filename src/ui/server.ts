@@ -16,9 +16,12 @@ import { listMachines, machineDir, type EngineHome } from "../engine/linux.ts";
 import { engineMode } from "../engine/rootless.ts";
 import { readSaveStatus } from "../engine/state-ops.ts";
 import { parseManifest } from "../image/manifest.ts";
-import { homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, networkGenesis, networkLabel, resolveSource, rpcUrls, saveConfig, OFFICIAL_PUBLISHER } from "../local/home.ts";
+import os from "node:os";
+import { addNetwork, homeDir, hostArch, loadConfig, maskRpcUrl, openStore, paths, networkGenesis, networkLabel, removeNetwork, removePublisherName, resolveSource, rpcUrls, saveConfig, savePublisherName, setPriorityFee, OFFICIAL_PUBLISHER } from "../local/home.ts";
 import { readSource } from "../cli/cmd-image.ts";
+import { isList, parseList, type ListView } from "../registry/lists.ts";
 import { readPrivateCatalog } from "../registry/private.ts";
+import { listShares, myShareAddress } from "../share/share.ts";
 import { addressToBytes } from "../solana/keys.ts";
 import { GENESIS, RpcPool, type Cluster } from "../solana/rpc.ts";
 import { compileMessage, parseTransaction, transferInstruction, verifyPayerSignature } from "../solana/tx.ts";
@@ -26,7 +29,23 @@ import { b58decodeFixed, b58encode } from "../util/base58.ts";
 import { LOGIN_MESSAGE, deriveVault, forgetVault, loadVault, saveVault } from "../state/vault.ts";
 import type { ChainStore } from "../store/store.ts";
 
-export const UI_VERSION = 1;
+export const UI_VERSION = 2;
+
+/**
+ * True when this interface runs inside the engine of a Windows or macOS computer (see
+ * engine/remote.ts): files it writes land in the engine, not in the user's folders, and no
+ * terminal window can be opened from here.
+ */
+const insideEngine = (): boolean => process.env.CHAINBOOT_UI_BIND !== undefined;
+
+/** A file the user named in the page: "~" is their home directory, and so is the start of a relative path. */
+function userPath(text: string): string {
+  const t = text.trim();
+  if (!t || t.includes("\0")) throw new Error("say where to write the file");
+  const home = os.homedir();
+  if (t === "~") return home;
+  return path.resolve(home, t.startsWith("~/") ? t.slice(2) : t);
+}
 
 interface Job { id: string; title: string; command: string[]; lines: string[]; status: "running" | "done" | "failed"; code: number | null; started: number; needsTerminal?: boolean }
 
@@ -144,7 +163,15 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
       // networks are identified by a name (Solana's own) or a genesis hash (added chains); this is what to show for each
       clusterNames: Object.fromEntries([...Object.keys(GENESIS), ...Object.keys(c.networks ?? {})].map((id) => [id, networkLabel(c, id)])),
       endpoints: rpcUrls(c).map((u, i) => ({ index: i, label: maskRpcUrl(u) })), endpointsFromEnv: !!process.env.CHAINBOOT_RPC,
-      login: vault ? { wallet: vault.wallet, vault: vault.signer.address } : null,
+      login: vault ? { wallet: vault.wallet, vault: vault.signer.address, share: myShareAddress(vault) } : null,
+      // how machines get their rights here (Linux only): shown in Settings
+      engine: process.platform !== "linux" ? null : insideEngine() ? { where: "engine" } : process.getuid?.() === 0 ? { where: "root" } : { where: "here", mode: engineMode(homeDir()) },
+      files: !insideEngine(),
+      settings: {
+        accounts: !!c.accounts, accountsAvailable: c.cluster in GENESIS, priorityFee: c.priorityFeeLamports ?? 0,
+        publishers: Object.entries(c.publishers).sort().map(([name, value]) => ({ name, value, kind: isList(value) ? `list: ${parseList(value).threshold} of ${parseList(value).members.length}` : "publisher" })),
+        networks: Object.entries(c.networks ?? {}).map(([id, n]) => ({ id, name: n.name, carrier: n.carrier ?? null, endpoints: (c.rpcs[id] ?? []).length })),
+      },
       machines: listMachines(home).map((m) => ({ ...m, save: readSaveStatus(machineDir(home, m.name)), autosave: !fs.existsSync(path.join(machineDir(home, m.name), "autosave-off")) })),
       images,
       jobs: [...jobs.values()].slice(-12).map((j) => ({ id: j.id, title: j.title, status: j.status, last: j.lines.at(-1) ?? "" })),
@@ -183,35 +210,79 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     "POST /api/rpc/test": async () => {
       const c = loadConfig(), urls = rpcUrls(c);
       if (!urls.length) return [];
-      return await new RpcPool(urls).probe().then((r) => r.map((x) => ({ label: x.label, detail: x.detail in GENESIS ? x.detail : networkLabel(c, x.genesis ?? ""), ok: x.ok && (GENESIS[x.detail] ?? x.genesis) === networkGenesis(c) }))).catch(() => urls.map((u) => ({ label: maskRpcUrl(u), ok: false, detail: "no answer" })));
+      const here = networkGenesis(c);
+      return await new RpcPool(urls).probe().then((r) => r.map((x) => {
+        const fine = x.ok && (GENESIS[x.detail] ?? x.genesis) === here;
+        return { label: x.label, ok: fine, detail: fine ? "working" : x.ok ? `serves ${x.detail in GENESIS ? x.detail : networkLabel(c, x.genesis ?? "")}, but the current network is ${networkLabel(c)}` : x.detail };
+      })).catch(() => urls.map((u) => ({ label: maskRpcUrl(u), ok: false, detail: "no answer" })));
     },
     "POST /api/catalog": async (b) => {
       const c = loadConfig();
       const mine = b.publisher === "me";
       const vault = mine ? loadVault(paths.vault(), c.cluster) : null;
       if (mine && !vault) throw new Error("sign in to see your private images");
-      if (!mine && typeof b.publisher === "string" && b.publisher.startsWith("list:")) throw new Error("save the list under a name first (chainboot publisher add <name> <list>), then enter that name here");
       const source = mine ? null : resolveSource(c, b.publisher || undefined);
       const publisher = mine ? "me" : source!.kind === "publisher" ? source!.address : source!.label;
       const cat = vault ? await readPrivateCatalog(await store(), vault) : await readSource(await store(), source!);
+      const view: ListView | null = "view" in cat ? (cat as { view: ListView }).view : null;
       const arch = hostArch();
       return {
         publisher, arch, private: mine,
+        // what to put in front of an image name so that "chainboot run" finds it here; null when it
+        // cannot be written that way (a list that has no saved name)
+        prefix: mine ? "me/" : !b.publisher || b.publisher === "official" ? "" : source!.kind === "list" && isList(String(b.publisher)) ? null : `${String(b.publisher).trim()}/`,
+        list: view && { threshold: view.spec.threshold, members: view.members.map((m) => ({ address: m.address, ok: m.ok, images: m.images, error: m.error ?? "" })), waiting: view.waiting.length },
         images: Object.entries(cat.images).map(([name, img]) => ({
           name, description: img.description ?? "",
-          tags: Object.entries(img.tags).map(([tag, arches]) => ({ tag, arches: Object.keys(arches), size: arches[arch]?.downloadSize ?? null, unpacked: arches[arch]?.unpackedSize ?? null, version: arches[arch]?.version ?? Object.values(arches)[0]?.version })),
+          tags: Object.entries(img.tags).map(([tag, arches]) => ({
+            tag, arches: Object.keys(arches), size: arches[arch]?.downloadSize ?? null, unpacked: arches[arch]?.unpackedSize ?? null, version: arches[arch]?.version ?? Object.values(arches)[0]?.version,
+            ...(view && { agreed: (arches[arch] as { agreed?: string[] } | undefined)?.agreed?.length ?? null }),
+          })),
         })),
       };
     },
+    // ---- sharing
+    "POST /api/shares": async () => {
+      const c = loadConfig(), v = loadVault(paths.vault(), c.cluster);
+      if (!v) throw new Error("sign in to see what was shared with you");
+      const list = await listShares(await store(), v, { cacheDir: path.join(paths.cache(), "objects") });
+      return list.map((r) => ({
+        id: r.id, from: r.from, arrived: r.arrived ?? r.record.time, note: r.record.note ?? "", what: r.record.what, name: r.record.name,
+        detail: r.record.what === "image" ? `${r.record.image!.tag} · ${r.record.image!.arch}` : `${r.record.machine!.image.name}:${r.record.machine!.image.tag} · ${r.record.machine!.image.arch}${r.record.machine!.boot ? " · boots" : ""}`,
+      }));
+    },
+    // ---- settings
+    "POST /api/settings/accounts": (b) => {
+      const c = loadConfig();
+      if (b.on === true) c.accounts = true; else delete c.accounts;
+      saveConfig(c); return state();
+    },
+    "POST /api/settings/fee": (b) => { setPriorityFee(loadConfig(), typeof b.lamports === "number" ? b.lamports : NaN); return state(); },
+    "POST /api/network/add": async (b) => { await addNetwork(loadConfig(), String(b.name ?? "").trim(), String(b.url ?? "").trim()); return state(); },
+    "POST /api/network/remove": (b) => { removeNetwork(loadConfig(), String(b.id ?? "")); return state(); },
+    "POST /api/publisher/add": (b) => { savePublisherName(loadConfig(), String(b.name ?? "").trim(), String(b.value ?? "")); return state(); },
+    "POST /api/publisher/remove": (b) => { removePublisherName(loadConfig(), String(b.name ?? "")); return state(); },
     "POST /api/job": (b) => {
       const allowed: Record<string, { root: boolean; title: string }> = {
         pull: { root: false, title: "Download" }, save: { root: true, title: "Save" }, restore: { root: true, title: "Restore" }, start: { root: true, title: "Start" },
         stop: { root: true, title: "Stop" }, rm: { root: true, title: "Delete" }, autosave: { root: true, title: "Autosave" }, rmi: { root: true, title: "Delete image" },
+        boot: { root: false, title: "Boot" }, history: { root: false, title: "History of" }, share: { root: false, title: "Share" }, shared: { root: false, title: "Keep" },
+        disk: { root: true, title: "Disk of" }, export: { root: true, title: "Export" }, accounts: { root: false, title: "Pointer accounts" }, unlist: { root: false, title: "Remove from catalog" },
       };
       const args = Array.isArray(b.args) ? b.args.map(String) : [];
       const spec = allowed[args[0] ?? ""];
-      if (!spec || args.some((a: string) => a.length > 300)) throw new Error("that action is not available from the interface");
-      const j = startJob(`${spec.title} ${args.slice(1).filter((a: string) => !a.startsWith("--")).join(" ")}`.trim(), args, spec.root);
+      if (!spec || args.some((a: string) => a.length > 600)) throw new Error("that action is not available from the interface");
+      // from the page, only the signed-in wallet's own things: no keypair files, and only private images are unlisted
+      if (args.some((a: string) => a === "--keypair" || a.startsWith("--keypair="))) throw new Error("that action is not available from the interface");
+      if (args[0] === "unlist" && !(args[1] ?? "").startsWith("me/")) throw new Error("that action is not available from the interface");
+      if (args[0] === "accounts" && args[1] !== "close") throw new Error("that action is not available from the interface");
+      if (args[0] === "disk" || args[0] === "export") {
+        if (insideEngine()) throw new Error(`files are written by a command on your computer. In a terminal: ${printable(args)}`);
+        if (!args[2]) throw new Error("say where to write the file");
+        args[2] = userPath(args[2]);
+      }
+      const title = typeof b.title === "string" && b.title.length > 0 && b.title.length <= 80 ? b.title : `${spec.title} ${args.slice(1, args[0] === "disk" || args[0] === "export" ? 2 : undefined).filter((a: string) => !a.startsWith("--")).join(" ")}`.trim();
+      const j = startJob(title, args, spec.root);
       return { id: j.id };
     },
     "POST /api/job/get": (b) => {
@@ -221,7 +292,7 @@ export async function startUi(opts: { port?: number; page?: string } = {}): Prom
     },
     "POST /api/terminal": (b) => {
       const args = Array.isArray(b.args) ? b.args.map(String) : [];
-      if (!["run", "save", "restore", "login", "status"].includes(args[0] ?? "")) throw new Error("that action is not available from the interface");
+      if (!["run", "save", "restore", "login", "status", "engine"].includes(args[0] ?? "") || args.some((a: string) => a.length > 600)) throw new Error("that action is not available from the interface");
       return { opened: openTerminal(args), command: printable(args) };
     },
     // ---- wallet

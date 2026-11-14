@@ -48,9 +48,10 @@
       </div>
     </div>
     <form id="publisher-form" class="row hidden">
-      <input id="publisher" placeholder="publisher address (empty for the official catalog)" autocomplete="off" spellcheck="false">
+      <input id="publisher" placeholder="publisher address, saved name or list (empty for the official catalog)" autocomplete="off" spellcheck="false">
       <button type="submit" class="btn">Show</button>
     </form>
+    <p id="catalog-note" class="hint hidden"></p>
     <div id="catalog" class="grid three"><div class="empty">Add an endpoint to see what is available.</div></div>
   </section>
 
@@ -71,6 +72,15 @@
     <div id="wallet-panel"></div>
   </section>
 
+  <section id="sec-settings">
+    <div class="head">
+      <h2>Settings</h2>
+      <span id="settings-summary" class="sub"></span>
+      <button id="settings-toggle" class="btn quiet" aria-expanded="false">Show</button>
+    </div>
+    <div id="settings-body" class="hidden"></div>
+  </section>
+
   <section id="sec-publish">
     <div class="head">
       <h2>Publish your own</h2>
@@ -87,8 +97,14 @@ chainboot run me/mybox
 
 # for everyone: needs a publisher key and the word --public
 chainboot keygen me.json                         # fund it with a little SOL
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json</pre>
-      <p class="hint">Others run a public system with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive of any distribution works too. What is written to the ledger can never be erased.</p>
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json
+
+# stored so that a machine can start at once and fetch files as it reads them
+chainboot publish mybox.tar --name mybox --version 1.0 --tag lazy --lazy
+
+# agree to a system another publisher stored (for lists that several publishers keep together)
+chainboot endorse &lt;address&gt;/solinux --keypair me.json</pre>
+      <p class="hint">Others run a public system with <code>chainboot run &lt;your-address&gt;/mybox</code>. A root file system archive of any distribution works too. Under Machines, <b>More</b> turns a machine into such an archive, or into a bootable disk. What is written to the ledger can never be erased.</p>
     </div>
   </section>
 

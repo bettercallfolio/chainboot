@@ -5,8 +5,8 @@ import readline from "node:readline/promises";
 import { buildImage } from "../image/build.ts";
 import { decompressAuto, readTar } from "../image/tar.ts";
 import { serializeManifest, type ImageManifest } from "../image/manifest.ts";
-import { hostArch, loadConfig, openStore, paths, resolvePublisher, resolveSource, saveConfig, type Config, type Source, networkLabel } from "../local/home.ts";
-import { formatList, isList, parseList, readList, type ListView } from "../registry/lists.ts";
+import { hostArch, loadConfig, openStore, paths, removePublisherName, resolvePublisher, resolveSource, savePublisherName, type Config, type Source, networkLabel } from "../local/home.ts";
+import { isList, parseList, readList, type ListView } from "../registry/lists.ts";
 import { endorseImage, parseImageName, publishImage, pullImage, pullManifest, readCatalog, unlistImage, type Catalog, type ImageRef, type PulledImage, type StoredRef } from "../registry/registry.ts";
 import { publishPrivateImage, readPrivateCatalog, unlistPrivateImage } from "../registry/private.ts";
 import { Keypair } from "../solana/keys.ts";
@@ -283,18 +283,14 @@ export function cmdPublisher(a: Args): void {
   }
   if (sub === "add") {
     if (!name || !value) throw new UsageError("usage: chainboot publisher add <name> <address | list:2:<address>,<address>,...>");
-    if (!/^[A-Za-z0-9._-]{1,40}$/.test(name) || name === "official" || name === PRIVATE_PREFIX) throw new UsageError(`"${name}" cannot be used as a name: use letters, digits, ".", "_" or "-" (not "official" or "${PRIVATE_PREFIX}")`);
-    const stored = isList(value) ? formatList(parseList(value)) : resolvePublisher({ ...c, publishers: {} }, value);
-    c.publishers[name] = stored;
-    saveConfig(c);
+    const stored = savePublisherName(c, name, value);
     ok(isList(stored) ? `saved list ${bold(name)}: ${parseList(stored).threshold} of ${parseList(stored).members.length} publishers must agree` : `saved publisher ${bold(name)}`);
     info(dim(`Use it like this: chainboot list ${name}   chainboot run ${name}/<image>`));
     return;
   }
   if (sub === "remove") {
-    if (!name || !(name in c.publishers)) throw new Error(name ? `there is no saved name "${name}"` : "say which name: chainboot publisher remove <name>");
-    delete c.publishers[name];
-    saveConfig(c);
+    if (!name) throw new UsageError("say which name: chainboot publisher remove <name>");
+    removePublisherName(c, name);
     ok(`removed ${name}`);
     return;
   }
