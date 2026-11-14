@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import net from "node:net";
 import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { writeTar, type Entry } from "../image/tar.ts";
 import { homeDir, paths } from "../local/home.ts";
@@ -147,8 +148,35 @@ function wake(kind: EngineKind): void {
   }
 }
 
-async function create(kind: EngineKind): Promise<void> {
-  say("Setting up the Linux engine for chainboot (first run only).");
+const PORTS_LABEL = "chainboot.machine-ports";
+
+/**
+ * The machine ports the engine container passes through, as "7654 7655 ...": "" when it passes
+ * none, null when the container was made by an earlier version that did not know about them.
+ */
+function passedPorts(kind: EngineKind): string | null {
+  const r = run(kind, ["container", "inspect", "-f", `{{index .Config.Labels "${PORTS_LABEL}"}}`, NAME]);
+  if (r.error || r.status !== 0) return "";
+  const v = text(r.stdout).trim();
+  return v === "" || v === "<no value>" ? null : v === "none" ? "" : v;
+}
+
+/** The machine ports that nothing on this computer is using right now. */
+async function freeMachinePorts(): Promise<number[]> {
+  const free: number[] = [];
+  for (let p = MACHINE_PORTS.first; p <= MACHINE_PORTS.last; p++) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const srv = net.createServer();
+      srv.once("error", () => resolve(false));
+      srv.listen(p, "127.0.0.1", () => srv.close(() => resolve(true)));
+    });
+    if (ok) free.push(p);
+  }
+  return free;
+}
+
+async function create(kind: EngineKind, again = false): Promise<void> {
+  if (!again) say("Setting up the Linux engine for chainboot (first run only).");
   const arch = engineArch(kind);
   if (kind === "lima") {
     must(run("limactl", ["start", `--name=${NAME}`, "--tty=false", "template://default"], { inherit: true }), "creating the Lima machine");
@@ -171,9 +199,19 @@ async function create(kind: EngineKind): Promise<void> {
   }
   const image = `${NAME}-engine:${base.sha256.slice(0, 12)}`;
   if (!works(kind, ["image", "inspect", image])) must(run(kind, ["import", "-", image], { input: rootfs }), "importing the engine image");
-  must(run(kind, ["run", "-d", "--name", NAME, "--hostname", NAME, "--privileged", "--restart", "unless-stopped",
+  // The machine ports are passed through one by one, and only those that are free here: a port
+  // that another program holds must not keep the engine from being made.
+  const container = (ports: number[]) => run(kind, ["run", "-d", "--name", NAME, "--hostname", NAME, "--privileged", "--restart", "unless-stopped",
     "-v", `${NAME}-data:${ENGINE_HOME}`, "-p", `127.0.0.1:${UI_PORT}:${UI_PORT}`,
-    "-p", `127.0.0.1:${MACHINE_PORTS.first}-${MACHINE_PORTS.last}:${MACHINE_PORTS.first}-${MACHINE_PORTS.last}`, image, "sleep", "infinity"]), "creating the engine container");
+    ...ports.flatMap((p) => ["-p", `127.0.0.1:${p}:${p}`]), "--label", `${PORTS_LABEL}=${ports.join(" ") || "none"}`, image, "sleep", "infinity"]);
+  const ports = await freeMachinePorts();
+  let made = container(ports);
+  if (ports.length && (made.error || made.status !== 0)) {
+    // (a port was taken in the meantime) without them the engine still does everything but serve pages
+    run(kind, ["rm", "-f", NAME]);
+    made = container([]);
+  }
+  must(made, "creating the engine container");
 }
 
 interface EngineState { kind: EngineKind; app: string; node: string; config: string }
@@ -183,8 +221,14 @@ function writeState(s: EngineState): void { fs.mkdirSync(homeDir(), { recursive:
 
 /** Makes sure the engine exists, runs, and has this version of the program and the current settings. */
 export async function ensureEngine(kind: EngineKind): Promise<void> {
-  const fresh = !exists(kind);
-  if (fresh) await create(kind);
+  let fresh = !exists(kind), again = false;
+  if (!fresh && (kind === "docker" || kind === "podman") && passedPorts(kind) === null) {
+    // The container is only the engine's program: machines, images and settings are in its volume and stay.
+    say("Updating the Linux engine so that machines can serve pages to your browser (one time; machines that are running stop).");
+    must(run(kind, ["rm", "-f", NAME]), "replacing the engine container");
+    fresh = true; again = true;
+  }
+  if (fresh) await create(kind, again);
   wake(kind);
   const state: EngineState = (!fresh && readState()?.kind === kind ? readState()! : { kind, app: "", node: "", config: "" });
 
@@ -312,6 +356,8 @@ export function proxy(kind: EngineKind, argv: string[], watchForLinks: (url: str
   // a mark on this command's processes in the engine, by which they are found again if the command here is ended
   const mark = createHash("sha256").update(`${process.pid} ${Date.now()} ${Math.random()}`).digest("hex").slice(0, 24);
   const env: Record<string, string> = { TERM: process.env.TERM || "xterm-256color", CHAINBOOT_UI_BIND: kind === "docker" || kind === "podman" ? "0.0.0.0" : "127.0.0.1", CHAINBOOT_PROXY: mark };
+  // which ports a service in a machine can use to be reached from this computer's browser
+  if (kind === "docker" || kind === "podman") env.CHAINBOOT_MACHINE_PORTS = passedPorts(kind) ?? "";
   if (process.env.NO_COLOR) env.NO_COLOR = "1";
   // settings that chainboot takes from the environment must arrive in the engine as well
   for (const k of ["CHAINBOOT_RPC", "CHAINBOOT_OFFLINE", "CHAINBOOT_AUTOSAVE_MINUTES", "CHAINBOOT_CARRIER", "CHAINBOOT_DEBUG"]) if (process.env[k] !== undefined) env[k] = process.env[k]!;

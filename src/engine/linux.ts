@@ -186,9 +186,10 @@ trap - EXIT
 : > "$CB_DIR/ready"
 # an optional start-up script inside the machine, for services that should come up with it
 # (CHAINBOOT_BIND tells it where a service must listen to be reached from the user's browser:
-# 127.0.0.1 normally, 0.0.0.0 inside an engine container, whose ports are passed through)
+# 127.0.0.1 normally, 0.0.0.0 inside an engine container. There CHAINBOOT_PORTS names the ports
+# that are passed through to the user's computer; elsewhere it is empty and any port will do)
 if [ -x "$M/etc/chainboot/start" ]; then
-  (CHAINBOOT_BIND="$CB_BIND" chroot "$M" /bin/sh -c 'cd /; exec /etc/chainboot/start' > "$CB_DIR/start.log" 2>&1 &)
+  (CHAINBOOT_BIND="$CB_BIND" CHAINBOOT_PORTS="\${CB_PORTS:-}" chroot "$M" /bin/sh -c 'cd /; exec /etc/chainboot/start' > "$CB_DIR/start.log" 2>&1 &)
 fi
 # wait for the first session, then stay for as long as any session holds the lock.
 # The machine lingers a moment after the last session, so commands that follow each other reuse it.
@@ -565,7 +566,7 @@ export function startMachine(home: EngineHome, name: string, opts: StartOptions 
     fs.writeFileSync(path.join(dir, "etc", "hostname"), `${name}\n`);
     fs.writeFileSync(path.join(dir, "etc", "hosts"), `127.0.0.1 localhost ${name}\n::1 localhost ip6-localhost ip6-loopback\n`);
     const env: Record<string, string> = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", CB_DIR: dir, CB_LOWER: lower, CB_NAME: name, CB_OVERLAY: overlay, CB_LAZY: lazy,
-      CB_BIND: process.env.CHAINBOOT_UI_BIND === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1" };
+      CB_BIND: process.env.CHAINBOOT_UI_BIND === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1", CB_PORTS: process.env.CHAINBOOT_MACHINE_PORTS ?? "" };
     const log = fs.openSync(path.join(dir, "init.log"), "w");
     let pid: number, started: number | undefined;
     try {

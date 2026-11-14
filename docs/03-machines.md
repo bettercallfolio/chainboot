@@ -62,8 +62,11 @@ Its output goes to `~/.chainboot/machines/<name>/start.log` on your computer.
 A service with a page for your browser should listen on the address in the environment
 variable `CHAINBOOT_BIND`, on a port from 7654 to 7673. On Linux a machine shares your
 computer's network and the variable says `127.0.0.1`. On macOS and Windows with Docker or
-Podman, machines run inside a container; there it says `0.0.0.0`, and those twenty ports are
-passed through, so `http://127.0.0.1:7654` in your browser reaches the machine either way.
+Podman, machines run inside a container; there it says `0.0.0.0`, and those ports are passed
+through, so `http://127.0.0.1:7654` in your browser reaches the machine either way. A port
+that another program on your computer was using when the engine was set up is not passed
+through: inside a container `CHAINBOOT_PORTS` lists the ones that are (for example
+`7654 7655 7657`), and a service should take one of those.
 
 ## What a machine is, exactly
 
