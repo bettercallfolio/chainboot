@@ -106,8 +106,9 @@ jobs:
           & "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd" help | Out-Null
           if ($LASTEXITCODE) { exit 1 }
           # the way the README says: from text, in the session; a failure there must not end the session
-          Invoke-Expression (Get-Content -Raw ./install.ps1)
           & ([scriptblock]::Create((Get-Content -Raw ./install.ps1))) -From does-not-exist.tar.gz
+          if ($LASTEXITCODE -ne 1) { Write-Host "a failure was not noted"; exit 1 }
+          Invoke-Expression (Get-Content -Raw ./install.ps1)
           Write-Host "the session is still here"
           # a file that is not an archive must fail as a script
           pwsh -NoProfile -File ./install.ps1 -From ./package.json

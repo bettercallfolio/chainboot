@@ -160,6 +160,10 @@ try {
   Install-Chainboot -From $From -Uninstall ([bool]$Uninstall) -Purge ([bool]$Purge)
 } catch {
   Write-Host "[x]  $($_.Exception.Message)" -ForegroundColor Red
-  # run as a file (./install.ps1), a failure is an exit status; run with "irm | iex", exiting would close the user's window
-  if ($MyInvocation.MyCommand.Path) { exit 1 }
+  # Run as a file (./install.ps1), a failure is an exit status. Pasted or piped into a session
+  # ("irm | iex"), exiting would close the window the user is typing in: there the status is
+  # only noted. (Inside another script the invocation names that script, not this one.)
+  $self = $MyInvocation.MyCommand.Path
+  if ($self -and ((Split-Path -Leaf $self) -eq "install.ps1")) { exit 1 }
+  $global:LASTEXITCODE = 1
 }
