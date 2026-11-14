@@ -66,7 +66,11 @@ chainboot network mainnet-beta     <span class="c"># switch (also: devnet, testn
 <p>Reading is free of fees. You only need an RPC endpoint.</p>
 <p>chainboot always shows the number of transactions and the fee before it sends anything (<code>chainboot publish --dry-run</code>, <code>chainboot save</code>).</p>
 <h3 id="on-a-busy-mainnet"><a class="anchor" href="#on-a-busy-mainnet" aria-hidden="true" tabindex="-1">#</a>On a busy mainnet</h3>
-<p>When many people use the network, transactions with a small extra tip (a &quot;priority fee&quot;) are included first. The SDK supports this (<code>priorityFeeLamports</code> per transaction); the command-line tool sends without a tip. Without a tip, uploads still complete, because chainboot re-sends transactions that did not land, but they can take longer.</p>
+<p>When many people use the network, transactions with a small extra tip (a &quot;priority fee&quot;) are included first. Turn it on with one setting:</p>
+<div class="code-wrap"><pre><code>chainboot priority-fee 2000      <span class="c"># lamports added to every transaction</span>
+chainboot priority-fee           <span class="c"># show the setting</span>
+chainboot priority-fee off</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The tip applies to publishing and saving and is included in every cost estimate. A tip of 1,000 to 10,000 lamports is usually plenty; with 2,000 lamports, storing 1 MB costs 0.0018 SOL instead of 0.0013. Without a tip, uploads still complete, because chainboot sends again whatever did not land, but they can take longer. In the SDK: <code>new ChainStore(pool, { priorityFeeLamports })</code>, or per call.</p>
 <h2 id="how-fast-is-it"><a class="anchor" href="#how-fast-is-it" aria-hidden="true" tabindex="-1">#</a>How fast is it</h2>
 <p>Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):</p>
 <div class="table-wrap"><table><thead><tr><th>Endpoints</th><th>Time to download and verify</th></tr></thead><tbody><tr><td>13 endpoints of several providers</td><td>about 1 second</td></tr><tr><td>one endpoint of a provider with an API key (two were tried)</td><td>0.7 to 1.5 seconds</td></tr><tr><td>only the public <code>api.devnet.solana.com</code></td><td>about 100 seconds</td></tr></tbody></table></div>

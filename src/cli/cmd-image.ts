@@ -131,6 +131,7 @@ export async function cmdPublish(a: Args): Promise<void> {
   const m = built.manifest;
   const manifestBytes = serializeManifest(m).length;
   const newBytes = [...built.newPacks.values()].reduce((n, b) => n + b.length, 0);
+  const perTx = 5000 + (c.priorityFeeLamports ?? 0);
   let tx = ChainStore.plan(Math.ceil(manifestBytes / 4)).transactions + 3; // manifest compresses about 4x; catalog + pointer
   for (const b of built.newPacks.values()) tx += ChainStore.plan(b.length).transactions;
   out(table([
@@ -140,12 +141,12 @@ export async function cmdPublish(a: Args): Promise<void> {
     ["contents", `${m.fileCount} entries, ${fmtBytes(m.rawSize)} unpacked`],
     ["to upload", `${fmtBytes(newBytes)} in ${built.newPacks.size} pack(s)` + (reuse.length ? dim(` (${m.packs.length - built.newPacks.size} pack(s) reused)`) : "")],
     ["transactions", `about ${tx}`],
-    ["cost", `about ${((tx * 5000) / 1e9).toFixed(4)} SOL on ${c.cluster}`],
+    ["cost", `about ${((tx * perTx) / 1e9).toFixed(4)} SOL on ${c.cluster}` + (c.priorityFeeLamports ? dim(` (includes a tip of ${c.priorityFeeLamports} lamports per transaction)`) : "")],
   ]));
   if (has(a, "dry-run")) { info(dim("dry run: nothing was sent")); return; }
   const balance = (await store!.pool.call<{ value: number }>("getBalance", [payer!.address])).value;
   info(`${vault ? "Your vault" : "Publisher"} ${payer!.address} holds ${(balance / 1e9).toFixed(4)} SOL`);
-  if (balance < tx * 5000) throw new Error(`not enough SOL for this upload (about ${((tx * 5000) / 1e9).toFixed(4)} SOL needed)` + (vault ? ". Add SOL to your vault with: chainboot fund <amount>" : ""));
+  if (balance < tx * perTx) throw new Error(`not enough SOL for this upload (about ${((tx * perTx) / 1e9).toFixed(4)} SOL needed)` + (vault ? ". Add SOL to your vault with: chainboot fund <amount>" : ""));
   if (!(await confirm(isPublic ? "Publish for everyone? It can never be erased from the ledger." : "Publish privately now?", a))) { info("cancelled"); return; }
   const line = new ProgressLine();
   const options = {

@@ -19,6 +19,8 @@ export interface Config {
   rpcs: Partial<Record<Cluster, string[]>>;
   /** Short names for publisher addresses: `alice/alpine` instead of the full address. */
   publishers: Record<string, string>;
+  /** Extra fee per transaction in lamports, to get ahead when the network is busy (0 or absent: none). */
+  priorityFeeLamports?: number;
 }
 
 export function homeDir(): string {
@@ -41,7 +43,8 @@ export function loadConfig(): Config {
   let c: Partial<Config>;
   try { c = JSON.parse(text) as Partial<Config>; } catch { throw new Error(`${paths.config()} is not valid JSON. Fix it or delete it to start fresh.`); }
   if (c.cluster && !(c.cluster in GENESIS)) throw new Error(`unknown network "${String(c.cluster)}" in ${paths.config()} (use devnet, testnet or mainnet-beta)`);
-  return { cluster: c.cluster ?? base.cluster, rpcs: c.rpcs ?? {}, publishers: c.publishers ?? {} };
+  const fee = Number(c.priorityFeeLamports);
+  return { cluster: c.cluster ?? base.cluster, rpcs: c.rpcs ?? {}, publishers: c.publishers ?? {}, ...(Number.isInteger(fee) && fee > 0 && { priorityFeeLamports: fee }) };
 }
 
 export function saveConfig(c: Config): void {
@@ -87,7 +90,7 @@ export async function openStore(c: Config, onNote?: (text: string) => void): Pro
     try { fs.mkdirSync(paths.cache(), { recursive: true }); fs.writeFileSync(cacheFile, JSON.stringify(known)); } catch { /* the cache is optional */ }
   }
   for (const r of report) if (!r.ok) onNote?.(`skipping ${r.label}: ${r.detail}`);
-  return new ChainStore(pool);
+  return new ChainStore(pool, c.priorityFeeLamports ? { priorityFeeLamports: c.priorityFeeLamports } : {});
 }
 
 /** Turns "official", an alias or an address into a publisher address. */

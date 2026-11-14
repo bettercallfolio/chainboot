@@ -63,9 +63,19 @@ chainboot always shows the number of transactions and the fee before it sends an
 ### On a busy mainnet
 
 When many people use the network, transactions with a small extra tip (a "priority fee") are
-included first. The SDK supports this (`priorityFeeLamports` per transaction); the
-command-line tool sends without a tip. Without a tip, uploads still complete, because
-chainboot re-sends transactions that did not land, but they can take longer.
+included first. Turn it on with one setting:
+
+```sh
+chainboot priority-fee 2000      # lamports added to every transaction
+chainboot priority-fee           # show the setting
+chainboot priority-fee off
+```
+
+The tip applies to publishing and saving and is included in every cost estimate. A tip of
+1,000 to 10,000 lamports is usually plenty; with 2,000 lamports, storing 1 MB costs 0.0018 SOL
+instead of 0.0013. Without a tip, uploads still complete, because chainboot sends again
+whatever did not land, but they can take longer. In the SDK: `new ChainStore(pool, {
+priorityFeeLamports })`, or per call.
 
 ## How fast is it
 

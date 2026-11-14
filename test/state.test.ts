@@ -15,6 +15,7 @@ import { ChainStore } from "../src/store/store.ts";
 import { isUnsaved, scanMachine } from "../src/state/scan.ts";
 import { applySnapshot, loadPacks, readHead, readIndex, readSnapshot, saveSnapshot } from "../src/state/snapshot.ts";
 import { LOGIN_MESSAGE, deriveVault, open, seal, vaultFromKeypair } from "../src/state/vault.ts";
+import { canReadXattrs, readXattrs, writeXattrs } from "../src/util/xattr.ts";
 import type { MachineInfo } from "../src/engine/linux.ts";
 import { FakeChain } from "./helpers/fakechain.ts";
 
@@ -113,12 +114,16 @@ test("save and restore: changes, deletions and history survive the round trip th
   fs.symlinkSync("notes.txt", path.join(upper, "root/link")); fs.symlinkSync("notes.txt", path.join(merged, "root/link"));
   put("var/cache/apt/pkgcache.bin", crypto.randomBytes(50_000)); // a cache: must not be saved
   put("tmp/junk", "x");
+  // an extended attribute on a changed file (skipped where the file system or the tools do not allow it)
+  const attr = { "user.chainboot.test": Buffer.from("kept across the chain").toString("base64") };
+  const canAttr = canReadXattrs() && writeXattrs(path.join(upper, "root/notes.txt"), attr).length === 0 && writeXattrs(path.join(merged, "root/notes.txt"), attr).length === 0;
   assert.ok(isUnsaved("var/cache/apt/pkgcache.bin") && isUnsaved("tmp/junk") && isUnsaved("etc/resolv.conf") && !isUnsaved("etc/os-release"));
 
   const scan1 = scanMachine({ upper, merged, base, cacheFile: path.join(dir, "cache.json") });
   assert.deepEqual(scan1.deleted, ["etc/motd"]);
   assert.ok(!scan1.changes.some((c) => c.path.startsWith("var/cache/apt/") || c.path.startsWith("tmp/")), "caches and temporary files are left out");
   assert.ok(scan1.changes.some((c) => c.path === "root/bin/tool" && c.size === 300_000));
+  if (canAttr) assert.deepEqual(scan1.changes.find((c) => c.path === "root/notes.txt")!.xattrs, attr, "the scan found the extended attribute");
   assert.equal(scanMachine({ upper, merged, base, cacheFile: path.join(dir, "cache.json") }).fingerprint, scan1.fingerprint, "scanning twice gives the same fingerprint");
 
   let asked = 0;
@@ -161,6 +166,7 @@ test("save and restore: changes, deletions and history survive the round trip th
   assert.equal(fs.readFileSync(path.join(now, "root/notes.txt"), "utf8"), "my notes, edited\n");
   const before = await restore(1);
   assert.equal(fs.readFileSync(path.join(before, "root/notes.txt"), "utf8"), "my notes\n", "an earlier save can be brought back");
+  if (canAttr) assert.deepEqual(readXattrs(before)!.get("root/notes.txt"), attr, "extended attributes are restored");
   assert.ok(!fs.existsSync(path.join(before, "root/second.bin")));
 
   // another wallet finds nothing and can read nothing

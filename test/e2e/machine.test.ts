@@ -67,7 +67,16 @@ test("a machine starts, keeps its changes, reports them correctly and leaves not
     assert.equal(fs.readFileSync(path.join(dir, "upper/root/new.txt"), "utf8"), "new\n");
     assert.equal(fs.readFileSync(path.join(home.images, m.digest, "rootfs/etc/os-release"), "utf8"), "NAME=tiny\n");
 
-    const scan = JSON.parse(execFileSync("nsenter", ["--target", String(initPid(dir)), "--mount", "--", process.execPath, ...process.execArgv.filter((a) => !a.startsWith("--test")), path.join(import.meta.dirname, "scan-helper.ts"), dir, manifestFile]).toString()) as { changes: [string, string][]; deleted: string[] };
+    // extended attributes set on a changed file: a user note and a file capability
+    const tools = spawnSync("sh", ["-c", "command -v setfattr && command -v setcap"]).status === 0;
+    if (tools) {
+      execFileSync("setfattr", ["-n", "user.note", "-v", "hello", path.join(dir, "upper/root/new.txt")]);
+      execFileSync("setcap", ["cap_net_bind_service+ep", path.join(dir, "upper/root/new.txt")]);
+    }
+
+    const scan = JSON.parse(execFileSync("nsenter", ["--target", String(initPid(dir)), "--mount", "--", process.execPath, ...process.execArgv.filter((a) => !a.startsWith("--test")), path.join(import.meta.dirname, "scan-helper.ts"), dir, manifestFile]).toString()) as { changes: [string, string][]; deleted: string[]; xattrs: Record<string, string[]> };
+    if (tools) assert.deepEqual(scan.xattrs["root/new.txt"], ["security.capability", "user.note"], "extended attributes are part of a save, overlay bookkeeping is not");
+    assert.ok(!Object.values(scan.xattrs).flat().some((n) => n.includes("overlay")));
     assert.deepEqual(scan.deleted.sort(), ["data/keep/a.txt", "data/old/b.txt", "data/old/c.txt", "etc/os-release"], "deletions, including inside a directory that was removed and made again");
     const changed = new Map(scan.changes);
     assert.equal(changed.get("root/new.txt"), "f");

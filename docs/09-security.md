@@ -25,11 +25,13 @@ untrusted couriers:
 An endpoint can be slow, refuse to answer, or return garbage. chainboot then asks another
 one. An endpoint cannot make you run different software.
 
-One thing an endpoint can do: **show you an old state**. If it hides the newest transactions,
-you see an older catalog or an older save of your machine, both of which were once valid.
-Today chainboot asks one endpoint for the newest pointer; asking several and taking the
-newest answer is on the roadmap. If freshness matters to you, use endpoints you have reason
-to trust.
+One thing a single endpoint could do is **show you an old state**: hide the newest
+transactions, so that you see an older catalog or an older save of your machine, both of
+which were once valid. chainboot therefore asks up to three of your endpoints for the newest
+pointer and merges their answers. One honest, up-to-date endpoint is enough to see the newest
+record, and since every record is checked by signature, an endpoint cannot add one. This is
+a reason to configure endpoints of more than one provider: with a single endpoint there is
+nobody to compare with.
 
 **The network path.** Because of the above, it does not matter who can see or change the
 traffic between you and an endpoint, as far as integrity goes. (They can still see which

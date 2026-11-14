@@ -5,7 +5,7 @@ import { UsageError, allow, flag, has, parseArgs, type Args } from "./args.ts";
 import { LIST_HELP, PUBLISH_HELP, PULL_HELP, UNLIST_HELP, cmdList, cmdPublish, cmdPull, cmdUnlist } from "./cmd-image.ts";
 import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } from "../engine/remote.ts";
 import { loadConfig } from "../local/home.ts";
-import { RPC_HELP, cmdNetwork, cmdRpc } from "./cmd-rpc.ts";
+import { FEE_HELP, RPC_HELP, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
 import { EXPORT_HELP, RUN_HELP, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
 import { bold, dim, fail, info, ok, out } from "./term.ts";
@@ -47,6 +47,7 @@ ${bold("Images")}
 ${bold("Settings")}
   rpc add|list|remove|test       Manage RPC endpoints
   network [name]                 Show or switch the network (devnet, testnet, mainnet-beta)
+  priority-fee [lamports|off]    Tip added to every transaction, for busy times
   keygen <file>                  Create a new Solana keypair file
 
 Run "chainboot <command> --help" for details.`;
@@ -105,6 +106,7 @@ const COMMANDS: Record<string, Command> = {
   },
   rpc: { run: cmdRpc, help: RPC_HELP, options: [] },
   network: { run: cmdNetwork, help: RPC_HELP, options: [] },
+  "priority-fee": { run: cmdPriorityFee, help: FEE_HELP, options: [] },
   list: { run: cmdList, help: LIST_HELP, options: [] },
   pull: { run: cmdPull, help: PULL_HELP, options: ["arch"] },
   publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public"], booleans: ["dry-run", "yes", "private", "public"] },
@@ -126,7 +128,7 @@ const COMMANDS: Record<string, Command> = {
 };
 
 // Commands that never need Linux: they run on this computer even where machines live in an engine.
-const HOST_COMMANDS = new Set(["rpc", "network", "keygen", "publish", "unlist", "list", "engine"]);
+const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine"]);
 
 async function main(): Promise<void> {
   const [name, ...rest] = process.argv.slice(2);

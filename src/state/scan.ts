@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { EMPTY_SHA256, comparePaths, identityLine, type ImageManifest, type TreeNode } from "../image/manifest.ts";
+import { readXattrs } from "../util/xattr.ts";
 
 /** One changed or added file system object. Regular files carry their hash and where to read them. */
 export interface Change {
@@ -19,6 +20,8 @@ export interface Change {
   sha256?: string;
   /** Absolute path of the file's content on this computer. */
   src?: string;
+  /** Extended attributes (name -> base64), when the file has any worth saving. */
+  xattrs?: Record<string, string>;
 }
 
 export interface ScanResult {
@@ -67,8 +70,8 @@ function hashFile(file: string): string {
 
 function changeToNode(c: Change): TreeNode {
   switch (c.type) {
-    case "f": return [c.path, "f", c.mode, c.uid, c.gid, c.mtime, c.size ?? 0, c.sha256 ?? EMPTY_SHA256, 0, 0];
-    case "d": return [c.path, "d", c.mode, c.uid, c.gid, c.mtime];
+    case "f": return c.xattrs ? [c.path, "f", c.mode, c.uid, c.gid, c.mtime, c.size ?? 0, c.sha256 ?? EMPTY_SHA256, 0, 0, c.xattrs] : [c.path, "f", c.mode, c.uid, c.gid, c.mtime, c.size ?? 0, c.sha256 ?? EMPTY_SHA256, 0, 0];
+    case "d": return c.xattrs ? [c.path, "d", c.mode, c.uid, c.gid, c.mtime, c.xattrs] : [c.path, "d", c.mode, c.uid, c.gid, c.mtime];
     case "l": return [c.path, "l", c.mode, c.uid, c.gid, c.mtime, c.link ?? ""];
     case "h": return [c.path, "h", c.link ?? ""];
     case "c": case "b": return [c.path, c.type, c.mode, c.uid, c.gid, c.mtime, c.major ?? 0, c.minor ?? 0];
@@ -156,6 +159,9 @@ export function scanMachine(o: ScanOptions): ScanResult {
     }
   };
   walk("");
+  // extended attributes (capabilities, ACLs, user.*) of what was found, when a tool to read them exists
+  const attrs = readXattrs(o.upper);
+  if (attrs?.size) for (const c of changes) { const x = (c.type === "f" || c.type === "d") && attrs.get(c.path); if (x) c.xattrs = x; }
 
   // a deleted directory already covers everything below it
   const gone = [...deleted].sort(comparePaths).filter((p, _i, all) => !all.some((q) => q !== p && p.startsWith(q + "/")));

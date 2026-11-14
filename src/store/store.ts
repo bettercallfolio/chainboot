@@ -151,9 +151,12 @@ const key = (sig: Uint8Array) => Buffer.from(sig.buffer, sig.byteOffset, sig.byt
 
 export class ChainStore {
   readonly pool: RpcPool;
+  /** Applied to every write that does not set its own (for example a priority fee from the settings). */
+  readonly defaults: TxOptions;
 
-  constructor(pool: RpcPool) {
+  constructor(pool: RpcPool, defaults: TxOptions = {}) {
     this.pool = pool;
+    this.defaults = defaults;
   }
 
   // ------------------------------------------------------------------ write
@@ -170,7 +173,8 @@ export class ChainStore {
   }
 
   /** Stores `data` on chain and returns its address. Safe to call again after an interruption. */
-  async put(payer: Keypair, data: Uint8Array, opts: PutOptions = {}): Promise<ObjectRef> {
+  async put(payer: Keypair, data: Uint8Array, options: PutOptions = {}): Promise<ObjectRef> {
+    const opts: PutOptions = { ...this.defaults, ...options };
     const { cap, leafSize, fan, headFan } = sizes(opts);
     const digest = sha256(data);
     const sender = new TxSender(this.pool, payer);
@@ -218,7 +222,8 @@ export class ChainStore {
   }
 
   /** Publishes a small record that can be found again through `tag` (see tagAddress). */
-  async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, opts: TxOptions & { commitment?: Commitment } = {}): Promise<string> {
+  async putPointer(payer: Keypair, tag: Uint8Array, payload: Uint8Array, options: TxOptions & { commitment?: Commitment } = {}): Promise<string> {
+    const opts = { ...this.defaults, ...options };
     const cap = capacity({ txVersion: opts.txVersion, priorityFee: (opts.priorityFeeLamports ?? 0) > 0, readonlyAccounts: 1 }) - 3;
     if (payload.length > cap) throw new Error(`pointer payload is ${payload.length} bytes, the limit is ${cap}`);
     const data = concat([Uint8Array.of(MAGIC, KIND_POINTER, FORMAT_VERSION), payload]);
@@ -490,20 +495,38 @@ export class ChainStore {
   /**
    * Newest pointer record under `tag` that was published by one of `signers`.
    * Records by anyone else are ignored, so nobody can redirect your pointer.
+   *
+   * "Newest" is a question an endpoint could answer wrongly by being behind, or by hiding the
+   * latest transactions. So several endpoints are asked and their lists are merged: one honest,
+   * up-to-date endpoint is enough to see the newest record. Every candidate is still verified
+   * by signature, so an endpoint cannot add a record, only fail to mention one.
    */
-  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number } = {}): Promise<PointerRecord | null> {
-    const list = await this.pool.call<{ signature: string; err: unknown }[]>(
-      "getSignaturesForAddress", [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }]);
-    if (!Array.isArray(list)) throw new Error("malformed getSignaturesForAddress answer");
-    for (const entry of list) {
-      if (entry.err) continue;
+  async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number } = {}): Promise<PointerRecord | null> {
+    type Listed = { signature: string; err: unknown; slot?: number };
+    const params = [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }];
+    let lists = (await this.pool.callEach<Listed[]>("getSignaturesForAddress", params, opts.endpoints ?? 3)).filter(Array.isArray);
+    // nobody answered in time: fall back to the patient, retrying path
+    if (!lists.length) lists = [await this.pool.call<Listed[]>("getSignaturesForAddress", params)].filter(Array.isArray);
+    if (!lists.length) throw new Error("malformed getSignaturesForAddress answer");
+    const seen = new Map<string, { slot: number; votes: number; order: number }>();
+    for (const list of lists) {
+      list.forEach((entry, order) => {
+        if (!entry || typeof entry.signature !== "string" || entry.err) return;
+        const old = seen.get(entry.signature);
+        if (old) old.votes++; else seen.set(entry.signature, { slot: typeof entry.slot === "number" ? entry.slot : 0, votes: 1, order });
+      });
+    }
+    const candidates = [...seen.entries()].sort((a, b) => b[1].slot - a[1].slot || a[1].order - b[1].order);
+    for (const [signature, info] of candidates) {
       try {
-        const { tx, result } = await this.#fetchTx(entry.signature, { signers });
+        const { tx, result } = await this.#fetchTx(signature, { signers });
         const data = ChainStore.#payload(tx);
         if (!data || data[1] !== KIND_POINTER || data[2] !== FORMAT_VERSION) continue;
-        return { payload: Buffer.from(data.subarray(3)), signature: entry.signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!) };
+        return { payload: Buffer.from(data.subarray(3)), signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!) };
       } catch (e) {
         if (e instanceof TrustError) continue; // somebody else wrote under this tag: skip it
+        // a signature that only one of several endpoints mentioned and nobody can produce is not a record
+        if (lists.length > 1 && info.votes === 1) continue;
         throw e;
       }
     }

@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { writeXattrs } from "../util/xattr.ts";
 import type { ImageManifest, TreeNode } from "./manifest.ts";
 
 export interface ExtractResult { files: number; skipped: string[] }
@@ -73,11 +74,6 @@ export function extractImage(manifest: ImageManifest, rawPack: (index: number) =
   return { files: total, skipped };
 }
 
-let setfattr: boolean | null = null;
 function applyXattrs(p: string, xattrs: Record<string, string>, skipped: string[]): void {
-  setfattr ??= spawnSync("setfattr", ["--version"], { stdio: "ignore" }).status === 0;
-  for (const [name, value] of Object.entries(xattrs)) {
-    const ok = setfattr && spawnSync("setfattr", ["-h", "-n", name, "-v", `0x${Buffer.from(value, "base64").toString("hex")}`, p], { stdio: "ignore" }).status === 0;
-    if (!ok) skipped.push(`${p} (attribute ${name})`);
-  }
+  for (const name of writeXattrs(p, xattrs)) skipped.push(`${p} (attribute ${name})`);
 }

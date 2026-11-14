@@ -72,6 +72,32 @@ export async function cmdRpc(a: Args): Promise<void> {
   throw new UsageError(`unknown rpc command "${sub}"`);
 }
 
+export const FEE_HELP = `Usage:
+  chainboot priority-fee                 Show the current setting
+  chainboot priority-fee <lamports>      Add this tip to every transaction chainboot sends
+  chainboot priority-fee off             Send without a tip (the default)
+
+When the network is busy, transactions that pay a small extra "priority fee" are included
+first. The normal fee of a transaction is 5,000 lamports (0.000005 SOL); a tip of 1,000 to
+10,000 lamports is usually plenty. The tip applies to publishing and to saving, and is
+included in every cost estimate chainboot shows. Uploads complete without a tip too: chainboot
+sends again whatever did not land.`;
+
+export function cmdPriorityFee(a: Args): void {
+  const c = loadConfig();
+  const want = a._[0];
+  if (want === undefined) {
+    out(c.priorityFeeLamports ? `${bold(String(c.priorityFeeLamports))} lamports per transaction ${dim(`(${(c.priorityFeeLamports / 1e9).toFixed(9)} SOL on top of the 0.000005 SOL fee)`)}` : `${bold("off")} ${dim("(transactions pay only the normal fee)")}`);
+    return;
+  }
+  if (want === "off" || want === "0") { delete c.priorityFeeLamports; saveConfig(c); ok("priority fee is off"); return; }
+  const n = Number(want);
+  if (!Number.isInteger(n) || n < 0 || n > 10_000_000) throw new UsageError("give the tip in lamports, a whole number up to 10,000,000 (0.01 SOL), or \"off\"");
+  c.priorityFeeLamports = n; saveConfig(c);
+  ok(`every transaction now carries a tip of ${n} lamports`);
+  if (n > 100_000) info(dim("That is a large tip: storing 1 MB (261 transactions) will cost " + ((261 * (5000 + n)) / 1e9).toFixed(4) + " SOL."));
+}
+
 export function cmdNetwork(a: Args): void {
   const c = loadConfig();
   const want = a._[0];

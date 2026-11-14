@@ -595,6 +595,25 @@ export class RpcPool {
     return out;
   }
 
+  /**
+   * Asks up to `count` different endpoints the same question and returns every answer that arrived
+   * within `timeoutMs`. For questions where one endpoint could be behind or lie about what is newest.
+   */
+  async callEach<T = unknown>(method: string, params: unknown, count = 3, timeoutMs = 6000): Promise<T[]> {
+    const now = Date.now();
+    const usable = this.#eps.filter((e) => !e.removed && !this.#isUnsupported(e, method, now));
+    const fit = usable.filter((e) => e.disabledUntil <= now && e.coolUntil <= now);
+    const targets = (fit.length ? fit : usable).slice().sort((a, b) => (a.latency || 400) - (b.latency || 400)).slice(0, Math.max(1, count));
+    const answers: T[] = [];
+    await Promise.all(targets.map(async (ep) => {
+      this.#takeTokens(ep, Date.now(), 1);
+      try { answers.push(await this.#single(ep, method, params, timeoutMs) as T); this.#onSuccess(ep); }
+      catch (e) { this.#onFailure(ep, method, e as RpcError); }
+    }));
+    this.#kick();
+    return answers;
+  }
+
   /** Resolves when nothing is queued or in flight (useful in tests and before exit). */
   async idle(): Promise<void> {
     while (this.#queue.length || this.#urgent.length || this.#eps.some((e) => e.inflight > 0)) await sleep(10);

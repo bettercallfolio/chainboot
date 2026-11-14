@@ -16,6 +16,7 @@ import { ChainStore, tagAddress } from "../store/store.ts";
 import type { Commitment } from "../store/sender.ts";
 import { sha256, toHex } from "../util/bytes.ts";
 import type { Change, ScanResult } from "./scan.ts";
+import { writeXattrs } from "../util/xattr.ts";
 import { open, seal, type Vault } from "./vault.ts";
 
 /** Raw bytes per pack of saved changes (smaller than image packs, so memory use stays modest). */
@@ -178,7 +179,7 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
   // packs + manifest (estimated from the tree size) + state pointer + possibly the machine list
   const manifestEstimate = 400 + scan.changes.length * 60 + scan.deleted.length * 30;
   const transactions = sealedPacks.reduce((n, p) => n + ChainStore.plan(p.data.length).transactions, 0) + ChainStore.plan(manifestEstimate).transactions + 4;
-  const plan: SavePlan = { newBytes, storedBytes, transactions, lamports: transactions * 5000, reusedFiles: files.length - fresh.size, newFiles: fresh.size };
+  const plan: SavePlan = { newBytes, storedBytes, transactions, lamports: transactions * (5000 + Math.max(0, store.defaults.priorityFeeLamports ?? 0)), reusedFiles: files.length - fresh.size, newFiles: fresh.size };
   if (opts.approve && !(await opts.approve(plan))) return null;
 
   let sent = 0;
@@ -194,11 +195,12 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
   const tree: TreeNode[] = scan.changes.map((c): TreeNode => {
     switch (c.type) {
       case "f": {
-        if (!c.size) return [c.path, "f", c.mode, c.uid, c.gid, c.mtime, 0, c.sha256!, -1, 0];
-        const w = known.get(c.sha256!)!;
-        return [c.path, "f", c.mode, c.uid, c.gid, c.mtime, c.size, c.sha256!, usePack(w.pack), w.offset];
+        const w = c.size ? known.get(c.sha256!)! : null;
+        const n: FileNode = w ? [c.path, "f", c.mode, c.uid, c.gid, c.mtime, c.size!, c.sha256!, usePack(w.pack), w.offset] : [c.path, "f", c.mode, c.uid, c.gid, c.mtime, 0, c.sha256!, -1, 0];
+        if (c.xattrs) n.push(c.xattrs);
+        return n;
       }
-      case "d": return [c.path, "d", c.mode, c.uid, c.gid, c.mtime];
+      case "d": return c.xattrs ? [c.path, "d", c.mode, c.uid, c.gid, c.mtime, c.xattrs] : [c.path, "d", c.mode, c.uid, c.gid, c.mtime];
       case "l": return [c.path, "l", c.mode, c.uid, c.gid, c.mtime, c.link ?? ""];
       case "h": return [c.path, "h", c.link ?? ""];
       case "c": case "b": return [c.path, c.type, c.mode, c.uid, c.gid, c.mtime, c.major ?? 0, c.minor ?? 0];
@@ -283,7 +285,9 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
         const data = n[6] === 0 ? Buffer.alloc(0) : content(n);
         if (data.length !== n[6]) throw new Error(`content of ${n[0]} has the wrong size`);
         fs.writeFileSync(p, data, { mode: 0o600 });
-        fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]); fs.utimesSync(p, n[5], n[5]);
+        fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]);
+        if (n[10]) writeXattrs(p, n[10]); // after chown, which clears file capabilities
+        fs.utimesSync(p, n[5], n[5]);
         break;
       }
       case "l":
@@ -304,6 +308,8 @@ export function applySnapshot(snap: Snapshot, merged: string, content: (n: FileN
     const n = dirs[i]!;
     if (n[1] !== "d") continue;
     const p = at(n[0]);
-    fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]); fs.utimesSync(p, n[5], n[5]);
+    fs.lchownSync(p, n[3], n[4]); fs.chmodSync(p, n[2]);
+    if (n[6]) writeXattrs(p, n[6]);
+    fs.utimesSync(p, n[5], n[5]);
   }
 }

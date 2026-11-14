@@ -281,3 +281,52 @@ test("pointers: newest record by a trusted key wins, others are ignored", async 
   assert.deepEqual(p!.payer, me.publicKey);
   assert.notDeepEqual(tagAddress("a", "bc"), tagAddress("ab", "c"));
 });
+
+test("pointers: one honest endpoint is enough to see the newest record; invented entries are ignored", async () => {
+  const chain = new FakeChain(), urls = chain.urls(3);
+  const store = new ChainStore(new RpcPool(urls, { fetch: chain.fetch, initialRate: 200 }));
+  const me = Keypair.generate(), tag = tagAddress("catalog", me.publicKey);
+  await store.putPointer(me, tag, Buffer.from("old"));
+  await store.putPointer(me, tag, Buffer.from("new"));
+
+  // two endpoints are behind (or hide the newest record), one is honest
+  chain.faults.set(urls[0]!, { hideNewest: 1 });
+  chain.faults.set(urls[1]!, { hideNewest: 1 });
+  for (let i = 0; i < 5; i++) assert.equal((await store.getPointer(tag, [me.publicKey]))!.payload.toString(), "new");
+
+  // an endpoint that puts a made-up signature on top cannot break or redirect the lookup
+  chain.faults.set(urls[0]!, { inventNewest: true });
+  chain.faults.set(urls[1]!, {});
+  for (let i = 0; i < 5; i++) assert.equal((await store.getPointer(tag, [me.publicKey]))!.payload.toString(), "new");
+
+  // with a single endpoint there is nobody to compare with: a record it lists but cannot produce is an error, not silence
+  const solo = new ChainStore(new RpcPool([urls[0]!], { fetch: chain.fetch, initialRate: 200 }));
+  await assert.rejects(solo.getPointer(tag, [me.publicKey]), /could not get a valid copy/);
+  // asking one endpoint only is the old behaviour and can be chosen explicitly
+  chain.faults.set(urls[0]!, { hideNewest: 1 });
+  assert.equal((await solo.getPointer(tag, [me.publicKey]))!.payload.toString(), "old");
+});
+
+test("priority fee: the store's default tip is on every transaction it sends", async () => {
+  const chain = new FakeChain();
+  const pool = new RpcPool(chain.urls(2), { fetch: chain.fetch, initialRate: 400 });
+  const payer = Keypair.generate(), data = crypto.randomBytes(40_000);
+  const plain = new ChainStore(pool), tipped = new ChainStore(pool, { priorityFeeLamports: 1500 });
+
+  let before = chain.fees, count = chain.txs.size;
+  await plain.put(payer, data, { pollMs: 20 });
+  const n = chain.txs.size - count;
+  assert.equal(chain.fees - before, n * 5000);
+
+  before = chain.fees; count = chain.txs.size;
+  const ref = await tipped.put(payer, data, { pollMs: 20 });
+  await tipped.putPointer(payer, tagAddress("t"), Buffer.from("x"));
+  const m = chain.txs.size - count;
+  assert.equal(chain.fees - before, m * (5000 + 1500), "every transaction carried the tip");
+  assert.equal(ChainStore.plan(data.length, { priorityFeeLamports: 1500 }).feeLamports, (m - 1) * 6500, "and the plan predicted the cost");
+  assert.deepEqual(await plain.get(ref), data, "a tipped object reads like any other");
+  // a call can still override the default
+  before = chain.fees; count = chain.txs.size;
+  await tipped.put(payer, crypto.randomBytes(100), { pollMs: 20, priorityFeeLamports: 0 });
+  assert.equal(chain.fees - before, 5000);
+});

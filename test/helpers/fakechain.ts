@@ -15,6 +15,10 @@ export interface Faults {
   drop?: number;
   /** Calls per second this endpoint tolerates before it answers 429. */
   rps?: number;
+  /** getSignaturesForAddress leaves out this many of the newest entries (an endpoint that is behind, or hides them). */
+  hideNewest?: number;
+  /** getSignaturesForAddress puts a signature that does not exist at the top (an endpoint that makes things up). */
+  inventNewest?: boolean;
   /** Every answer takes this long (a slow or stuck endpoint). */
   delayMs?: number;
   /** The endpoint does not offer getBlock. */
@@ -40,6 +44,8 @@ export class FakeChain {
   blockCalls = 0;
   balance = 10_000_000_000;
   requests = 0;
+  /** Lamports the chain charged for all transactions so far. */
+  fees = 0;
   calls = 0;
   batches = 0;
   readonly perUrl = new Map<string, number>();
@@ -78,6 +84,13 @@ export class FakeChain {
     return new Response(JSON.stringify(Array.isArray(parsed) ? answers : answers[0]), { status: 200 });
   };
 
+  /** Priority fee carried in the header of a v1 transaction (bits 0 and 1 of the config mask). */
+  #tip(raw: Buffer, version: unknown): number {
+    if (version !== 1 || (raw.readUInt32LE(4) & 3) !== 3) return 0;
+    const keys = raw[41]!;
+    return Number(raw.readBigUInt64LE(42 + 32 * keys));
+  }
+
   /** A lying node: keeps the signature and payer of a transaction but swaps in another transaction's body. */
   #forge(raw: string, all: Stored[]): string {
     const a = Buffer.from(raw, "base64"), b = Buffer.from(all[Math.floor(Math.random() * all.length)]!.raw, "base64");
@@ -101,6 +114,7 @@ export class FakeChain {
         const sig = b58encode(tx.signatures[0]!);
         if (f.drop && Math.random() < f.drop) return { result: sig };
         if (!this.txs.has(sig)) {
+          this.fees += 5000 + this.#tip(raw, tx.version);
           const accounts = tx.accountKeys.map((k) => b58encode(k));
           this.txs.set(sig, { raw: params[0], slot: this.slot, accounts });
           for (const a of accounts) { const l = this.byAccount.get(a) ?? []; l.unshift(sig); this.byAccount.set(a, l); }
@@ -127,8 +141,10 @@ export class FakeChain {
         return { result: { slot: t.slot, blockTime: 1_700_000_000 + t.slot, transaction: [raw, "base64"], meta: { err: null } } };
       }
       case "getSignaturesForAddress": {
-        const list = this.byAccount.get(params[0]) ?? [];
-        return { result: list.slice(0, params[1]?.limit ?? 1000).map((signature) => ({ signature, err: null, slot: this.txs.get(signature)!.slot })) };
+        const list = (this.byAccount.get(params[0]) ?? []).slice(f.hideNewest ?? 0);
+        const entries = list.slice(0, params[1]?.limit ?? 1000).map((signature) => ({ signature, err: null, slot: this.txs.get(signature)!.slot }));
+        if (f.inventNewest) entries.unshift({ signature: b58encode(Buffer.alloc(64, 7)), err: null, slot: this.slot + 1000 });
+        return { result: entries };
       }
       default: return { error: { code: -32601, message: "Method not found" } };
     }

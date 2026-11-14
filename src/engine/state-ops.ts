@@ -9,6 +9,7 @@ import { isUnsaved, scanMachine } from "../state/scan.ts";
 import { ChangedDuringSave, applySnapshot, loadPacks, readHead, readSnapshot, saveSnapshot, type Head, type SavePlan, type Snapshot } from "../state/snapshot.ts";
 import { loadVault, type Vault } from "../state/vault.ts";
 import { fmtBytes, sha256, toHex } from "../util/bytes.ts";
+import { readXattrs } from "../util/xattr.ts";
 import { imageRootfs, initPid, machineDir, readMachine, startMachine, stopMachine, type EngineHome } from "./linux.ts";
 
 /** What this computer knows about a machine's saved state (machines/<name>/save.json). */
@@ -288,7 +289,11 @@ export function exportInner(home: EngineHome, name: string, file: string, progre
   const inodes = new Map<string, string>();
   let entries = 0, bytes = 0;
   const buf = Buffer.allocUnsafe(1 << 20);
-  const emit = (e: Entry, size: number) => { for (const b of tarHead(e, size)) fs.writeSync(fd, b); entries++; if (entries % 1000 === 0) progress("exporting", entries, entries + 1000); };
+  const attrs = readXattrs(merged);
+  const emit = (e: Entry, size: number) => {
+    const x = attrs?.get(e.path);
+    if (x && (e.type === "f" || e.type === "d")) e.xattrs = Object.fromEntries(Object.entries(x).map(([k, v]) => [k, Buffer.from(v, "base64")]));
+    for (const b of tarHead(e, size)) fs.writeSync(fd, b); entries++; if (entries % 1000 === 0) progress("exporting", entries, entries + 1000); };
   const walk = (rel: string) => {
     for (const nm of fs.readdirSync(rel ? path.join(merged, rel) : merged).sort()) {
       const p = rel ? `${rel}/${nm}` : nm;

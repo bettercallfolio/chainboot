@@ -107,8 +107,9 @@ Not saved, on purpose:
 | single files larger than 1 GiB | a transaction ledger is the wrong place for them |
 | files whose name is not valid UTF-8 | cannot be listed in the manifest |
 
-Not preserved yet: extended attributes of changed files (rarely used; file capabilities are
-the main example).
+Extended attributes of changed files (file capabilities, ACLs, `user.*` attributes) are saved
+and restored when the `getfattr`/`setfattr` tools (package `attr`) or Python 3 are available
+where chainboot runs. Without either, they are left out and everything else works the same.
 
 ## Continue on another computer
 
