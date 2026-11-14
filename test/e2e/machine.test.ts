@@ -136,7 +136,8 @@ test("a machine that boots runs the image's init as PID 1, stays up, and its fil
     assert.ok(holder && holder !== pid, "a holder process keeps the outside view of the files");
     const sh = (script: string) => enterMachine(home, name, pid, ["/bin/sh", "-c", script]);
     assert.equal(sh("exit 5"), 5);
-    assert.equal(sh('read first < /proc/1/cmdline; case "$first" in *init*) ;; *) exit 1 ;; esac; [ "$(hostname)" = ' + name + ' ] && cat /run/init-was-here > /dev/null && cat /root/before.txt > /dev/null && [ -e /sys/fs/cgroup/cgroup.procs ] && echo in > /root/in.txt'), 0,
+    // (the image's init starts a moment after the machine is reported up: give it that moment)
+    assert.equal(sh('n=0; while [ ! -e /run/init-was-here ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n+1)); done; read first < /proc/1/cmdline; case "$first" in *init*) ;; *) exit 1 ;; esac; [ "$(hostname)" = ' + name + ' ] && cat /run/init-was-here > /dev/null && cat /root/before.txt > /dev/null && [ -e /sys/fs/cgroup/cgroup.procs ] && echo in > /root/in.txt'), 0,
       "PID 1 is the image's init, it ran, and the machine has its own control group tree");
     assert.equal(sh("echo x > /proc/sys/kernel/hostname 2>/dev/null"), 2, "this computer's kernel settings are read-only inside");
 
