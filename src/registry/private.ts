@@ -1,8 +1,9 @@
 // Private images: systems on chain that only one wallet can read.
 //
 // A private image is stored like any other image, with three differences:
-//   - its new packs are encrypted with the owner's vault key before upload,
-//   - its manifest (all file names, sizes, hashes) is encrypted too,
+//   - its new packs are encrypted before upload, each with a key of its own that is derived
+//     from the owner's vault key and written into the manifest,
+//   - its manifest (all file names, sizes, hashes, and those pack keys) is encrypted too,
 //   - it is listed in a private catalog, itself encrypted, under a tag of the owner's vault.
 // Files that are byte-for-byte identical to files of a public image (for example the Ubuntu
 // base it was built on) are referenced there and not uploaded again; nothing on chain links
@@ -14,7 +15,7 @@ import { compress } from "../codec/index.ts";
 import type { BuiltImage } from "../image/build.ts";
 import { serializeManifest } from "../image/manifest.ts";
 import { getDocByRef, getPointer, putDoc } from "../state/snapshot.ts";
-import { seal, type Vault } from "../state/vault.ts";
+import { seal, sealWithKey, type Vault } from "../state/vault.ts";
 import { tagAddress, type ChainStore, type PutProgress } from "../store/store.ts";
 import type { Commitment } from "../store/sender.ts";
 import type { Catalog, ImageRef, Progress } from "./registry.ts";
@@ -32,7 +33,7 @@ export async function readPrivateCatalog(store: ChainStore, v: Vault): Promise<P
   return cat;
 }
 
-async function writePrivateCatalog(store: ChainStore, v: Vault, cat: PrivateCatalog, commitment?: Commitment): Promise<void> {
+export async function writePrivateCatalog(store: ChainStore, v: Vault, cat: PrivateCatalog, commitment?: Commitment): Promise<void> {
   cat.updated = Math.floor(Date.now() / 1000);
   await putDoc(store, v, privateTag(v), "private-catalog", cat, {}, { commitment });
 }
@@ -44,10 +45,10 @@ export async function publishPrivateImage(store: ChainStore, v: Vault, built: Bu
   const m = built.manifest;
   const say = (phase: string) => (p: PutProgress) => opts.onProgress?.({ phase, done: p.done, total: p.total, detail: p.phase });
   for (const [index, data] of [...built.newPacks.entries()].sort((a, b) => a[0] - b[0])) {
-    const sealed = seal(v.encKey, data, "pack");
+    const { sealed, key } = sealWithKey(v.encKey, data, "pack");
     const ref = await store.put(v.signer, sealed, { journalDir: opts.journalDir, commitment: opts.commitment, onProgress: say(`pack ${index + 1}/${m.packs.length}`) });
     const p = m.packs[index]!;
-    p.sig = ref.sig; p.sha256 = ref.sha256; p.size = ref.size; p.enc = 1;
+    p.sig = ref.sig; p.sha256 = ref.sha256; p.size = ref.size; p.enc = 1; p.key = key;
   }
   if (m.packs.some((p) => !p.sig)) throw new Error("internal error: a pack has no on-chain address");
   const raw = serializeManifest(m);

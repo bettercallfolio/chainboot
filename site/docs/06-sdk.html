@@ -137,6 +137,17 @@ const secret = seal(vault.encKey, Buffer.from(&quot;only I can read this&quot;),
 const ref2 = await store.put(vault.signer, secret);        <span class="c">// the vault account pays and signs</span>
 const back = open(vault.encKey, await store.get(ref2, { signers: [vault.signer.publicKey] }), &quot;note&quot;);</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p><code>saveSnapshot</code>, <code>readHead</code>, <code>readSnapshot</code>, <code>loadPacks</code> and <code>applySnapshot</code> are the functions behind <code>chainboot save</code> and <code>chainboot restore</code>; <code>scanMachine</code> finds what changed in a machine.</p>
+<p>Every sealed object has a key of its own, so one object can be handed to somebody else without giving away the rest. To send something to another login, seal it to their share address:</p>
+<div class="code-wrap"><pre><code>import { sealWithKey, openWithKey, shareKeys, shareAddress, parseShareAddress, sealTo, openFrom } from &quot;chainboot&quot;;
+
+const { sealed, key } = sealWithKey(vault.encKey, Buffer.from(&quot;for one friend&quot;), &quot;note&quot;);   <span class="c">// key: base64, opens only this object</span>
+openWithKey(Buffer.from(key, &quot;base64&quot;), sealed, &quot;note&quot;);
+
+const mine = shareKeys(vault);                               <span class="c">// an X25519 pair derived from the login</span>
+console.log(shareAddress(mine.publicKey));                   <span class="c">// &quot;share_...&quot;: what you give to others</span>
+const letter = sealTo(parseShareAddress(theirAddress), mine, Buffer.from(key), &quot;my-app&quot;);
+const got = openFrom(theirKeys, letter, &quot;my-app&quot;);           <span class="c">// { plain, sender } or null; sender is proven</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>shareImage</code>, <code>shareMachine</code>, <code>listShares</code>, <code>acceptImage</code> and <code>acceptMachine</code> are the functions behind <code>chainboot share</code> and <code>chainboot shared</code>.</p>
 <h2 id="7-compression"><a class="anchor" href="#7-compression" aria-hidden="true" tabindex="-1">#</a>7. Compression</h2>
 <div class="code-wrap"><pre><code>import { compress, decompress, xzDecode } from &quot;chainboot&quot;;
 

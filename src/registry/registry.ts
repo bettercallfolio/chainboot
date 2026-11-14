@@ -15,7 +15,7 @@ import { ChainStore, tagAddress, type PutProgress } from "../store/store.ts";
 import type { Commitment } from "../store/sender.ts";
 import { verifyPack, type BuiltImage } from "../image/build.ts";
 import { parseManifest, serializeManifest, type ImageManifest } from "../image/manifest.ts";
-import { open, type Vault } from "../state/vault.ts";
+import { openEither, type Vault } from "../state/vault.ts";
 
 /** Where to find one stored object and how to unpack it. */
 export interface StoredRef { sig: string; sha256: string; size: number; codec: Codec; rawSize: number }
@@ -30,6 +30,12 @@ export interface ImageRef extends StoredRef {
   unpackedSize: number;
   /** True in a private catalog: manifest and new packs are encrypted with the owner's vault key. */
   private?: boolean;
+  /**
+   * Set for an image that another wallet shared: the account that stored it, and the key of
+   * its encrypted manifest (base64), which the owner handed over.
+   */
+  publisher?: string;
+  key?: string;
 }
 
 export interface Catalog {
@@ -90,6 +96,8 @@ export interface PublishOptions {
 /** Uploads the new packs and the manifest, then lists the image in the publisher's catalog. */
 export async function publishImage(store: ChainStore, payer: Keypair, built: BuiltImage, opts: PublishOptions = {}): Promise<ImageRef> {
   const m = built.manifest;
+  // a public manifest that named encrypted packs would be unreadable for others, or give away their keys
+  if (m.packs.some((p) => p.enc || p.key)) throw new Error("a public image cannot reuse files of a private image. Build it without --reuse of a private image, or publish it as private.");
   const say = (phase: string) => (p: PutProgress) => opts.onProgress?.({ phase, done: p.done, total: p.total, detail: p.phase });
   for (const [index, data] of [...built.newPacks.entries()].sort((a, b) => a[0] - b[0])) {
     const ref = await store.put(payer, data, { journalDir: opts.journalDir, commitment: opts.commitment, onProgress: say(`pack ${index + 1}/${m.packs.length}`) });
@@ -144,17 +152,14 @@ export interface PulledImage {
 }
 
 /** Downloads (or takes from cache) the manifest and all packs of an image, fully verified. */
-export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal; vault?: Vault }): Promise<PulledImage> {
-  const key = addressToBytes(publisher);
+export async function pullImage(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean; publisher?: string; key?: string }, opts: { cacheDir: string; onProgress?: (p: Progress) => void; signal?: AbortSignal; vault?: Vault }): Promise<PulledImage> {
+  const key = addressToBytes(ref.publisher ?? publisher);
   const objects = path.join(opts.cacheDir, "objects");
   fs.mkdirSync(objects, { recursive: true });
-  const needVault = (): Vault => {
-    if (!opts.vault) throw new Error("this is a private image: sign in with the wallet that published it (chainboot login)");
-    return opts.vault;
-  };
   opts.onProgress?.({ phase: "manifest", done: 0, total: ref.size });
   let body = await store.get({ sig: ref.sig, sha256: ref.sha256, size: ref.size }, { signers: [key], cacheDir: objects, signal: opts.signal, onProgress: (g) => opts.onProgress?.({ phase: "manifest", done: g.bytes, total: g.size }) });
-  if (ref.private) body = open(needVault().encKey, body, "image-manifest");
+  if (ref.private && !ref.key && !opts.vault) throw new Error("this is a private image: sign in with the wallet that published it (chainboot login)");
+  if (ref.private) body = openEither(opts.vault?.encKey, ref.key, body, "image-manifest");
   const manifest = parseManifest(decompress(ref.codec, body, ref.rawSize));
   if (manifest.digest !== ref.digest) throw new Error(`the manifest of ${manifest.name} does not match its catalog entry`);
   const total = manifest.packs.reduce((n, p) => n + p.size, 0);
@@ -170,7 +175,7 @@ export async function pullImage(store: ChainStore, publisher: string, ref: Store
       let r = raw.get(index);
       if (!r) {
         const p = manifest.packs[index]!;
-        r = decompress(p.codec, p.enc ? open(needVault().encKey, stored[index]!, "pack") : stored[index]!, p.rawSize);
+        r = decompress(p.codec, p.enc ? openEither(opts.vault?.encKey, p.key, stored[index]!, "pack") : stored[index]!, p.rawSize);
         verifyPack(manifest, index, r);
         raw.set(index, r);
       }

@@ -184,8 +184,10 @@ enough SOL (`chainboot fund`, `chainboot whoami`).
 
 What it does not mean:
 
-- **It cannot be shared.** Only the wallet that published it can read it. Giving access to
-  other wallets is on the roadmap, not in this version.
+- **Only your wallet can read it, until you share it.** `chainboot share me/<image> --with
+  <share address>` gives one other wallet the keys of that image (and of nothing else of
+  yours). They keep it with `chainboot shared accept` and run it as `me/<name>`. A share
+  cannot be taken back. See [Sharing](04-saving.md#sharing-a-machine-with-someone-else).
 - **It cannot be erased.** The encrypted data stays on the ledger. If your wallet's signature
   of the login message ever leaks, the image can be read. `unlist` only removes the entry.
 - **On your computer it is plain.** After downloading, the system is unpacked on your disk
@@ -194,7 +196,8 @@ What it does not mean:
   amount of data at some time, as with saves.
 
 Machines made from a private image are saved and restored like all others; restoring one
-needs the same wallet, because the image itself has to be fetched again.
+needs the same wallet, because the image itself has to be fetched again. A public image
+cannot reuse files of a private one (`--reuse`): that would publish their keys.
 
 ## What makes a good image
 

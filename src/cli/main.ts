@@ -7,6 +7,7 @@ import { engineKind, ensureEngine, proxy, pullVault, pushVault, removeEngine } f
 import { runInUserNs, support } from "../engine/rootless.ts";
 import { homeDir, loadConfig } from "../local/home.ts";
 import { ENGINE_HELP, cmdEngineLinux } from "./cmd-engine.ts";
+import { SHARE_HELP, cmdShare, cmdShared } from "./cmd-share.ts";
 import { FEE_HELP, RPC_HELP, cmdNetwork, cmdPriorityFee, cmdRpc } from "./cmd-rpc.ts";
 import { BOOT_HELP, EXPORT_HELP, RUN_HELP, cmdBoot, cmdEngine, cmdExport, cmdImages, cmdMachines, cmdRm, cmdRmi, cmdRun, cmdStart, cmdStop } from "./cmd-run.ts";
 import { LOGIN_HELP, SAVE_HELP, cmdAutosave, cmdFund, cmdHistory, cmdLogin, cmdLogout, cmdRestore, cmdSave, cmdStatus, cmdWhoami } from "./cmd-state.ts";
@@ -38,6 +39,8 @@ ${bold("Save to chain")}
   restore [machine]              Bring a saved machine back, on any computer
   history <machine>              List the saves of a machine
   status                         Show login, vault balance and save state
+  share <machine|me/image> ...   Give a saved machine or a private image to another wallet
+  shared [accept <number>]       See and keep what others shared with you
 
 ${bold("Images")}
   pull <image>                   Download an image without starting it
@@ -84,6 +87,8 @@ interface Command { run: (a: Args) => Promise<void> | void; help: string; option
 const COMMANDS: Record<string, Command> = {
   run: { run: cmdRun, help: RUN_HELP, options: ["name", "arch", "no-autosave", "fresh", "boot"], booleans: ["no-autosave", "fresh", "boot"] },
   boot: { run: cmdBoot, help: BOOT_HELP, options: [] },
+  share: { run: cmdShare, help: SHARE_HELP, options: ["with", "note", "arch", "yes"], booleans: ["yes"] },
+  shared: { run: cmdShared, help: SHARE_HELP, options: ["name", "yes"], booleans: ["yes"] },
   machines: { run: cmdMachines, help: RUN_HELP, options: [] },
   start: { run: cmdStart, help: RUN_HELP, options: [] },
   stop: { run: cmdStop, help: RUN_HELP, options: [] },

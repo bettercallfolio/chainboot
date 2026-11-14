@@ -14,7 +14,8 @@ import { RpcPool } from "../src/solana/rpc.ts";
 import { ChainStore } from "../src/store/store.ts";
 import { isUnsaved, scanMachine } from "../src/state/scan.ts";
 import { applySnapshot, loadPacks, readHead, readIndex, readSnapshot, saveSnapshot } from "../src/state/snapshot.ts";
-import { LOGIN_MESSAGE, deriveVault, open, seal, vaultFromKeypair } from "../src/state/vault.ts";
+import { LOGIN_MESSAGE, deriveVault, objectKey, open, openFrom, openWithKey, parseShareAddress, seal, sealTo, sealWithKey, shareAddress, shareKeys, vaultFromKeypair } from "../src/state/vault.ts";
+import { acceptImage, acceptMachine, listShares, myShareAddress, shareImage, shareMachine } from "../src/share/share.ts";
 import { canReadXattrs, readXattrs, writeXattrs } from "../src/util/xattr.ts";
 import type { MachineInfo } from "../src/engine/linux.ts";
 import { FakeChain } from "./helpers/fakechain.ts";
@@ -57,6 +58,48 @@ test("vault: one signature gives the same keys everywhere; encryption is authent
   assert.throws(() => open(vaultFromKeypair(Keypair.generate(), "devnet").encKey, sealed, "pack"), /could not decrypt/);
   const bad = Buffer.from(sealed); bad[40] = bad[40]! ^ 1;
   assert.throws(() => open(a.encKey, bad, "pack"), /could not decrypt/);
+
+  // every object has a key of its own: it opens that object and no other
+  const one = sealWithKey(a.encKey, secret, "pack"), two = sealWithKey(a.encKey, secret, "pack");
+  assert.notEqual(one.key, two.key);
+  assert.equal(objectKey(a.encKey, one.sealed, "pack")!.toString("base64"), one.key, "the owner can work the key out again");
+  assert.deepEqual(openWithKey(Buffer.from(one.key, "base64"), one.sealed, "pack"), secret);
+  assert.throws(() => openWithKey(Buffer.from(one.key, "base64"), two.sealed, "pack"), /could not decrypt/);
+  assert.throws(() => openWithKey(Buffer.from(one.key, "base64"), one.sealed, "snapshot"), /could not decrypt/);
+  // what earlier releases wrote ([1][nonce][ciphertext][tag], vault key used directly) still opens
+  const nonce = crypto.randomBytes(12), c = crypto.createCipheriv("aes-256-gcm", a.encKey, nonce);
+  c.setAAD(Buffer.from("pack"));
+  const old = Buffer.concat([Uint8Array.of(1), nonce, c.update(secret), c.final(), c.getAuthTag()]);
+  assert.deepEqual(open(a.encKey, old, "pack"), secret);
+  assert.equal(objectKey(a.encKey, old, "pack"), null, "such an object has no key of its own");
+});
+
+test("share addresses: a message reaches one login, which can tell who sent it", () => {
+  const alice = shareKeys(vaultFromKeypair(Keypair.generate(), "devnet")), carol = shareKeys(vaultFromKeypair(Keypair.generate(), "devnet"));
+  const wallet = Keypair.generate(), bobVault = vaultFromKeypair(wallet, "devnet"), bob = shareKeys(bobVault);
+  assert.deepEqual(shareKeys(vaultFromKeypair(wallet, "devnet")).publicKey, bob.publicKey, "the same wallet has the same share address everywhere");
+  assert.notDeepEqual(shareKeys(vaultFromKeypair(wallet, "mainnet-beta")).publicKey, bob.publicKey);
+  const address = shareAddress(bob.publicKey);
+  assert.match(address, /^share_[1-9A-HJ-NP-Za-km-z]+$/);
+  assert.deepEqual(parseShareAddress(address), bob.publicKey);
+  assert.throws(() => parseShareAddress(wallet.address), /wallet address cannot receive shares/);
+  assert.throws(() => parseShareAddress(address.slice(0, -1) + (address.endsWith("2") ? "3" : "2")), /checksum|length/);
+  assert.throws(() => parseShareAddress("share_0OIl"), /characters/);
+
+  const text = Buffer.from("the keys to the kingdom");
+  const sealed = sealTo(bob.publicKey, alice, text, "share");
+  const got = openFrom(bob, sealed, "share")!;
+  assert.deepEqual(got.plain, text);
+  assert.deepEqual(got.sender, alice.publicKey, "the receiver learns the sender's share address");
+  assert.equal(openFrom(carol, sealed, "share"), null, "nobody else can read it");
+  assert.equal(openFrom(bob, sealed, "share-record"), null, "the purpose is part of the seal");
+  assert.ok(!sealed.includes(text));
+  // a message that names somebody else as its sender does not open: the sender is proven, not claimed
+  const forged = Buffer.from(sealTo(bob.publicKey, carol, text, "share"));
+  alice.publicKey.copy(forged, 33);
+  assert.equal(openFrom(bob, forged, "share"), null);
+  const bad = Buffer.from(sealed); bad[bad.length - 1] = bad[bad.length - 1]! ^ 1;
+  assert.equal(openFrom(bob, bad, "share"), null);
 });
 
 test("images: tar -> image -> disk -> tar keeps every file, link and attribute", { skip: !posix && "needs a POSIX file system" }, () => {
@@ -233,4 +276,110 @@ test("private images: only the wallet that published them can list, fetch or rea
 
   assert.equal(await unlistPrivateImage(store, owner, "vaultbox"), true);
   assert.deepEqual(Object.keys((await readPrivateCatalog(store, owner)).images), []);
+});
+
+test("sharing: a private image and a saved machine reach the wallet they were shared with, and nobody else", { skip: !posix && "needs a POSIX file system" }, async () => {
+  const { publishImage, pullImage } = await import("../src/registry/registry.ts");
+  const { publishPrivateImage, readPrivateCatalog } = await import("../src/registry/private.ts");
+  const chain = new FakeChain();
+  const store = new ChainStore(new RpcPool(chain.urls(3), { fetch: chain.fetch, initialRate: 500 }));
+  const alice = vaultFromKeypair(Keypair.generate(), "devnet"), bob = vaultFromKeypair(Keypair.generate(), "devnet"), carol = vaultFromKeypair(Keypair.generate(), "devnet");
+
+  // alice: a public base, a private image on top of it, and a machine made from that private image
+  const baseFiles = [d("etc"), f("etc/os-release", "NAME=base\n"), d("usr"), f("usr/lib.so", crypto.randomBytes(30_000)), d("root")];
+  const base = buildImage(baseFiles, { name: "base", version: "1", arch: "amd64" });
+  await publishImage(store, Keypair.generate(), base, { commitment: "confirmed" });
+  const secret = crypto.randomBytes(40_000);
+  const built = buildImage([...baseFiles, d("srv"), f("srv/customers-TOPSECRET.db", secret)], { name: "vaultbox", version: "1", arch: "amd64", description: "my private system" }, { reuse: [base.manifest] });
+  const ref = await publishPrivateImage(store, alice, built, { commitment: "confirmed" });
+  assert.ok(built.manifest.packs.filter((p) => p.enc).every((p) => typeof p.key === "string"), "the manifest lists the key of each encrypted pack");
+  await assert.rejects(publishImage(store, Keypair.generate(), buildImage([...baseFiles, d("srv"), f("srv/customers-TOPSECRET.db", secret), f("srv/x", "y")], { name: "leak", version: "1", arch: "amd64" }, { reuse: [built.manifest] })),
+    /cannot reuse files of a private image/, "pack keys never end up in a public manifest");
+
+  // ---- the image
+  const before = new Set(chain.txs.keys());
+  await assert.rejects(shareImage(store, alice, "vaultbox", "latest", "amd64", alice.wallet), /not a share address/);
+  await assert.rejects(shareImage(store, alice, "vaultbox", "latest", "amd64", myShareAddress(alice)), /your own share address/);
+  await assert.rejects(shareImage(store, alice, "nothing", "latest", "amd64", myShareAddress(bob)), /no private image/);
+  await shareImage(store, alice, "vaultbox", "latest", "amd64", myShareAddress(bob), { note: "for the audit" });
+  const sent = [...chain.txs.entries()].filter(([sig]) => !before.has(sig)).map(([, t]) => Buffer.from(t.raw, "base64"));
+  assert.equal(sent.length, 1, "sharing an image is one transaction");
+  for (const needle of ["vaultbox", "audit", "TOPSECRET", alice.wallet, ref.sig]) assert.ok(!sent[0]!.includes(Buffer.from(needle)), `"${needle}" is visible in the share`);
+
+  assert.deepEqual(await listShares(store, carol), [], "nobody else sees it");
+  const inbox = await listShares(store, bob);
+  assert.equal(inbox.length, 1);
+  assert.equal(inbox[0]!.from, myShareAddress(alice), "the receiver sees which share address it came from");
+  assert.equal(inbox[0]!.record.what, "image");
+  assert.equal(inbox[0]!.record.note, "for the audit");
+  // junk in the inbox (anybody may write there) is ignored
+  await store.putPointer(carol.signer, (await import("../src/store/store.ts")).tagAddress("inbox", shareKeys(bob).publicKey), crypto.randomBytes(200), { commitment: "confirmed" });
+  assert.equal((await listShares(store, bob)).length, 1);
+
+  await acceptImage(store, bob, inbox[0]!.record, "audit-box");
+  const entry = (await readPrivateCatalog(store, bob)).images["audit-box"]!.tags.latest!.amd64!;
+  assert.equal(entry.publisher, alice.signer.address);
+  const pulled = await pullImage(store, bob.signer.address, entry, { cacheDir: tmp(), vault: bob });
+  assert.equal(pulled.manifest.digest, built.manifest.digest);
+  const dest = path.join(tmp(), "root");
+  extractImage(pulled.manifest, (i) => pulled.pack(i), dest);
+  assert.ok(fs.readFileSync(path.join(dest, "srv/customers-TOPSECRET.db")).equals(secret), "the receiver gets the exact files");
+  // the keys bob received open this image only: alice's catalog and vault key stay hers
+  await assert.rejects(readPrivateCatalog(store, { ...bob, signer: alice.signer }), /could not decrypt/);
+  await assert.rejects(acceptImage(store, bob, { ...inbox[0]!.record, image: { ...inbox[0]!.record.image!, ref: { ...entry, digest: "f".repeat(64) } } }, "audit-box"), /already have a different private image/);
+
+  // ---- the machine (made from the private image)
+  const info: MachineInfo = { name: "work", created: T, boot: true, image: { publisher: alice.signer.address, name: "vaultbox", tag: "1", arch: "amd64", digest: built.manifest.digest, private: true, manifest: { sig: ref.sig, sha256: ref.sha256, size: ref.size, codec: ref.codec, rawSize: ref.rawSize } } };
+  const dir = tmp(), upper = path.join(dir, "upper"), merged = path.join(dir, "merged");
+  const layout = (root: string) => { for (const n of built.manifest.tree) { if (n[1] === "d") fs.mkdirSync(path.join(root, n[0]), { recursive: true }); else if (n[1] === "f") fs.writeFileSync(path.join(root, n[0]), "placeholder"); } };
+  layout(merged);
+  const put = (p: string, data: string | Buffer) => { for (const root of [upper, merged]) { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), data); fs.utimesSync(path.join(root, p), T + 5, T + 5); } };
+  const work = crypto.randomBytes(60_000);
+  put("root/work.bin", work);
+  put("root/notes.txt", "alice's notes\n");
+  await assert.rejects(shareMachine(store, alice, "work", myShareAddress(bob)), /no save on chain yet/);
+  await saveSnapshot(store, alice, info, built.manifest, scanMachine({ upper, merged, base: built.manifest, cacheFile: path.join(dir, "cache.json") }), null);
+  const shared = await shareMachine(store, alice, "work", myShareAddress(bob));
+  assert.equal(shared.seq, 1);
+
+  const second = (await listShares(store, bob)).find((r) => r.record.what === "machine")!;
+  assert.equal(second.from, myShareAddress(alice));
+  assert.equal(second.record.machine!.image.manifest.key, entry.key, "the machine's private image comes with it");
+  assert.equal((await listShares(store, carol)).length, 0);
+  await acceptMachine(store, bob, second.record, "from-alice");
+  await assert.rejects(acceptMachine(store, bob, second.record, "from-alice"), /already have a saved machine/);
+  assert.deepEqual((await readIndex(store, bob)).machines["from-alice"]!.boot, true, "how the machine starts travels with it");
+
+  // bob restores it like any machine of his own, on a computer that has seen nothing yet
+  const restore = async () => {
+    const head = (await readHead(store, bob, "from-alice"))!;
+    const snap = await readSnapshot(store, bob, head.ref);
+    const target = path.join(tmp(), "merged");
+    layout(target);
+    const pack = await loadPacks(store, bob, snap, tmp());
+    applySnapshot(snap, target, (n) => pack(n[8]).subarray(n[9], n[9] + n[6]));
+    return { head, snap, target };
+  };
+  const first = await restore();
+  assert.equal(first.snap.machine, "from-alice");
+  assert.ok(fs.readFileSync(path.join(first.target, "root/work.bin")).equals(work));
+  assert.equal(fs.readFileSync(path.join(first.target, "root/notes.txt"), "utf8"), "alice's notes\n");
+
+  // and it is his from here on: his next save keeps using the content alice stored, without uploading it again
+  const dir2 = tmp(), upper2 = path.join(dir2, "upper"), merged2 = path.join(dir2, "merged");
+  layout(merged2);
+  for (const [p, data] of [["root/work.bin", work], ["root/notes.txt", Buffer.from("bob's notes now\n")], ["root/bob.bin", crypto.randomBytes(20_000)]] as const) {
+    for (const root of [upper2, merged2]) { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), data); fs.utimesSync(path.join(root, p), T + 9, T + 9); }
+  }
+  const bobInfo: MachineInfo = { ...info, name: "from-alice", image: first.snap.image };
+  const again = await saveSnapshot(store, bob, bobInfo, built.manifest, scanMachine({ upper: upper2, merged: merged2, base: built.manifest, cacheFile: path.join(dir2, "cache.json") }), { head: first.head, snapshot: first.snap });
+  assert.equal(again!.head.seq, 2);
+  assert.ok(again!.plan.newBytes < 25_000 && again!.plan.reusedFiles >= 1, "the 60 kB file alice stored is referenced, not uploaded again");
+  const later = await restore();
+  assert.ok(fs.readFileSync(path.join(later.target, "root/work.bin")).equals(work));
+  assert.equal(fs.readFileSync(path.join(later.target, "root/notes.txt"), "utf8"), "bob's notes now\n");
+
+  // alice's own machine is untouched, and her later saves do not reach bob
+  assert.equal((await readHead(store, alice, "work"))!.seq, 1);
+  assert.equal(await readHead(store, alice, "from-alice"), null);
 });

@@ -38,6 +38,8 @@ Sit down at another computer, sign in, type the same command, and continue where
   account, no company, no server that can be switched off.
 - **Private by default.** `chainboot publish` stores a whole system that only your wallet can
   list, fetch or read. Sharing it with everyone takes an explicit `--public`.
+- **Shareable.** Give one other wallet a saved machine or a private image with
+  `chainboot share`: they receive the keys of exactly that, nothing is uploaded again.
 - **A toolkit.** The command-line tool is built on a small TypeScript SDK with no
   dependencies. Use it to store your own data, or build something we did not think of.
 
@@ -119,9 +121,11 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | | |
 |---|---|
 | Publish, list, download and verify images | Works. Tested on devnet. |
-| Run machines on Linux | Works. Tested (Ubuntu host, amd64; arm64 images through emulation). |
+| Run machines on Linux, with `sudo` or without administrator rights | Works. Tested (Ubuntu host, amd64; arm64 images through emulation). |
+| Machines that boot systemd (`--boot`), with their own network | Works. Tested with Solinux, both with `sudo` and without administrator rights. |
 | Save, restore, history, automatic saving, continue on another computer | Works. Tested on devnet. |
 | Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
+| Sharing a saved machine or a private image with another wallet | Works. Tested on devnet with two wallets. |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |
@@ -141,8 +145,8 @@ Known limits, so nothing surprises you:
 
 1. [Getting started](docs/01-getting-started.md): install, endpoints, first run, each platform
 2. [How it works](docs/02-how-it-works.md): the whole idea in plain words, with pictures
-3. [Machines](docs/03-machines.md): running, keeping one up, services, exporting
-4. [Saving to chain](docs/04-saving.md): wallet, vault, encryption, restore, conflicts, cost
+3. [Machines](docs/03-machines.md): running, keeping one up, services, booting systemd, exporting
+4. [Saving to chain](docs/04-saving.md): wallet, vault, encryption, restore, sharing, conflicts, cost
 5. [Publishing your own system](docs/05-publishing.md): any distribution, step by step
 6. [The SDK](docs/06-sdk.md): store files, build your own tools
 7. [The on-chain format](docs/07-format.md): every byte, so anyone can write a reader

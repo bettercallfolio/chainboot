@@ -32,6 +32,10 @@ export { publishImage, pullImage, readCatalog, unlistImage, parseImageName, type
 export { publishPrivateImage, readPrivateCatalog, unlistPrivateImage, type PrivateCatalog } from "./registry/private.ts";
 
 // Saving machines: wallet-derived keys, encrypted snapshots
-export { LOGIN_MESSAGE, deriveVault, vaultFromKeypair, seal, open, type Vault } from "./state/vault.ts";
+export {
+  LOGIN_MESSAGE, deriveVault, vaultFromKeypair, seal, sealWithKey, open, openWithKey, objectKey,
+  shareKeys, shareAddress, parseShareAddress, sealTo, openFrom, type Vault, type ShareKeys,
+} from "./state/vault.ts";
+export { shareImage, shareMachine, listShares, acceptImage, acceptMachine, myShareAddress, type ShareRecord, type Received } from "./share/share.ts";
 export { scanMachine, type ScanResult, type Change } from "./state/scan.ts";
 export { saveSnapshot, readHead, readSnapshot, readIndex, loadPacks, applySnapshot, type Snapshot, type Head } from "./state/snapshot.ts";

@@ -133,7 +133,7 @@ export async function cmdRun(a: Args): Promise<void> {
     const r = found.ref;
     machine = {
       name, created: Math.floor(Date.now() / 1000),
-      image: { publisher: found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, ...(found.private && { private: true }), manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize } },
+      image: { publisher: r.publisher ?? found.publisher, name: found.name, tag: found.tag, arch: flag(a, "arch") ?? hostArch(), digest, ...(found.private && { private: true }), manifest: { sig: r.sig, sha256: r.sha256, size: r.size, codec: r.codec, rawSize: r.rawSize, ...(r.key && { key: r.key }) } },
       ...(has(a, "boot") && { boot: true }),
     };
     fs.mkdirSync(machineDir(home, name), { recursive: true });

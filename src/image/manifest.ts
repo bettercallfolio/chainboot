@@ -25,6 +25,11 @@ export interface PackInfo {
   rawSize: number;
   /** 1 when the stored pack is encrypted with the owner's vault key (private images). */
   enc?: 0 | 1;
+  /**
+   * The encrypted pack's own key (base64). It lives only inside encrypted manifests: whoever
+   * may read the manifest may read its packs, which is what makes an image shareable.
+   */
+  key?: string;
 }
 
 // Compact tuples keep the manifest small. Position 0 is always the path, position 1 the type.
@@ -134,7 +139,7 @@ export function validateManifest(m: unknown): asserts m is ImageManifest {
   if (!Array.isArray(o.packs) || !Array.isArray(o.tree)) fail("missing packs or tree");
   const packs = o.packs as PackInfo[];
   for (const p of packs) {
-    if (!p || typeof p.sig !== "string" || !isHash(p.sha256) || !isHash(p.rawSha256) || !isInt(p.size) || !isInt(p.rawSize) || !["xz", "zstd", "raw"].includes(p.codec) || (p.enc !== undefined && p.enc !== 0 && p.enc !== 1)) fail("malformed pack entry");
+    if (!p || typeof p.sig !== "string" || !isHash(p.sha256) || !isHash(p.rawSha256) || !isInt(p.size) || !isInt(p.rawSize) || !["xz", "zstd", "raw"].includes(p.codec) || (p.enc !== undefined && p.enc !== 0 && p.enc !== 1) || (p.key !== undefined && (typeof p.key !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(p.key)))) fail("malformed pack entry");
   }
   const kinds = new Map<string, string>();
   let prev: string | null = null;

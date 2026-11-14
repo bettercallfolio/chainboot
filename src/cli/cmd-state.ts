@@ -5,6 +5,7 @@ import { readSaveStatus } from "../engine/state-ops.ts";
 import { loadConfig, openStore, paths } from "../local/home.ts";
 import { buildTransaction, transferInstruction } from "../solana/tx.ts";
 import { readHead, readIndex, readSnapshot } from "../state/snapshot.ts";
+import { myShareAddress } from "../share/share.ts";
 import { forgetVault, loadVault, saveVault, vaultFromKeypair, type Vault } from "../state/vault.ts";
 import { sendAndConfirm } from "../store/sender.ts";
 import { fmtBytes } from "../util/bytes.ts";
@@ -57,7 +58,9 @@ async function showVault(v: Vault): Promise<void> {
     ["network", v.cluster],
     ["vault", v.signer.address],
     ["vault balance", balance === null ? dim("unknown (no RPC answer)") : sol(balance)],
+    ["share address", myShareAddress(v)],
   ]));
+  info(dim("Give your share address to people who want to share a machine or a private image with you."));
   if (balance !== null && balance < 5_000_000) info(dim("The vault pays the fees of your saves. Add a little SOL to it: chainboot fund 0.05"));
 }
 

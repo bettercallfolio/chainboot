@@ -149,6 +149,25 @@ const back = open(vault.encKey, await store.get(ref2, { signers: [vault.signer.p
 `saveSnapshot`, `readHead`, `readSnapshot`, `loadPacks` and `applySnapshot` are the functions
 behind `chainboot save` and `chainboot restore`; `scanMachine` finds what changed in a machine.
 
+Every sealed object has a key of its own, so one object can be handed to somebody else
+without giving away the rest. To send something to another login, seal it to their share
+address:
+
+```js
+import { sealWithKey, openWithKey, shareKeys, shareAddress, parseShareAddress, sealTo, openFrom } from "chainboot";
+
+const { sealed, key } = sealWithKey(vault.encKey, Buffer.from("for one friend"), "note");   // key: base64, opens only this object
+openWithKey(Buffer.from(key, "base64"), sealed, "note");
+
+const mine = shareKeys(vault);                               // an X25519 pair derived from the login
+console.log(shareAddress(mine.publicKey));                   // "share_...": what you give to others
+const letter = sealTo(parseShareAddress(theirAddress), mine, Buffer.from(key), "my-app");
+const got = openFrom(theirKeys, letter, "my-app");           // { plain, sender } or null; sender is proven
+```
+
+`shareImage`, `shareMachine`, `listShares`, `acceptImage` and `acceptMachine` are the
+functions behind `chainboot share` and `chainboot shared`.
+
 ## 7. Compression
 
 ```js

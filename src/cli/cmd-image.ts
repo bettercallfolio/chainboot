@@ -61,11 +61,12 @@ export function requireLogin(c: Config): Vault {
 }
 
 /** Downloads an image into the local cache (or finds it there) with a progress line. */
-export async function pull(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean }, label: string): Promise<PulledImage> {
+export async function pull(store: ChainStore, publisher: string, ref: StoredRef & { digest: string; private?: boolean; publisher?: string; key?: string }, label: string): Promise<PulledImage> {
   const line = new ProgressLine();
   line.start(`Downloading ${label}`);
   const pulled = await pullImage(store, publisher, ref, {
-    cacheDir: paths.cache(), vault: ref.private ? requireLogin(loadConfig()) : undefined,
+    // an image that was shared opens with the key that came with it; the wallet's own needs its login
+    cacheDir: paths.cache(), vault: ref.private && !ref.key ? requireLogin(loadConfig()) : ref.private ? loadVault(paths.vault(), loadConfig().cluster) ?? undefined : undefined,
     onProgress: (p) => { if (p.phase === "download") line.update(p.done, p.total); },
   });
   line.done(`${label} is ready (${fmtBytes(ref.size + pulled.manifest.packs.reduce((n, p) => n + p.size, 0))} verified)`);

@@ -502,6 +502,22 @@ export class ChainStore {
    * by signature, so an endpoint cannot add a record, only fail to mention one.
    */
   async getPointer(tag: Uint8Array, signers: Uint8Array[], opts: { limit?: number; endpoints?: number } = {}): Promise<PointerRecord | null> {
+    for await (const record of this.#pointers(tag, signers, opts)) return record;
+    return null;
+  }
+
+  /**
+   * Every pointer record under `tag`, newest first, whoever wrote it (or only those of
+   * `signers`). For tags that anybody may write to, such as an inbox: what a record says is
+   * for the reader to judge.
+   */
+  async listPointers(tag: Uint8Array, opts: { limit?: number; endpoints?: number; signers?: Uint8Array[] } = {}): Promise<PointerRecord[]> {
+    const all: PointerRecord[] = [];
+    for await (const record of this.#pointers(tag, opts.signers, opts)) all.push(record);
+    return all;
+  }
+
+  async *#pointers(tag: Uint8Array, signers: Uint8Array[] | undefined, opts: { limit?: number; endpoints?: number }): AsyncGenerator<PointerRecord> {
     type Listed = { signature: string; err: unknown; slot?: number };
     const params = [b58encode(tag), { limit: opts.limit ?? 50, commitment: "confirmed" }];
     let lists = (await this.pool.callEach<Listed[]>("getSignaturesForAddress", params, opts.endpoints ?? 3)).filter(Array.isArray);
@@ -522,7 +538,7 @@ export class ChainStore {
         const { tx, result } = await this.#fetchTx(signature, { signers });
         const data = ChainStore.#payload(tx);
         if (!data || data[1] !== KIND_POINTER || data[2] !== FORMAT_VERSION) continue;
-        return { payload: Buffer.from(data.subarray(3)), signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!) };
+        yield { payload: Buffer.from(data.subarray(3)), signature, slot: result.slot, blockTime: result.blockTime ?? null, payer: Buffer.from(tx.accountKeys[0]!) };
       } catch (e) {
         if (e instanceof TrustError) continue; // somebody else wrote under this tag: skip it
         // a signature that only one of several endpoints mentioned and nobody can produce is not a record
@@ -530,7 +546,6 @@ export class ChainStore {
         throw e;
       }
     }
-    return null;
   }
 }
 

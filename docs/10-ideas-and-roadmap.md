@@ -108,7 +108,6 @@ and on Linux. The list below is in rough order of importance.
 
 - Fetch only the files a program actually opens (lazy loading), so even very large systems
   start in a second.
-- Share saved machines and private images with other wallets (encrypt for several keys).
 - Signed "official" lists that several publishers maintain together.
 
 **Later**

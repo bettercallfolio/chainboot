@@ -17,13 +17,13 @@ import type { Commitment } from "../store/sender.ts";
 import { sha256, toHex } from "../util/bytes.ts";
 import type { Change, ScanResult } from "./scan.ts";
 import { writeXattrs } from "../util/xattr.ts";
-import { open, seal, type Vault } from "./vault.ts";
+import { open, openEither, seal, sealWithKey, type Vault } from "./vault.ts";
 
 /** Raw bytes per pack of saved changes (smaller than image packs, so memory use stays modest). */
 const SAVE_PACK_RAW = 32 << 20;
 
 export interface SnapshotPack extends PackInfo {
-  /** 1: encrypted with the vault key. 0: a public pack of the image, referenced as is. */
+  /** 1: encrypted (its own key is in `key`; packs saved by early versions open with the vault key). 0: a public pack of the image, referenced as is. */
   enc: 0 | 1;
 }
 
@@ -60,6 +60,8 @@ export interface SaveOptions {
 }
 
 const stateTag = (v: Vault, machine: string) => tagAddress("state", v.signer.publicKey, machine);
+/** The tag under which a machine's newest save is named. */
+export const stateTagOf = stateTag;
 const indexTag = (v: Vault) => tagAddress("machines", v.signer.publicKey);
 
 // ---- small encrypted documents: an object on chain plus a pointer to its newest version
@@ -95,7 +97,7 @@ export async function readIndex(store: ChainStore, v: Vault): Promise<MachineInd
   return await getDocByRef<MachineIndex>(store, v, "index", p.ref);
 }
 
-async function writeIndex(store: ChainStore, v: Vault, index: MachineIndex, commitment?: Commitment): Promise<void> {
+export async function writeIndex(store: ChainStore, v: Vault, index: MachineIndex, commitment?: Commitment): Promise<void> {
   await putDoc(store, v, indexTag(v), "index", index, {}, { commitment });
 }
 
@@ -170,8 +172,8 @@ export async function saveSnapshot(store: ChainStore, v: Vault, machine: Machine
     }
     const raw = Buffer.concat(parts);
     const packed = compress(raw, { arch: machine.image.arch });
-    const data = seal(v.encKey, packed.data, "pack");
-    sealedPacks.push({ members, data, info: { sig: "", sha256: toHex(sha256(data)), size: data.length, codec: packed.codec, rawSha256: toHex(sha256(raw)), rawSize: raw.length, enc: 1 } });
+    const { sealed: data, key } = sealWithKey(v.encKey, packed.data, "pack");
+    sealedPacks.push({ members, data, info: { sig: "", sha256: toHex(sha256(data)), size: data.length, codec: packed.codec, rawSha256: toHex(sha256(raw)), rawSize: raw.length, enc: 1, key } });
   });
 
   const newBytes = [...fresh.values()].reduce((n, f) => n + f.size!, 0);
@@ -240,10 +242,10 @@ export async function loadPacks(store: ChainStore, v: Vault, snap: Snapshot, cac
   await Promise.all([...used].map(async (i) => {
     const p = snap.packs[i]!;
     const stored = await store.get({ sig: p.sig, sha256: p.sha256, size: p.size }, {
-      signers: p.enc ? [v.signer.publicKey] : undefined, cacheDir: objects,
+      signers: p.enc && !p.key ? [v.signer.publicKey] : undefined, cacheDir: objects,
       onProgress: (g) => { got.set(i, g.bytes); onProgress?.([...got.values()].reduce((a, b) => a + b, 0), total); },
     });
-    const data = decompress(p.codec, p.enc ? open(v.encKey, stored, "pack") : stored, p.rawSize);
+    const data = decompress(p.codec, p.enc ? openEither(v.encKey, p.key, stored, "pack") : stored, p.rawSize);
     if (toHex(sha256(data)) !== p.rawSha256) throw new Error(`saved pack ${i + 1} is damaged`);
     raw.set(i, data);
   }));

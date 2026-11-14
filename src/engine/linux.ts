@@ -18,7 +18,7 @@ import { verifyPack } from "../image/build.ts";
 import { extractImage } from "../image/extract.ts";
 import { parseManifest, type ImageManifest } from "../image/manifest.ts";
 import { loadConfig, paths } from "../local/home.ts";
-import { loadVault, open } from "../state/vault.ts";
+import { loadVault, openEither } from "../state/vault.ts";
 import { inUserNs } from "./rootless.ts";
 
 export interface MachineInfo {
@@ -28,7 +28,7 @@ export interface MachineInfo {
     /** True for a private image: only the wallet that published it can fetch and unpack it. */
     private?: boolean;
     /** Where the image's manifest is on chain, so the exact same image can be fetched again later. */
-    manifest: { sig: string; sha256: string; size: number; codec: "xz" | "zstd" | "raw"; rawSize: number };
+    manifest: { sig: string; sha256: string; size: number; codec: "xz" | "zstd" | "raw"; rawSize: number; /** key of the manifest of an image that was shared with this wallet (base64) */ key?: string };
   };
   created: number;
   /**
@@ -91,10 +91,11 @@ export function ensureExtracted(home: EngineHome, digest: string, say: (text: st
       let stored: Buffer;
       try { stored = fs.readFileSync(path.join(home.cache, "objects", p.sha256)); } catch { throw new Error(`pack ${i + 1} of ${manifest.name} is not in the cache; run "chainboot pull" again`); }
       if (p.enc) {
-        // a private image: its packs can only be opened with the login of the wallet that published it
-        const vault = loadVault(paths.vault(), loadConfig().cluster);
-        if (!vault) throw new Error(`${manifest.name} is a private image: sign in with the wallet that published it (chainboot login)`);
-        stored = open(vault.encKey, stored, "pack");
+        // a private image: its packs open with their own keys from the manifest (an image that was
+        // shared, or published by a current version), or with the login of the wallet that published it
+        const vault = p.key ? null : loadVault(paths.vault(), loadConfig().cluster);
+        if (!p.key && !vault) throw new Error(`${manifest.name} is a private image: sign in with the wallet that published it (chainboot login)`);
+        stored = openEither(vault?.encKey, p.key, stored, "pack");
       }
       raw = decompress(p.codec, stored, p.rawSize);
       verifyPack(manifest, i, raw);

@@ -193,14 +193,21 @@ encryption key  = HKDF-SHA256(ikm = signature, salt = "chainboot-vault-v1", info
 `<cluster>` is `devnet`, `testnet` or `mainnet-beta`. The vault seed is an Ed25519 seed; its
 public key is the vault account.
 
-**Encryption.** AES-256-GCM. A sealed blob is:
+**Encryption.** AES-256-GCM, with a key per object. A sealed blob is:
 
 ```
-0x01 || nonce (12 random bytes) || ciphertext || tag (16 bytes)
+0x02 || key id (16 random bytes) || nonce (12 random bytes) || ciphertext || tag (16 bytes)
+
+object key = HKDF-SHA256(ikm = encryption key, salt = key id, info = "chainboot-object-v2:" + purpose, 32 bytes)
 ```
 
-with a purpose string as additional authenticated data: `pack`, `snapshot`,
-`snapshot-pointer`, `index`, `index-pointer`. Data is compressed first, then sealed.
+The purpose string is also the additional authenticated data: `pack`, `snapshot`,
+`snapshot-pointer`, `index`, `index-pointer`, `image-manifest`, `private-catalog`,
+`private-catalog-pointer`. Data is compressed first, then sealed. The owner opens every
+object with the encryption key; anyone who is given an object key can open that one object.
+
+Blobs written by the first releases start with `0x01` (`0x01 || nonce || ciphertext || tag`)
+and use the encryption key directly. Readers accept both; such objects cannot be shared.
 
 **Snapshot.** A sealed, compressed JSON document:
 
@@ -215,25 +222,76 @@ with a purpose string as additional authenticated data: `pack`, `snapshot`,
 ```
 
 `tree` holds every object of the machine that differs from the image; `deleted` the paths of
-the image that no longer exist. A pack with `"enc": 1` is sealed with purpose `pack`; a pack
-with `"enc": 0` is a public pack of the image, referenced unchanged. To restore: start from
-the image, remove the deleted paths, then write the tree.
+the image that no longer exist. A pack with `"enc": 1` is sealed with purpose `pack` and
+carries `"key"`, its object key in base64 (a pack without `key` was written by a first
+release and opens with the encryption key); a pack with `"enc": 0` is a public pack of the
+image, referenced unchanged. To restore: start from the image, remove the deleted paths,
+then write the tree.
 
 ## 7. Private images
 
 A private image uses the same manifest and pack formats, with these differences:
 
-- A pack entry may carry `"enc": 1`. Such a pack is stored as a sealed blob with purpose
-  `pack` (compress first, then seal); `sha256` and `size` describe the sealed blob. Packs
-  without `enc` are public packs of other images, referenced unchanged.
+- A pack entry may carry `"enc": 1` and `"key"` (the pack's object key, base64). Such a pack
+  is stored as a sealed blob with purpose `pack` (compress first, then seal); `sha256` and
+  `size` describe the sealed blob. Packs without `enc` are public packs of other images,
+  referenced unchanged. A public manifest never names a pack with `enc`.
 - The manifest object is the compressed manifest sealed with purpose `image-manifest`.
 - The owner's private catalog is a sealed document with purpose `private-catalog`
   (`{ "chainboot": 1, "kind": "private-catalog", "updated": …, "images": { … } }`, entries as
   in a public catalog plus `"private": true`), found through an encrypted pointer under the
   tag `"private-images"`, vault public key.
 - Every transaction is paid and signed by the vault account.
+- A catalog entry for an image that another wallet shared also has `"publisher"` (the
+  account that stored it) and `"key"` (the object key of its manifest).
 
-## 8. Versioning
+## 8. Sharing
+
+**Share address.** Each login has an X25519 key pair:
+
+```
+share secret  = HKDF-SHA256(ikm = encryption key, salt = "chainboot-share-v1", info = "<cluster>:x25519", 32 bytes)
+share address = "share_" + base58(public key || first 4 bytes of SHA-256("chainboot-share-address" || public key))
+```
+
+**Message.** What is sent to a share address is sealed like this:
+
+```
+0x01 || one-time public key (32) || sender's share public key (32) || nonce (12) || ciphertext || tag (16)
+
+key = HKDF-SHA256(ikm = X25519(one-time, receiver) || X25519(sender, receiver),
+                  salt = one-time public || sender public || receiver public,
+                  info = "chainboot-share-v1:" + purpose, 32 bytes)        AES-256-GCM, AAD = purpose
+```
+
+The one-time key keeps outsiders from linking messages; the sender's static key in the mix
+proves to the receiver which share address a message came from.
+
+**Inbox.** A share is one pointer transaction under the tag `"inbox"`, receiver's share
+public key, paid by the sender's vault. Its payload is a message with purpose `share` holding
+JSON: `{ "r": base64(compressed record), "c": codec, "n": raw size }`, or, for a record too
+long for one transaction, `{ "o": { object reference }, "by": sender's vault account, "c", "n" }`
+where the object is a message with purpose `share-record`. Anybody may write under an inbox
+tag; a reader keeps what opens with its own key.
+
+**Record.**
+
+```json
+{ "chainboot": 1, "kind": "share", "what": "image" | "machine", "name": "…", "time": 1794604669,
+  "wallet": "<sender's wallet address, as stated by the sender>", "note": "…",
+  "image":   { "tag": "…", "arch": "…", "description": "…",
+               "ref": { catalog entry, "private": true, "publisher": "<account>", "key": "<manifest object key>" } },
+  "machine": { "image": { as in a snapshot; "manifest" has "key" for a private image }, "created": …, "boot": true,
+               "seq": 7, "saved": …, "snapshot": { stored reference }, "signer": "<account>", "key": "<snapshot object key>",
+               "keys": { "<pack sha256>": "<object key>" } } }
+```
+
+Accepting an image adds its entry to the receiver's private catalog. Accepting a machine
+stores the snapshot again under the receiver's vault (with the pack keys filled in, sequence
+number 1 and an empty history) and adds the machine to the receiver's list. The packs stay
+where the sender stored them.
+
+## 9. Versioning
 
 Readers must reject head, inline and pointer transactions whose version byte they do not
 know, and manifests whose `chainboot` field they do not know. New kinds and fields will get

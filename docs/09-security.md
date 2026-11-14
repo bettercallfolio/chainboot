@@ -84,6 +84,14 @@ your own files, but chainboot does not promise isolation there either.
 - The login is stored in `~/.chainboot/vault/` with permissions for your user only. Someone
   who can read your home directory can read your saves and spend the vault's balance (never
   your wallet's). Keep only a small balance in the vault.
+- Every stored object (each pack, each snapshot, each manifest) is encrypted with a key of
+  its own, derived from your key and a random number in the object. **Sharing** hands
+  another wallet the keys of one save or one image, encrypted to their share address. They
+  can read that and nothing else of yours. A share cannot be taken back, and whoever receives
+  it can pass it on.
+- A share address only lets people send you things. Anybody can do that, so look at the
+  share address an item came from (it is proven by the encryption, not merely stated) before
+  you accept and run it: a shared system is software from someone else.
 - Encrypted saves stay on the ledger forever. If the key leaks later, old saves become
   readable. Do not save things that must stay secret for decades.
 - Published images are **private by default**: encrypted with the same key as your saves,
