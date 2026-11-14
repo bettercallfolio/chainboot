@@ -221,7 +221,7 @@ trap - EXIT
 # 127.0.0.1 normally, 0.0.0.0 inside an engine container. There CHAINBOOT_PORTS names the ports
 # that are passed through to the user's computer; elsewhere it is empty and any port will do)
 if [ -x "$M/etc/chainboot/start" ]; then
-  (CHAINBOOT_BIND="$CB_BIND" CHAINBOOT_PORTS="\${CB_PORTS:-}" chroot "$M" /bin/sh -c 'cd /; exec /etc/chainboot/start' > "$CB_DIR/start.log" 2>&1 &)
+  (CHAINBOOT_BIND="$CB_BIND" CHAINBOOT_PORTS="$CB_PORTS" chroot "$M" /bin/sh -c 'cd /; exec /etc/chainboot/start' > "$CB_DIR/start.log" 2>&1 &)
 fi
 # wait for the first session, then stay for as long as any session holds the lock.
 # The machine lingers a moment after the last session, so commands that follow each other reuse it.
