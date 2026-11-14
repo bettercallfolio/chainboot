@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chainboot reader: read a system from Solana in your browser</title>
+<meta name="description" content="Find, download and verify a whole Linux system stored on Solana, in this page. No server of ours is involved.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23121416'/%3E%3Crect x='4' y='3' width='8' height='10' fill='%2386c7a4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="reader.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="logo" href="../">chainboot<span class="cursor"></span></a>
+    <span class="dim">reader</span>
+  </div>
+</header>
+<main class="wrap">
+  <h1>Read a system from the chain, right here</h1>
+  <p class="lead">This page finds a publisher's catalog on Solana, downloads an image and checks every byte: the catalog by the publisher's signature, everything else by SHA-256. It talks only to the RPC endpoints named below. Nothing is installed and nothing leaves your browser.</p>
+
+  <section class="panel" aria-labelledby="h-source">
+    <h2 id="h-source">1. Where to read</h2>
+    <div class="grid">
+      <label for="endpoints">RPC endpoints <span class="dim">(one per line)</span></label>
+      <textarea id="endpoints" rows="2" spellcheck="false" autocomplete="off"></textarea>
+      <label for="publisher">Publisher <span class="dim">(a Solana address)</span></label>
+      <input id="publisher" type="text" spellcheck="false" autocomplete="off">
+    </div>
+    <p class="hint">The public devnet endpoint is free and slow: a small system takes about half a minute. An endpoint of your own (many providers have a free plan) is much faster; with several, the reader also asks more than one which catalog is the newest.</p>
+    <div class="row">
+      <button id="read" class="btn primary" type="button">Read the catalog</button>
+      <button id="stop" class="btn" type="button" hidden>Stop</button>
+      <span id="status" class="dim" role="status" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="catalog-panel" aria-labelledby="h-catalog" hidden>
+    <h2 id="h-catalog">2. The publisher's images</h2>
+    <div class="table" id="catalog" role="table"></div>
+    <p class="hint">Choose one to download and verify it. Start with a small one.</p>
+  </section>
+
+  <section class="panel" id="image-panel" aria-labelledby="h-image" hidden>
+    <h2 id="h-image">3. <span id="image-title">The image</span></h2>
+    <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+    <p id="progress-text" class="dim" role="status" aria-live="polite"></p>
+    <div id="browser" hidden>
+      <div class="row">
+        <input id="filter" type="search" placeholder="filter files, for example etc/ or .conf" spellcheck="false" autocomplete="off" aria-label="Filter files">
+        <span id="count" class="dim"></span>
+      </div>
+      <div class="files" id="files" role="list"></div>
+      <div id="viewer" hidden>
+        <div class="row between">
+          <b id="viewer-name"></b>
+          <span><span id="viewer-info" class="dim"></span> <a id="viewer-save" class="btn small" download>Save file</a></span>
+        </div>
+        <pre id="viewer-text" tabindex="0"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-log">
+    <h2 id="h-log">What was checked</h2>
+    <pre id="log" class="log" role="log" aria-live="polite">Nothing yet.</pre>
+  </section>
+
+  <p class="foot dim">The reader is one small script without dependencies. It understands the <a href="https://chainboot.dev/docs/07-format.html">on-chain format</a> and reads public images; private images and saved machines need their wallet and the chainboot program.</p>
+</main>
+<script type="module" src="page.js"></script>
+</body>
+</html>

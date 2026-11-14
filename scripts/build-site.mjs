@@ -12,20 +12,32 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const docsDir = path.join(root, "docs"), outDir = path.join(root, "site", "docs");
 const REPO = "https://github.com/bettercallfolio/chainboot";
-// While the repository is private, pages are built in pre-release mode: links into the repository are hidden.
-// Set to false (and remove class="prelaunch" from site/index.html) when the repository is public.
-const PRELAUNCH = true;
+// Pre-release mode hides the links into the repository and leaves the reader out of the site.
+// It was on while the repository was private; set it to true (and add class="prelaunch" to the
+// body of site/index.html) to go back to it.
+const PRELAUNCH = false;
 
-// The reader for browsers (web/reader + the bundled src/browser/reader.ts) becomes site/reader
-// once the site is public. In pre-release mode it is not part of the site at all.
-async function buildReader() {
-  const out = path.join(root, "site", "reader");
+// The reader for browsers (web/reader + the bundled src/browser/reader.ts) becomes site/reader.
+// In pre-release mode it is not part of the site at all.
+async function buildReader(out = path.join(root, "site", "reader")) {
   if (PRELAUNCH) return false;
   const { build } = await import("esbuild");
   fs.mkdirSync(out, { recursive: true });
   await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, "src/browser/reader.ts")], outfile: path.join(out, "chainboot-reader.js") });
   for (const f of fs.readdirSync(path.join(root, "web/reader"))) fs.copyFileSync(path.join(root, "web/reader", f), path.join(out, f));
   return true;
+}
+
+/** The files of site/reader that differ from what the sources give now (for --check). */
+async function staleReader() {
+  const os = await import("node:os");
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "chainboot-reader-"));
+  try {
+    if (!(await buildReader(fresh))) return fs.existsSync(path.join(root, "site", "reader")) ? ["site/reader (not part of the site in pre-release mode)"] : [];
+    const live = path.join(root, "site", "reader");
+    const names = new Set([...fs.readdirSync(fresh), ...(fs.existsSync(live) ? fs.readdirSync(live) : [])]);
+    return [...names].filter((n) => !fs.existsSync(path.join(live, n)) || !fs.existsSync(path.join(fresh, n)) || !fs.readFileSync(path.join(live, n)).equals(fs.readFileSync(path.join(fresh, n)))).map((n) => `reader/${n}`);
+  } finally { fs.rmSync(fresh, { recursive: true, force: true }); }
 }
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -231,11 +243,13 @@ pages.set("index.html", page({
 if (process.argv.includes("--check")) {
   const stale = [...pages].filter(([name, html]) => !fs.existsSync(path.join(outDir, name)) || fs.readFileSync(path.join(outDir, name), "utf8") !== html).map(([n]) => n);
   const extra = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => !pages.has(f)) : [];
-  if (stale.length || extra.length) {
-    console.error(`site/docs is out of date (${[...stale, ...extra].join(", ")}). Run: npm run site`);
+  // the reader on the site is built from the sources too: it must be the one they give now
+  const reader = await staleReader();
+  if (stale.length || extra.length || reader.length) {
+    console.error(`the site is out of date (${[...stale, ...extra, ...reader].join(", ")}). Run: npm run site`);
     process.exit(1);
   }
-  console.log(`site/docs is up to date (${pages.size} pages)`);
+  console.log(`site/docs is up to date (${pages.size} pages)${PRELAUNCH ? "" : ", and so is site/reader"}`);
 } else {
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });

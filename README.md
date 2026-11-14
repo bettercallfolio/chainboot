@@ -126,7 +126,7 @@ Alpine 5 s, Solinux minimal 7 s, Solinux 16 s. Every later start takes 0.2 s.
 | Save, restore, history, automatic saving, continue on another computer | Works. Tested on devnet. |
 | Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
 | Sharing a saved machine or a private image with another wallet | Works. Tested on devnet with two wallets. |
-| Reader for browsers (`dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
+| Reader for browsers ([chainboot.dev/reader](https://chainboot.dev/reader/), `dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
 | Lists that several publishers keep together (`list:2:A,B,C`, `chainboot endorse`) | Works. Tested on devnet with three keys. |
 | Pointers in accounts (`chainboot accounts on`): one request finds the newest catalog or save | Works. Tested on devnet. |
 | Lazy machines (`chainboot run <image> --lazy`): start at once, fetch files when they are first read | Works. Tested with Solinux, with `sudo` and without administrator rights, also with `--boot`. |
