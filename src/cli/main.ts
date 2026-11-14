@@ -37,8 +37,10 @@ ${bold("Machines")}
   rm <machine>                   Delete a machine and its changes
 
 ${bold("Save to chain")}
-  login                          Sign in with your wallet (enables saving)
+  login | logout | whoami        Sign in with your wallet (enables saving), sign out, show who is signed in
+  fund <SOL>                     Add SOL to your vault, which pays for your saves
   save [machine]                 Save a machine's changes on chain, encrypted
+  autosave <machine> on|off      Save by itself after each session (on by default once signed in)
   restore [machine]              Bring a saved machine back, on any computer
   history <machine>              List the saves of a machine
   status                         Show login, vault balance and save state
@@ -63,8 +65,14 @@ ${bold("Settings")}
   accounts [on|off|close]        Keep pointers in accounts too, where one request reads them
   keygen <file>                  Create a new Solana keypair file
   engine [rootless|sudo]         How machines run: without administrator rights, or through sudo
+  version                        Show the version of chainboot
 
-Run "chainboot <command> --help" for details.`;
+Run "chainboot <command> --help" for details. A command that asks before it acts takes --yes
+(or -y) to go ahead without asking.
+
+Settings from the environment: CHAINBOOT_HOME (where chainboot keeps everything, default
+~/.chainboot), CHAINBOOT_RPC (endpoints, separated by commas, instead of the saved ones),
+CHAINBOOT_KEYPAIR (the keypair file for commands that take --keypair), NO_COLOR.`;
 
 async function cmdEngineInfo(rest: string[]): Promise<void> {
   if (rest.includes("--help") || rest.includes("-h")) { out(ENGINE_HELP); return; }

@@ -83,7 +83,8 @@ solinux  stopped  saved (#12)     on        2026-11-13 21:26 UTC</code></pre><bu
 <ul><li>Only content that is not on chain yet is uploaded. Files that an earlier save already stored, or that are identical to files of the image, are referenced, not repeated.</li><li>A save that would cost more than <strong>0.05 SOL</strong> is not made automatically. <code>chainboot status</code> then says &quot;waiting for you&quot;, and <code>chainboot save &lt;machine&gt;</code> shows the cost and asks.</li><li>If the vault does not hold enough SOL, nothing is sent and <code>status</code> tells you.</li><li>Turn it off or on per machine: <code>chainboot autosave &lt;machine&gt; off</code>.</li></ul>
 <p>Save by hand at any time:</p>
 <div class="code-wrap"><pre><code>chainboot save solinux
-chainboot save solinux --note &quot;before the upgrade&quot;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+chainboot save solinux --note &quot;before the upgrade&quot;      <span class="c"># the note is shown by &quot;chainboot history&quot;</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>A save that is interrupted (a closed terminal, a lost connection) continues when you save again: what already reached the chain is found there, also transactions that were on their way at that moment, and is not sent or paid for a second time.</p>
 <h2 id="what-is-saved-and-what-is-not"><a class="anchor" href="#what-is-saved-and-what-is-not" aria-hidden="true" tabindex="-1">#</a>What is saved, and what is not</h2>
 <p>Saved: everything that differs from the image. Installed and removed packages, your files, configuration, users, deletions.</p>
 <p>Not saved, on purpose:</p>
@@ -101,8 +102,9 @@ chainboot restore solinux                <span class="c"># bring one back withou
 <p>Every save is kept. List them and return to any one:</p>
 <div class="code-wrap"><pre><code>chainboot history solinux
 chainboot restore solinux --snapshot 7</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p><code>history</code> lists the newest save and the 200 before it; older ones are still there, and <code>--snapshot</code> reaches them too. While a machine is being restored, what it held before is set aside, and comes back if the restore does not go through (no network, a damaged save): a failed restore leaves the machine as it was.</p>
 <h2 id="when-two-computers-disagree"><a class="anchor" href="#when-two-computers-disagree" aria-hidden="true" tabindex="-1">#</a>When two computers disagree</h2>
-<p>If you change a machine on computer A without saving, and meanwhile save from computer B, there are two different versions. chainboot never picks one silently:</p>
+<p>If you change a machine on computer A without saving, and meanwhile save from computer B, there are two different versions. chainboot never picks one silently. It knows which save a computer is in step with by that save's address on chain, not by its number, and it looks at the chain once more just before a new save takes effect, so two computers that save at the same moment cannot both believe they are the newest:</p>
 <div class="code-wrap"><pre><code>! A newer save of this machine is on chain, but this copy also has changes that were not saved.
   Take the newer one with &quot;chainboot restore solinux&quot;, or keep this copy with &quot;chainboot save solinux --force&quot;.</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <h2 id="sharing-a-machine-with-someone-else"><a class="anchor" href="#sharing-a-machine-with-someone-else" aria-hidden="true" tabindex="-1">#</a>Sharing a machine with someone else</h2>
@@ -117,7 +119,7 @@ chainboot share web --with share_7Yk3... --note &quot;the demo server&quot;
 
 <span class="c"># the receiver</span>
 chainboot shared                    <span class="c"># what arrived, and from which share address</span>
-chainboot shared accept 1           <span class="c"># keep it (add --name &lt;name&gt; to store it under another name)</span>
+chainboot shared accept 1           <span class="c"># keep it, by its number or by its id (add --name &lt;name&gt; to store it under another name)</span>
 chainboot run web                   <span class="c"># it is brought to their computer like any saved machine</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>What to know:</p>
 <ul><li><strong>It is a copy at this moment.</strong> The machine becomes the receiver's own. Their later saves do not reach you, and yours do not reach them. To send a newer state, share again.</li><li><strong>It cannot be taken back.</strong> The data stays on the ledger and the receiver keeps the keys.</li><li><strong>Only that save is opened.</strong> Every object on chain has a key of its own; the receiver gets the keys of this one save. Your other machines, your earlier saves and your login stay closed to them.</li><li><strong>A machine made from one of your private images</strong> is shared together with that image, because it cannot run without it.</li><li><strong>Check the sender.</strong> The list shows the share address each item came from. That address is proven by the encryption; anybody can send you something, so compare it with the address the sender told you before you run what arrived.</li></ul>

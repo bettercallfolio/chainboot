@@ -147,6 +147,7 @@ export async function cmdRun(a: Args): Promise<void> {
       fs.mkdirSync(machineDir(home, name), { recursive: true });
       fs.writeFileSync(path.join(machineDir(home, name), "machine.json"), JSON.stringify({ name, image: saved.image, created: saved.created, ...((saved.boot || has(a, "boot")) && { boot: true }), ...(lazy && { lazy: true }) }, null, 2) + "\n");
       if (asRoot(["restore", name, "latest"]) !== 0) throw new Error(`could not restore "${name}". Remove the half-made machine with "chainboot rm ${name}" and try again.`);
+      if (has(a, "no-autosave")) asRoot(["autosave", name, "off"]);
       process.exitCode = asRoot(["enter", name, "--", ...command]);
       return;
     }

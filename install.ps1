@@ -13,6 +13,12 @@ param(
   [switch]$Uninstall,
   [switch]$Purge
 )
+
+# Everything happens inside one function. Its settings and helpers stay inside it (this script
+# is often run with "irm | iex", in the user's own session), and a failure ends the function,
+# not the window the user is typing in.
+function Install-Chainboot {
+param([string]$From, [bool]$Uninstall, [bool]$Purge)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
@@ -28,10 +34,11 @@ $Settings = Join-Path $env:USERPROFILE ".chainboot"
 
 function Ok($t) { Write-Host "[ok] $t" -ForegroundColor Green }
 function Warn($t) { Write-Host "[!]  $t" -ForegroundColor Yellow }
-function Die($t) { Write-Host "[x]  $t" -ForegroundColor Red; exit 1 }
+function Die($t) { throw $t }
 function Sha256($file) { (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLower() }
 function PathHas($dir) { (([Environment]::GetEnvironmentVariable("Path", "User")) -split ";") -contains $dir }
 
+if ($Purge -and -not $Uninstall) { Die "-Purge goes with -Uninstall (it deletes your machines, settings and logins)" }
 if ($Uninstall) {
   foreach ($d in @($AppDir, $RuntimeDir, $BinDir)) { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
   if (PathHas $BinDir) {
@@ -46,7 +53,7 @@ if ($Uninstall) {
   } else {
     Write-Host "Your machines, settings and logins were kept (add -Purge to delete them)."
   }
-  exit 0
+  return
 }
 
 $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") { "arm64" } elseif ([Environment]::Is64BitOperatingSystem) { "x64" } else { Die "chainboot needs 64-bit Windows." }
@@ -61,8 +68,9 @@ try {
   }
   $Node = ""
   $own = Join-Path $RuntimeDir "node.exe"
-  if (NodeOk $own) { $Node = $own }
-  else {
+  # a Node.js that an earlier run of this installer downloaded is kept up to date with the version named above
+  if ((NodeOk $own) -and ((& $own --version) -eq $NodeVersion)) { $Node = $own }
+  elseif (-not (Test-Path $own)) {
     $sys = Get-Command node.exe -ErrorAction SilentlyContinue
     if ($sys -and (NodeOk $sys.Source)) { $Node = $sys.Source }
   }
@@ -91,7 +99,11 @@ try {
   } else {
     Write-Host "Downloading chainboot"
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/chainboot.tar.gz" -OutFile $tgz
-    $want = ((Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/chainboot.tar.gz.sha256").Content -split " ")[0].Trim().ToLower()
+    # (to a file first: the content of such a download arrives as bytes, not as text)
+    $shaFile = Join-Path $Tmp "chainboot.sha256"
+    Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/chainboot.tar.gz.sha256" -OutFile $shaFile
+    $want = (((Get-Content -Raw -Path $shaFile) -split "\s+") | Where-Object { $_ })[0].Trim().ToLower()
+    if ($want -notmatch "^[0-9a-f]{64}$") { Die "the checksum of chainboot could not be read. Nothing was installed." }
     if ((Sha256 $tgz) -ne $want) { Die "the chainboot download does not match its SHA-256. Nothing was installed." }
   }
   $new = "$AppDir.new"
@@ -105,7 +117,20 @@ try {
   Move-Item $new $AppDir
 
   # ---- 3. the command
-  Set-Content -Encoding ASCII -Path (Join-Path $BinDir "chainboot.cmd") -Value "@echo off`r`n`"$Node`" `"$AppDir\chainboot.mjs`" %*"
+  # The command starts chainboot with the Node.js found above; if that one is gone later (a
+  # version manager removed it), with the one this installer keeps, or the one on the PATH.
+  # Folders are written the way cmd.exe names them itself, and the file in the encoding cmd.exe
+  # reads, so that a profile folder with letters outside ASCII works too.
+  $cmd = @(
+    "@echo off", "setlocal",
+    "set `"CB_NODE=$Node`"",
+    "if not exist `"%CB_NODE%`" set `"CB_NODE=%LOCALAPPDATA%\chainboot\runtime\node.exe`"",
+    "if not exist `"%CB_NODE%`" set `"CB_NODE=node.exe`"",
+    "`"%CB_NODE%`" `"%LOCALAPPDATA%\chainboot\app\chainboot.mjs`" %*"
+  ) -join "`r`n"
+  $oem = [Text.Encoding]::ASCII
+  try { $oem = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage) } catch { }
+  [IO.File]::WriteAllText((Join-Path $BinDir "chainboot.cmd"), $cmd + "`r`n", $oem)
   if (-not (PathHas $BinDir)) {
     [Environment]::SetEnvironmentVariable("Path", (([Environment]::GetEnvironmentVariable("Path", "User")).TrimEnd(";") + ";" + $BinDir).TrimStart(";"), "User")
     $env:Path = "$env:Path;$BinDir"
@@ -128,4 +153,13 @@ try {
   Write-Host "  chainboot ui                                  # or use the point-and-click interface"
 } finally {
   if (Test-Path $Tmp) { Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue }
+}
+}
+
+try {
+  Install-Chainboot -From $From -Uninstall ([bool]$Uninstall) -Purge ([bool]$Purge)
+} catch {
+  Write-Host "[x]  $($_.Exception.Message)" -ForegroundColor Red
+  # run as a file (./install.ps1), a failure is an exit status; run with "irm | iex", exiting would close the user's window
+  if ($MyInvocation.MyCommand.Path) { exit 1 }
 }

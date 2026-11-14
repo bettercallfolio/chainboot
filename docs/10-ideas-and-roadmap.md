@@ -77,20 +77,23 @@ If you are new to Solana, this project touches several of its interesting proper
 - **No custom program needed.** Everything here uses the existing Noop program. There is
   nothing to deploy, audit or upgrade.
 
-Things worth exploring that chainboot does not use yet:
+Things worth exploring that chainboot does not use, or uses only a little:
 
 - **Accounts as storage.** Solana accounts can hold up to 10 MB each and are readable in a
-  single request, forever, from every node. They cost a refundable deposit (about 7 SOL per
-  MB) instead of a fee. Good for small data that must be instantly readable.
+  single request, forever, from every node. They cost a refundable deposit (about 5 SOL per
+  MB on devnet today) instead of a fee. Good for small data that must be instantly readable. chainboot uses
+  them for pointers only (`chainboot accounts on`); whole images in accounts would be a
+  different trade of cost against speed.
 - **Your own program** for rules that signatures cannot express: shared catalogs, paid
   downloads, votes on what is "official".
 - **Compressed state and proofs** for very large collections.
 
 ## Beyond Solana
 
-Nothing in the design is tied to one chain. The on-chain format needs three things from a
-network: transactions that can carry free data, a way to fetch a transaction by its ID, and
-a way to fetch a block. Almost every chain has them; what differs is price and speed. The
+Nothing in the design is tied to one chain. The on-chain format needs four things from a
+network: transactions that can carry free data, a way to fetch a transaction by its ID, a
+way to list the transactions that mention an address (that is how pointers are found), and,
+for speed, a way to fetch a block. Almost every chain has them; what differs is price and speed. The
 image format, the verification and the encryption do not know which chain is below. A port
 to another network is a new implementation of one file, the store.
 

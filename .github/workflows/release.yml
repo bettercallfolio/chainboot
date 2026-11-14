@@ -13,6 +13,8 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - name: The tag is the version in package.json
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
       - run: npm run check
       - run: npm test
       - run: npm run release

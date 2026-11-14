@@ -164,8 +164,9 @@ Known limits, so nothing surprises you:
 
 ## Website
 
-The project's website is the static page in [`site/`](site/). It has no build step and can be
-hosted anywhere.
+The project's website is the static page in [`site/`](site/), and can be hosted anywhere. Its
+documentation pages are made from `docs/` by `npm run site`; the result is committed, so
+hosting it needs no build step.
 
 ## Thank you
 

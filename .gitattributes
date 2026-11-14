@@ -1,0 +1,6 @@
+# Text files have Unix line endings in every checkout: the program is built from them, and
+# the shell scripts inside it (and install.sh) do not run with Windows line endings.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.woff2 binary

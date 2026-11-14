@@ -79,6 +79,9 @@ What a machine is **not**:
 - **Not a security sandbox.** Root inside a machine is you (without administrator rights),
   root on your computer (through `sudo`), or root inside the chainboot engine (Windows and
   macOS). Run only images you trust, like you would only install software you trust.
+  (What chainboot does guarantee is narrower: unpacking an image, setting a machine up and
+  restoring a save never write outside the machine's own directories, whatever the image or
+  the save contains. What the programs of an image do once they run is up to them.)
 - **Not a virtual machine.** It cannot load kernel modules or run a different kernel.
 - **Not booted by systemd, unless you ask.** In an ordinary machine `systemctl` cannot start
   services; use `service <name> start` or call the program directly. A machine created with
@@ -206,7 +209,8 @@ Good to know:
 
 - **Nothing is installed on your computer.** The disk is put together inside the machine,
   with the distribution's own tools (`mke2fs`, `mtools`, `sfdisk`). If something is missing
-  there, chainboot names the packages. It needs no administrator rights.
+  there, chainboot names the packages. It needs no administrator rights. A machine that
+  boots and was not running is started for this and stopped again afterwards.
 - **It is a copy of the machine as it is now.** The disk gets its own machine ID and its own
   SSH host keys, its own `/etc/fstab`, and takes its network settings by DHCP. Nothing links
   it back to the chain or to the machine.
@@ -284,7 +288,10 @@ chainboot images                # downloaded images and which machines use them
 chainboot rmi <image>           # delete a downloaded image
 ```
 
-Deleting a machine here does not touch its saves on chain.
+Deleting a machine here does not touch its saves on chain. Two commands on the same machine
+never get in each other's way: a `stop` or `rm` waits for a start that is under way, two
+machines of the same image can be started at the same moment, and a command that arrives
+just as a machine is going away starts it again.
 
 ## Turning a machine into an image
 

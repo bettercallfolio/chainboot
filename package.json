@@ -30,6 +30,7 @@
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
     "dev": "node src/cli/main.ts",
     "release": "node scripts/build.mjs --archive",
+    "prepack": "node scripts/build.mjs",
     "site": "node scripts/build-site.mjs"
   },
   "devDependencies": {

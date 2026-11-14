@@ -26,7 +26,7 @@ export { xzDecode, xzUncompressedSize } from "./codec/xz.ts";
 // Images: root file systems as manifests + packs, and the catalog that lists them
 export { readTar, writeTar, decompressAuto, type Entry } from "./image/tar.ts";
 export { buildImage, normalizeEntries, entriesFromImage, verifyPack, type BuiltImage, type ImageMeta } from "./image/build.ts";
-export { parseManifest, serializeManifest, validateManifest, treeDigest, type ImageManifest, type TreeNode, type PackInfo } from "./image/manifest.ts";
+export { parseManifest, serializeManifest, validateManifest, treeDigest, configIdentity, type ImageManifest, type ImageConfig, type TreeNode, type PackInfo } from "./image/manifest.ts";
 export { extractImage } from "./image/extract.ts";
 export { publishImage, pullImage, readCatalog, unlistImage, endorseImage, parseImageName, type Catalog, type ImageRef } from "./registry/registry.ts";
 export { parseList, formatList, isList, readList, type ListSpec, type ListView, type ListEntry } from "./registry/lists.ts";
@@ -37,6 +37,6 @@ export {
   LOGIN_MESSAGE, deriveVault, vaultFromKeypair, seal, sealWithKey, open, openWithKey, objectKey,
   shareKeys, shareAddress, parseShareAddress, sealTo, openFrom, type Vault, type ShareKeys,
 } from "./state/vault.ts";
-export { shareImage, shareMachine, listShares, acceptImage, acceptMachine, myShareAddress, type ShareRecord, type Received } from "./share/share.ts";
+export { shareImage, shareMachine, listShares, acceptImage, acceptMachine, cleanShareRecord, myShareAddress, type ShareRecord, type Received } from "./share/share.ts";
 export { scanMachine, type ScanResult, type Change } from "./state/scan.ts";
-export { saveSnapshot, readHead, readSnapshot, readIndex, loadPacks, applySnapshot, type Snapshot, type Head } from "./state/snapshot.ts";
+export { saveSnapshot, readHead, readSnapshot, snapshotBySeq, checkSnapshot, readIndex, loadPacks, applySnapshot, type Snapshot, type Head } from "./state/snapshot.ts";

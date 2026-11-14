@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { buildImage } from "../image/build.ts";
@@ -19,7 +18,10 @@ import { ProgressLine, bold, dim, info, ok, out, table, warn } from "./term.ts";
 const note = (t: string) => info(dim(t));
 
 export function loadKeypair(a: Args): Keypair {
-  const file = flag(a, "keypair") ?? process.env.CHAINBOOT_KEYPAIR ?? path.join(os.homedir(), ".config", "solana", "id.json");
+  // The key that pays and signs is always named, by the option or by CHAINBOOT_KEYPAIR. No
+  // key is picked up from a usual place: publishing under a wallet nobody chose would be public and for ever.
+  const file = flag(a, "keypair") ?? process.env.CHAINBOOT_KEYPAIR;
+  if (!file) throw new Error("say which keypair pays and signs: --keypair <file> (create one with: chainboot keygen <file>), or set CHAINBOOT_KEYPAIR");
   if (!fs.existsSync(file)) throw new Error(`no keypair found at ${file}. Pass one with --keypair <file> (create it with: chainboot keygen <file>)`);
   return Keypair.fromFile(file);
 }

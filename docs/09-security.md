@@ -26,23 +26,69 @@ An endpoint can be slow, refuse to answer, or return garbage. chainboot then ask
 one. An endpoint cannot make you run different software.
 
 One thing a single endpoint could do is **show you an old state**: hide the newest
-transactions, so that you see an older catalog or an older save of your machine, both of
-which were once valid. chainboot therefore asks up to three of your endpoints for the newest
-pointer and merges their answers. One honest, up-to-date endpoint is enough to see the newest
-record, and since every record is checked by signature, an endpoint cannot add one. This is
-a reason to configure endpoints of more than one provider: with a single endpoint there is
-nobody to compare with.
+transactions, or list an old record as if it were the newest, so that you see an older
+catalog or an older save of your machine, both of which were once valid. chainboot does
+three things about it:
+
+- It asks up to three of your endpoints for the newest pointer and merges their answers, so
+  one that hides something is filled in by the others.
+- Every pointer carries a sequence number that its writer signed. Between two genuine
+  records, that number says which is the newer one; where an endpoint claims a record lies
+  in the chain does not. A record must also name, in its own signed transaction, the address
+  it is listed under, so a genuine record from somewhere else cannot be passed off either.
+- "There is no record" is never a guess. An empty answer is believed only from two
+  endpoints (where you have two), and when the history of an address cannot be read,
+  chainboot stops with an error. A publish or a save that started from a wrong "nothing
+  there" would write a catalog or a list without your earlier entries.
+
+One honest, up-to-date endpoint is therefore enough to see the newest record, and since
+every record is checked by signature, an endpoint cannot add one. This is a reason to
+configure endpoints of more than one provider: with a single endpoint there is nobody to
+compare with.
+
+**Strangers writing under your address.** The address a pointer is found under is public,
+and anybody can send transactions that mention it. They are never taken for yours (they are
+not signed by your key), but thousands of them push your own record further back in the
+history, which makes it slower to find; chainboot searches the newest 12,000 transactions
+and stops with an error beyond that, it does not conclude that you have nothing. A pointer
+kept in an account (`chainboot accounts on`) is not affected at all: nobody else can write
+to your account. Publishers of catalogs that others depend on should turn it on.
 
 **Pointers in accounts.** A publisher or a vault may also keep its newest pointer in an
 account ([Networks and costs](08-networks-and-costs.md#accounts-a-deposit-instead-of-a-fee)).
 What an endpoint says about an account cannot be checked the way a transaction can, so the
 record in the account carries the owner's signature and names its tag: an endpoint can show
 an older record, as it can hide a newer transaction, but it cannot make one up or move one
-to another name. Anything that does not verify is ignored and the transactions are read.
+to another name. Anything that does not verify is ignored and the transactions are read;
+when your endpoints disagree on whether the account exists at all, both the account and the
+transactions are read and the record with the higher sequence number is taken.
 
 **The network path.** Because of the above, it does not matter who can see or change the
 traffic between you and an endpoint, as far as integrity goes. (They can still see which
 data you fetch.)
+
+## What comes from other people
+
+Three kinds of data on your computer were written by somebody else, and chainboot treats
+each as possibly hostile:
+
+- **An image** from a publisher you chose to run. Its files run inside the machine, which is
+  the point; what must not happen is that the image reaches outside of it while the machine
+  is being set up or unpacked. Paths are checked (no absolute paths, no `..`, no parent that
+  is a symbolic link), and an image in which `/etc`, `/proc`, `/sys`, `/dev`, `/run` or `/tmp`
+  is a symbolic link is refused, because chainboot itself creates and mounts things there
+  before the machine has a root directory of its own. The command an image starts with is
+  part of its digest: nobody can attach another command to an image you (or a list's
+  publishers) agreed on.
+- **A machine or an image that another wallet shared with you.** The record is rebuilt from
+  fields that were each checked, and nothing else of it is kept. A shared save is checked as
+  a whole before it becomes yours, and again when it is restored: every path once, inside
+  the machine, every file inside its pack and matching its hash. Restoring runs with full
+  rights over the machine's files, so this is where a save could otherwise set the mode of
+  a file outside the machine, or write through a link.
+- **A catalog** of a publisher, or of the members of a list. Entries that are not well formed
+  are left out; they cannot make a list unreadable or put anything into your terminal that
+  is not plain text.
 
 ## The publisher key
 

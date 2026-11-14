@@ -36,15 +36,27 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - run: sudo -E env "PATH=$PATH" node --test --test-reporter=spec "test/e2e/**/*.test.ts"
+      - name: Machines as root
+        run: |
+          set -o pipefail
+          sudo -E env "PATH=$PATH" node --test --test-reporter=spec "test/e2e/**/*.test.ts" | tee "$RUNNER_TEMP/root.log"
+          # these tests leave themselves out where something they need is missing: here nothing may be missing
+          grep -q "^ℹ skipped 0" "$RUNNER_TEMP/root.log"
+          grep -q "^ℹ fail 0" "$RUNNER_TEMP/root.log"
       - name: The same without administrator rights (in a user namespace)
         run: |
           export CHAINBOOT_HOME="$RUNNER_TEMP/cb-rootless"
           node src/cli/main.ts engine rootless --yes
           node src/cli/main.ts engine
           test "$(cat "$CHAINBOOT_HOME/engine-mode")" = rootless
+          set -o pipefail
           node src/cli/main.ts _userns node --test --test-reporter=spec "test/e2e/**/*.test.ts" | tee "$RUNNER_TEMP/rootless.log"
+          # (a machine that boots needs a systemd user session, which a runner has not: that one test may be left out, no other)
           grep -q "^✔ a machine starts" "$RUNNER_TEMP/rootless.log"
+          grep -q "^✔ a lazy machine runs" "$RUNNER_TEMP/rootless.log"
+          grep -q "^✔ an image cannot lead the setup out of the machine" "$RUNNER_TEMP/rootless.log"
+          grep -q "^✔ two machines of one image can start at the same moment" "$RUNNER_TEMP/rootless.log"
+          grep -q "^ℹ fail 0" "$RUNNER_TEMP/rootless.log"
   installer:
     name: Installer (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -64,15 +76,44 @@ jobs:
         run: |
           export CHAINBOOT_HOME="$RUNNER_TEMP/cb" CHAINBOOT_BIN_DIR="$RUNNER_TEMP/bin"
           sh install.sh --from dist/chainboot.tar.gz
-          "$RUNNER_TEMP/bin/chainboot" --version
+          test "$("$RUNNER_TEMP/bin/chainboot" --version)" = "$(node -p "require('./package.json').version")"
+          # again over an existing installation, and piped the way the README says
           sh install.sh --from dist/chainboot.tar.gz
+          cat install.sh | sh -s -- --from dist/chainboot.tar.gz
+          "$RUNNER_TEMP/bin/chainboot" help > /dev/null
+          # a broken archive must fail and leave the working installation alone
+          printf 'not an archive' > "$RUNNER_TEMP/bad.tar.gz"
+          if sh install.sh --from "$RUNNER_TEMP/bad.tar.gz"; then echo "a broken archive was accepted"; exit 1; fi
+          "$RUNNER_TEMP/bin/chainboot" --version
+          test ! -e "$RUNNER_TEMP/cb/app.new"
+          # a script that was cut off runs nothing
+          if head -c 4000 install.sh | sh -s -- --uninstall; then echo "half a script ran"; exit 1; fi
+          "$RUNNER_TEMP/bin/chainboot" --version
           sh install.sh --uninstall
           test ! -e "$RUNNER_TEMP/bin/chainboot"
+          test ! -e "$RUNNER_TEMP/cb/app"
       - name: Install with install.ps1
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           ./install.ps1 -From dist/chainboot.tar.gz
-          & "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd" --version
+          if ($LASTEXITCODE) { exit 1 }
+          $v = & "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd" --version
+          if ($v -ne (node -p "require('./package.json').version")) { Write-Host "wrong version: $v"; exit 1 }
+          # again over an existing installation
           ./install.ps1 -From dist/chainboot.tar.gz
+          if ($LASTEXITCODE) { exit 1 }
+          & "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd" help | Out-Null
+          if ($LASTEXITCODE) { exit 1 }
+          # the way the README says: from text, in the session; a failure there must not end the session
+          Invoke-Expression (Get-Content -Raw ./install.ps1)
+          & ([scriptblock]::Create((Get-Content -Raw ./install.ps1))) -From does-not-exist.tar.gz
+          Write-Host "the session is still here"
+          # a file that is not an archive must fail as a script
+          pwsh -NoProfile -File ./install.ps1 -From ./package.json
+          if ($LASTEXITCODE -eq 0) { Write-Host "a broken archive was accepted"; exit 1 }
+          & "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd" --version
+          if ($LASTEXITCODE) { exit 1 }
           ./install.ps1 -Uninstall
+          if (Test-Path "$env:LOCALAPPDATA\chainboot\bin\chainboot.cmd") { Write-Host "the command is still there"; exit 1 }
+          if (Test-Path "$env:LOCALAPPDATA\chainboot\app") { Write-Host "the program is still there"; exit 1 }

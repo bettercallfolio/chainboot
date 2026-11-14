@@ -15,6 +15,10 @@
 #   --purge                     with --uninstall: also delete ~/.chainboot (machines, settings, logins)
 set -eu
 
+# Everything happens inside one function that is called on the last line: a download of this
+# script that was cut off half-way then runs nothing at all, instead of the first half.
+main() {
+
 NODE_VERSION="v24.22.3"
 NODE_SHA_linux_x64="061ec3e3062115705b56b51fa9cc330ab50d34b6969387d4e4b1a50c6809acc2"
 NODE_SHA_linux_arm64="261af2af250dfd7e9f25cf151d1b2713a0adf8f10a9ad116c4947f68627affe8"
@@ -38,16 +42,38 @@ ok() { say "${G}✔${N} $*"; }
 warn() { say "${Y}!${N} $*"; }
 die() { say "${R}✖${N} $*" >&2; exit 1; }
 
+usage() {
+  cat <<'USAGE'
+chainboot installer for Linux, macOS and WSL.
+
+  curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh
+  curl -fsSL <the same address> | sh -s -- --uninstall
+
+It works inside your home directory, without administrator rights: it finds Node.js 22.15 or
+newer (or downloads the official build and checks its SHA-256), downloads chainboot and checks
+its SHA-256, and creates the `chainboot` command in ~/.local/bin. Run it again to update.
+
+Options:
+  --from <chainboot.tar.gz>   install from a file instead of downloading
+  --uninstall                 remove the program (machines and settings are kept unless you add --purge)
+  --purge                     with --uninstall: also delete ~/.chainboot (machines, settings, logins)
+
+Environment: CHAINBOOT_HOME (default ~/.chainboot), CHAINBOOT_BIN_DIR (default ~/.local/bin),
+CHAINBOOT_RELEASE_URL (where chainboot.tar.gz and its .sha256 are fetched from).
+USAGE
+}
+
 FROM=""; UNINSTALL=0; PURGE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) [ $# -ge 2 ] || die "--from needs a file"; FROM="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
-    -h|--help) sed -n '2,16p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1 (see --help)" ;;
   esac
 done
+[ "$PURGE" = 0 ] || [ "$UNINSTALL" = 1 ] || die "--purge goes with --uninstall (it deletes your machines, settings and logins)"
 
 if [ "$UNINSTALL" = 1 ]; then
   rm -f "$BIN_DIR/chainboot"
@@ -92,20 +118,28 @@ case "$(uname -m)" in
   aarch64|arm64) ARCH=arm64 ;;
   *) die "unsupported processor: $(uname -m). chainboot needs a 64-bit x86 or ARM computer." ;;
 esac
+# a terminal that runs under Rosetta on Apple silicon says x86_64: the computer is ARM
+if [ "$OS" = darwin ] && [ "$ARCH" = x64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then ARCH=arm64; fi
 
 say "${B}Installing chainboot${N} ${D}($OS $ARCH, into $HOME_DIR)${N}"
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t chainboot)"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+# (what a failed run leaves half made is removed with it)
+trap 'rm -rf "$TMP" "$APP_DIR.new" "$RUNTIME_DIR.new"' EXIT INT TERM
 mkdir -p "$HOME_DIR" "$BIN_DIR"
 
 # ---- 1. Node.js
 node_ok() { [ -x "$1" ] && "$1" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=15)?0:1)' 2>/dev/null; }
 NODE=""
-if [ -x "$RUNTIME_DIR/bin/node" ] && node_ok "$RUNTIME_DIR/bin/node"; then NODE="$RUNTIME_DIR/bin/node"
-elif have node && node_ok "$(command -v node)"; then NODE="$(command -v node)"; fi
+# a Node.js that an earlier run of this installer downloaded is kept up to date with the version named above
+if [ -x "$RUNTIME_DIR/bin/node" ] && node_ok "$RUNTIME_DIR/bin/node" && [ "$("$RUNTIME_DIR/bin/node" --version)" = "$NODE_VERSION" ]; then NODE="$RUNTIME_DIR/bin/node"
+elif [ ! -e "$RUNTIME_DIR/bin/node" ] && have node && node_ok "$(command -v node)"; then NODE="$(command -v node)"; fi
 if [ -n "$NODE" ]; then
   ok "using Node.js $("$NODE" --version) at $NODE"
 else
+  # the official builds need the GNU C library; a system built on musl (Alpine) has its own package
+  if [ "$OS" = linux ] && { ldd --version 2>&1 || true; } | grep -qi musl; then
+    die "this system uses the musl C library, which the official Node.js builds do not run on. Install Node.js 22.15 or newer with your package manager (Alpine: apk add nodejs) and run this again."
+  fi
   say "Downloading Node.js $NODE_VERSION (official build from nodejs.org)"
   eval "WANT=\$NODE_SHA_${OS}_${ARCH}"
   NAME="node-$NODE_VERSION-$OS-$ARCH"
@@ -138,9 +172,15 @@ VERSION="$("$NODE" "$APP_DIR.new/chainboot.mjs" --version 2>/dev/null)" || die "
 rm -rf "$APP_DIR"; mv "$APP_DIR.new" "$APP_DIR"
 
 # ---- 3. the command
+# The command starts chainboot with the Node.js found above. A Node.js from a version manager
+# (nvm, fnm, asdf) can disappear with its version; then the one on the PATH is used instead.
 cat > "$BIN_DIR/chainboot" <<EOF
 #!/bin/sh
-exec "$NODE" "$APP_DIR/chainboot.mjs" "\$@"
+for node in "$NODE" "$RUNTIME_DIR/bin/node" node; do
+  if command -v "\$node" >/dev/null 2>&1; then exec "\$node" "$APP_DIR/chainboot.mjs" "\$@"; fi
+done
+echo "chainboot: Node.js was not found any more. Run the chainboot installer again." >&2
+exit 127
 EOF
 chmod 755 "$BIN_DIR/chainboot"
 ok "installed chainboot $VERSION"
@@ -167,3 +207,6 @@ say "${B}Next steps${N}"
 say "  chainboot rpc add <your RPC endpoint URL>     ${D}# free from Helius, QuickNode, Alchemy, ...${N}"
 say "  chainboot run solinux                        ${D}# Ubuntu 26.04 LTS, straight from Solana${N}"
 say "  chainboot ui                                  ${D}# or use the point-and-click interface${N}"
+}
+
+main "$@"

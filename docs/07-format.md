@@ -24,7 +24,7 @@ The instruction data always starts with the magic byte `0xCB` and a kind byte:
 | `0x01` | branch | signatures, 64 bytes each | 61 signatures |
 | `0x02` | head | see below | 59 signatures |
 | `0x03` | inline | `version (1 byte = 1)` then the whole object | 3911 |
-| `0x10` | pointer | `version (1 byte = 1)` then the record | 3878 |
+| `0x10` | pointer | `version (1 byte = 2)`, `sequence (u64 LE)`, then the record | 3870 |
 
 Transactions of kinds 0x00 to 0x03 reference no accounts besides the payer and the Noop
 program. A pointer transaction additionally references its tag address as a read-only account.
@@ -95,6 +95,11 @@ described below and must fetch any missing transaction by signature.
 chainboot skips the signature check of leaves at first and relies on step 4; if the hash
 does not match, it verifies the leaf signatures to find the wrong ones and fetches them again.
 
+Before anything is fetched or set aside, a reader checks what the head claims: the size must
+be the one the reference states (or, for an object read by signature alone, at most 1 GiB),
+`leafSize` at least 64, and the branches may not list more leaves than the size needs. A
+SHA-256 that comes with a reference must be 64 hex digits before it is used for anything.
+
 ## 3. Pointers and tag addresses
 
 A **tag address** is 32 bytes:
@@ -105,10 +110,36 @@ SHA-256( "chainboot:v1" || 0x00 || part1 || 0x00 || part2 || ... )
 
 Parts are UTF-8 strings or raw bytes. It is used as an account address but has no private key.
 
-A **pointer** is a transaction of kind `0x10` that references a tag address. The current
-record of a tag is the payload of the newest successful pointer transaction (as listed by
-`getSignaturesForAddress`) whose fee payer is the expected owner. Pointer transactions by
-anyone else are ignored.
+A **pointer** is a transaction of kind `0x10` that references a tag address:
+
+```
+0xCB || 0x10 || version (1 byte = 2) || sequence (u64 LE) || record
+```
+
+The **sequence** says which of an owner's pointers under a tag is the newest. It is the
+writer's clock in milliseconds, and always larger than the sequence of the newest pointer
+the writer could find (so a computer whose clock is behind still writes a newer one). It is
+part of the transaction, so it is covered by the owner's signature: which record is the
+newest is said by the owner, not by an RPC endpoint. Version 1 pointers (`0xCB 0x10 0x01`
+followed by the record, written by the first releases) have no sequence; readers treat it as 0.
+
+The current record of a tag is found like this:
+
+1. Ask several endpoints for the newest transactions that reference the tag address
+   (`getSignaturesForAddress`) and merge their lists. Where a transaction lies in the chain
+   (its slot) is taken as true when two endpoints say the same; a transaction that only one
+   endpoint lists, or about whose slot they disagree, is unconfirmed and is looked at first.
+2. Fetch the candidates from the newest on. A candidate counts only if its transaction
+   succeeded, verifies, is paid by the expected owner, **references the tag address itself**,
+   and carries a pointer. Transactions by anyone else are ignored.
+3. The first confirmed candidate that counts ends the search. Among it and the unconfirmed
+   ones before it, the record with the highest sequence is the current one.
+4. If a full page holds no record of the owner, continue with the next page (`before`), up
+   to 12,000 transactions. A reader that still has found none reports an error; it never
+   concludes "there is no record" from an address buried under other people's transactions.
+
+"There is no record" is also not concluded from one endpoint's empty answer when a second
+endpoint can be asked.
 
 | Tag parts | Owner | Record |
 |---|---|---|
@@ -133,12 +164,15 @@ Its data is the Record program's header (1 byte version, 32 bytes authority) fol
 signature = owner's signature of "chainboot:account-record:v1" || tag address || flags || sequence || payload
 ```
 
-`payload` is what the pointer transaction carries (at most 400 bytes; longer pointers are not
-kept in accounts). Flag bit 0 means "the newest pointer is in the transactions only". The
-sequence is the writer's clock in milliseconds and only ever grows. A reader accepts a record
-only with a valid signature of the expected owner, prefers the highest sequence among the
-endpoints it asked, and otherwise reads the pointer transactions. Writers update the account
-in the same transaction that carries the pointer.
+`payload` is the record that the pointer transaction carries (at most 400 bytes; longer
+pointers are not kept in accounts) and `sequence` is the same number as in that transaction.
+Flag bit 0 means "the newest pointer is in the transactions only". A reader accepts a record
+only with a valid signature of the expected owner and prefers the highest sequence among the
+endpoints it asked. When those endpoints disagree on whether the account exists, the reader
+also looks at the pointer transactions and takes whichever record has the higher sequence;
+without a valid record it reads the transactions. Writers update the account in the same
+transaction that carries the pointer, and before writing they ask several endpoints whether
+an account exists, so that one endpoint that is behind cannot make them leave it stale.
 
 A **stored reference** is JSON: `{ "sig", "sha256", "size", "codec", "rawSize" }`, where
 `sig`, `sha256` and `size` describe the object as stored, `codec` is `"xz"`, `"zstd"` or
@@ -172,8 +206,11 @@ manifest's transactions against that account; the content is bound by the entry'
 **Lists.** A list is not stored anywhere. It is written `list:<k>:<address>,<address>,…`
 (2 to 16 distinct addresses, `k` more than half of them) and read by fetching each member's
 catalog: an entry (name, tag, architecture) belongs to the list when at least `k` members
-have an entry there with the same `digest`. Any of the agreeing entries may be used to fetch
-the image. A reader needs at least `k` readable catalogs; with fewer there is no list.
+have an entry there with the same `digest`. Each agreeing entry names a stored copy of the
+image's manifest; a reader takes the copy that most of them name (the manifest is checked
+against the digest in any case). A reader needs at least `k` readable catalogs; with fewer
+there is no list. Entries of a catalog that are not well formed are left out, they do not
+make the catalog unreadable.
 
 ## 5. Image manifest
 
@@ -211,16 +248,22 @@ node before its children.
 **Digest.** The image's identity, independent of packing:
 
 ```
-SHA-256( "chainboot-tree-v1\n" + for every node in order: identity + "\n" )
+SHA-256( "chainboot-tree-v1\n" + for every node in order: identity + "\n" [ + "config " + configuration + "\n" ] )
 ```
 
 where `identity` is the node as compact JSON (no spaces) without the `pack` and `offset`
 elements: for a file `[path,"f",mode,uid,gid,mtime,size,sha256]` (plus the attribute object
-with sorted keys, if any); other nodes unchanged.
+with sorted keys, if any); other nodes unchanged. The last line is there only for an image
+whose manifest has a `config` with a start command or environment: `configuration` is then
+the compact JSON `{"cmd":[…],"env":{…}}` with the keys of `env` sorted and absent parts left
+out. What an image runs when it starts is part of what the image is: the same files with
+another command are another image, and nobody can change the command of an image that a
+list's publishers agreed on. (An image without a configuration has the digest of its files alone.)
 
-A reader must validate a manifest before writing anything to disk: safe sorted paths,
-parents that are directories of the image, hard links that point at files, pack references
-within bounds, and the digest.
+A reader must validate a manifest before using it: safe sorted paths, parents that are
+directories of the image, hard links that point at files, pack references within bounds, a
+well-formed configuration, and the digest, computed again from the tree. The digest written
+in the manifest proves nothing by itself.
 
 ## 6. Saved machines
 
@@ -232,16 +275,23 @@ vault seed      = HKDF-SHA256(ikm = signature, salt = "chainboot-vault-v1", info
 encryption key  = HKDF-SHA256(ikm = signature, salt = "chainboot-vault-v1", info = "<cluster>:encryption", 32 bytes)
 ```
 
-`<cluster>` is `devnet`, `testnet` or `mainnet-beta`. The vault seed is an Ed25519 seed; its
-public key is the vault account.
+`<cluster>` is `devnet`, `testnet` or `mainnet-beta`, or, for another chain, its genesis hash
+(base58). The vault seed is an Ed25519 seed; its public key is the vault account.
 
 **Encryption.** AES-256-GCM, with a key per object. A sealed blob is:
 
 ```
-0x02 || key id (16 random bytes) || nonce (12 random bytes) || ciphertext || tag (16 bytes)
+0x02 || key id (16 bytes) || nonce (12 bytes) || ciphertext || tag (16 bytes)
 
-object key = HKDF-SHA256(ikm = encryption key, salt = key id, info = "chainboot-object-v2:" + purpose, 32 bytes)
+key id || nonce = HKDF-SHA256(ikm = encryption key, salt = SHA-256(plaintext), info = "chainboot-object-id-v2:" + purpose, 28 bytes)
+object key      = HKDF-SHA256(ikm = encryption key, salt = key id, info = "chainboot-object-v2:" + purpose, 32 bytes)
 ```
+
+Key id and nonce come from the content, not from chance: sealing the same content for the
+same purpose gives the same bytes, so an upload that was interrupted continues instead of
+being paid for again. Different content gets a different key id and therefore a different
+key, so no key is ever used with two different texts. (A reader does not care how they were
+chosen; blobs with random ones, as earlier versions wrote, open the same way.)
 
 The purpose string is also the additional authenticated data: `pack`, `snapshot`,
 `snapshot-pointer`, `index`, `index-pointer`, `image-manifest`, `private-catalog`,
@@ -260,15 +310,24 @@ and use the encryption key directly. Readers accept both; such objects cannot be
   "tree": [ nodes as in a manifest ],
   "deleted": [ "path", … ],
   "fingerprint": "<hex>",
-  "history": [ { "seq": 6, "time": …, "ref": { stored reference }, "files": 140, "bytes": 1820000 }, … ] }
+  "history": [ { "seq": 6, "time": …, "ref": { stored reference }, "files": 140, "bytes": 1820000, "note": "…" }, … ],
+  "note": "what the user wrote about this save" }
 ```
 
 `tree` holds every object of the machine that differs from the image; `deleted` the paths of
 the image that no longer exist. A pack with `"enc": 1` is sealed with purpose `pack` and
 carries `"key"`, its object key in base64 (a pack without `key` was written by a first
 release and opens with the encryption key); a pack with `"enc": 0` is a public pack of the
-image, referenced unchanged. To restore: start from the image, remove the deleted paths,
-then write the tree.
+image, referenced unchanged. `history` lists the 200 saves before this one, newest first;
+older saves are reached through the oldest of them, whose own `history` goes further back.
+
+To restore: start from the image, remove the deleted paths, then write the tree. A snapshot
+may have been written by somebody else (a shared machine) and is applied with full rights,
+so a reader checks all of it first: every path is relative, without `.` or `..`, and there
+once; numbers are numbers; every file lies inside its pack; a hard link names a path of the
+tree. While applying, a parent that is not a real directory stops the restore, a hard link is
+made to a regular file only, a directory's attributes are set only while it still is a
+directory, and each file's content is compared with its hash before it is written.
 
 ## 7. Private images
 
@@ -314,7 +373,8 @@ public key, paid by the sender's vault. Its payload is a message with purpose `s
 JSON: `{ "r": base64(compressed record), "c": codec, "n": raw size }`, or, for a record too
 long for one transaction, `{ "o": { object reference }, "by": sender's vault account, "c", "n" }`
 where the object is a message with purpose `share-record`. Anybody may write under an inbox
-tag; a reader keeps what opens with its own key.
+tag; a reader keeps what opens with its own key, and of two messages with the same sender
+and the same record (anybody can post a message again) only the first.
 
 **Record.**
 
@@ -328,15 +388,19 @@ tag; a reader keeps what opens with its own key.
                "keys": { "<pack sha256>": "<object key>" } } }
 ```
 
-Accepting an image adds its entry to the receiver's private catalog. Accepting a machine
-stores the snapshot again under the receiver's vault (with the pack keys filled in, sequence
-number 1 and an empty history) and adds the machine to the receiver's list. The packs stay
-where the sender stored them.
+A receiver uses only the fields above, each checked for its form (names, hashes, keys,
+addresses, numbers); anything else in a record is dropped, and text is shown without control
+characters. Accepting an image adds its entry to the receiver's private catalog (not into an
+image the receiver already has under that name, unless they name it themselves). Accepting a
+machine checks the snapshot the way a restore does (section 6), stores it again under the
+receiver's vault (with the pack keys filled in, sequence number 1 and an empty history) and
+adds the machine to the receiver's list. The packs stay where the sender stored them.
 
 ## 9. Versioning
 
 Readers must reject head, inline and pointer transactions whose version byte they do not
 know, and manifests whose `chainboot` field they do not know. New kinds and fields will get
-new numbers; version 1 data stays readable.
+new numbers; older data stays readable (pointers of version 1 next to those of version 2,
+sealed blobs that start with `0x01` next to those with `0x02`).
 
 Next: [Networks and costs](08-networks-and-costs.md).

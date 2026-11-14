@@ -68,8 +68,13 @@ A pointer holds up to about 3.8 kB. For more, store a file and point at it. With
 `new ChainStore(pool, { accounts: true })`, or `putPointer(..., { account: true })`, a pointer
 of up to 400 bytes is also kept in an account, where `getPointer` reads it with one request
 (a deposit of about 0.0033 SOL, returned by `closePointerAccount`). `getPointer`
-asks up to three endpoints which record is the newest and merges the answers, so one endpoint
-that is behind (or hides something) does not decide what you see.
+asks up to three endpoints which record is the newest and merges the answers, and between
+the candidates the sequence number that the writer signed decides (`latest.seq`), so an
+endpoint that is behind, hides something, or lists an old record as new does not decide what
+you see. It returns `null` only when the address really has no record by your keys; when
+that cannot be found out, it throws. `store.pointerCapacity()` says how long a pointer may
+be on the chain the store is connected to. `store.get(sig, { maxSize })` limits what an
+object fetched by signature alone may claim to be (1 GiB unless you say otherwise).
 
 ## 3. Many endpoints, one pool
 
@@ -131,7 +136,7 @@ const image = await pullImage(store, me.address, ref, { cacheDir: "./cache" });
 const firstPack = image.pack(0);             // decompressed and checked file by file
 ```
 
-`extractImage(manifest, pack, directory)` writes an image to disk. `entriesFromImage` and
+`extractImage(image.manifest, (i) => image.pack(i), directory)` writes an image to disk. `entriesFromImage` and
 `writeTar` turn it back into an archive.
 
 ## 6. Encrypted state for a wallet
@@ -169,14 +174,19 @@ const got = openFrom(theirKeys, letter, "my-app");           // { plain, sender 
 ```
 
 `shareImage`, `shareMachine`, `listShares`, `acceptImage` and `acceptMachine` are the
-functions behind `chainboot share` and `chainboot shared`.
+functions behind `chainboot share` and `chainboot shared`. What `listShares` returns has
+been rebuilt from checked fields (`cleanShareRecord`); `acceptImage(…, name, { merge: true })`
+is how a caller says that the shared image may be added to one the vault already has under
+that name.
 
 ## 7. In a browser
 
 The SDK above is for Node. For web pages there is a separate reader: one script of about
-20 kB without dependencies, built on `fetch` and WebCrypto, that finds, downloads and
+30 kB without dependencies, built on `fetch` and WebCrypto, that finds, downloads and
 verifies public images. It is the same format and the same checks, written a second time,
-which is also the proof that the format can be read by anyone.
+which is also the proof that the format can be read by anyone. (One difference: it decodes
+`xz` and uncompressed objects. An image published from a computer without the `xz` tool is
+stored with `zstd`, which browsers cannot decode by themselves; chainboot itself reads both.)
 
 ```html
 <script type="module">
@@ -229,10 +239,11 @@ installed tools.
 | Keys | `Keypair` (`generate`, `fromFile`, `fromSeed`, `fromSecretKey`, `sign`, `address`), `verifySignature`, `addressToBytes`, `b58encode`, `b58decode` |
 | Transactions | `buildTransaction`, `buildNoopTransaction`, `parseTransaction`, `verifyPayerSignature`, `compileMessage`, `compileMessageV1`, `noopCapacity`, `noopInstruction`, `transferInstruction`, `computeBudgetInstructions` |
 | RPC | `RpcPool` (`call`, `broadcast`, `probe`, `stats`), `RpcError`, `GENESIS`, `clusterName`, `maskRpcUrl` |
-| Storage | `ChainStore` (`put`, `get`, `putPointer`, `getPointer`, `plan`), `tagAddress`, `capacity`, `TxSender`, `sendAndConfirm`, `TrustError` |
-| Images | `readTar`, `writeTar`, `decompressAuto`, `buildImage`, `entriesFromImage`, `verifyPack`, `extractImage`, `parseManifest`, `serializeManifest`, `validateManifest`, `treeDigest` |
+| Storage | `ChainStore` (`put`, `get`, `putPointer`, `getPointer`, `listPointers`, `pointerCapacity`, `closePointerAccount`, `plan`), `tagAddress`, `capacity`, `TxSender`, `sendAndConfirm`, `TrustError` |
+| Images | `readTar`, `writeTar`, `decompressAuto`, `buildImage`, `entriesFromImage`, `verifyPack`, `extractImage`, `parseManifest`, `serializeManifest`, `validateManifest`, `treeDigest`, `configIdentity` |
 | Registry | `publishImage`, `pullImage`, `readCatalog`, `unlistImage`, `parseImageName`, `publishPrivateImage`, `readPrivateCatalog`, `unlistPrivateImage` |
-| State | `LOGIN_MESSAGE`, `deriveVault`, `vaultFromKeypair`, `seal`, `open`, `scanMachine`, `saveSnapshot`, `readHead`, `readSnapshot`, `readIndex`, `loadPacks`, `applySnapshot` |
+| State | `LOGIN_MESSAGE`, `deriveVault`, `vaultFromKeypair`, `seal`, `open`, `scanMachine`, `saveSnapshot`, `readHead`, `readSnapshot`, `snapshotBySeq`, `checkSnapshot`, `readIndex`, `loadPacks`, `applySnapshot` |
+| Sharing | `shareImage`, `shareMachine`, `listShares`, `acceptImage`, `acceptMachine`, `cleanShareRecord`, `myShareAddress`, `sealTo`, `openFrom` |
 | Compression | `compress`, `decompress`, `xzDecode`, `xzUncompressedSize` |
 
 Every export has type declarations and a comment in the source. The sources are short and

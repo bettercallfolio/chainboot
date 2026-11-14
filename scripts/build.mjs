@@ -44,8 +44,10 @@ if (process.argv.includes("--archive")) {
   const name = "chainboot.tar.gz";
   const file = (rel, mode) => ({ path: rel, type: "f", mode, uid: 0, gid: 0, mtime: 1767225600, data: fs.readFileSync(path.join(dist, rel)) });
   const entries = [file("chainboot.mjs", 0o755), { path: "web", type: "d", mode: 0o755, uid: 0, gid: 0, mtime: 1767225600 },
-    ...fs.readdirSync(path.join(dist, "web")).sort().map((f) => file(`web/${f}`, 0o644)), file("VERSION", 0o644)];
+    ...fs.readdirSync(path.join(dist, "web")).sort().map((f) => file(`web/${f}`, 0o644)), file("VERSION", 0o644),
+    { ...file("VERSION", 0o644), path: "LICENSE", data: fs.readFileSync(path.join(root, "LICENSE")) }];
   const archive = zlib.gzipSync(Buffer.concat(writeTar(entries)), { level: 9 });
+  archive[9] = 3; // the header names the system that made the file: always the same one, so that the archive is the same wherever it is built
   fs.writeFileSync(path.join(dist, name), archive);
   const hash = createHash("sha256").update(archive).digest("hex");
   fs.writeFileSync(path.join(dist, `${name}.sha256`), `${hash}  ${name}\n`);

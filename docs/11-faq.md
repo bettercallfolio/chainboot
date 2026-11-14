@@ -8,7 +8,7 @@ server, no IPFS, no cloud bucket. You can check: `chainboot pull solinux` talks 
 RPC endpoints you configured.
 
 **Then what do I download when I install chainboot?**
-The program that reads the chain: one JavaScript file of about 250 kB, plus Node.js if you
+The program that reads the chain: one JavaScript file of under 500 kB, plus Node.js if you
 do not have it. On Windows and macOS also a small Linux environment to run machines in. The
 systems you run come from the chain.
 
@@ -26,7 +26,9 @@ Running and reading: nothing. Publishing or saving: 0.000005 SOL per transaction
 
 **Can I delete something I published or saved?**
 You can remove it from your catalog or stop pointing at it. You cannot erase it from the
-ledger. Saves are encrypted; images are public.
+ledger. Saves are encrypted, and so are the images you publish unless you publish them with
+`--public`: what is encrypted stays unreadable for everyone else, also after you stop
+pointing at it.
 
 **Is Solinux an official Ubuntu?**
 No. It is Canonical's official Ubuntu base archive, unchanged, plus for the larger edition
@@ -58,6 +60,21 @@ Add one: `chainboot rpc add <url>`. See [Getting started](01-getting-started.md)
 Run `chainboot rpc test`. It shows for each endpoint whether it answers and which network it
 serves. Typical causes: a typo in the API key, a mainnet URL while chainboot is on devnet,
 or a used-up free quota ("rate limited").
+
+**`this image has /etc as a symbolic link, so it cannot be started safely`**
+chainboot sets a machine up before the machine has a root directory of its own, and creates
+things in `/etc`, `/proc`, `/dev` and a few other directories of the image while doing so. An
+image in which one of these is a link to somewhere else would lead that setup out of the
+machine, so it is refused. Ordinary distributions never have this.
+
+**`… is busy in another process (starting, stopping, saving or restoring)`**
+Another chainboot command is working on the same machine. It ends by itself; if a command
+was killed, its lock is noticed as abandoned and the next command goes ahead.
+
+**`the newest 12000 transactions under … are all by other keys`**
+Somebody is sending transactions that mention the address your catalog or save is found
+under, to bury it. Nothing of yours is changed or lost. Keep the pointer in an account,
+where nobody else can write: `chainboot accounts on`, then publish or save once more.
 
 **Downloads are slow**
 You are probably using only a public endpoint. Add an endpoint with an API key, or several.
@@ -109,7 +126,7 @@ cost and asks.
 Two computers changed the same machine. Take the version on chain with `chainboot restore
 <machine>`, or keep the local one with `chainboot save <machine> --force`.
 
-**`could not decrypt: wrong wallet, or the data was changed`**
+**`could not decrypt: wrong wallet or key, or the data was changed`**
 You are signed in with a different wallet than the one that made the save, or with a wallet
 app that signs messages in a different format. Sign in with the same wallet app.
 

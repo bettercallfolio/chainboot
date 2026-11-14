@@ -88,8 +88,12 @@ Save by hand at any time:
 
 ```sh
 chainboot save solinux
-chainboot save solinux --note "before the upgrade"
+chainboot save solinux --note "before the upgrade"      # the note is shown by "chainboot history"
 ```
+
+A save that is interrupted (a closed terminal, a lost connection) continues when you save
+again: what already reached the chain is found there, also transactions that were on their
+way at that moment, and is not sent or paid for a second time.
 
 ## What is saved, and what is not
 
@@ -139,10 +143,18 @@ chainboot history solinux
 chainboot restore solinux --snapshot 7
 ```
 
+`history` lists the newest save and the 200 before it; older ones are still there, and
+`--snapshot` reaches them too. While a machine is being restored, what it held before is set
+aside, and comes back if the restore does not go through (no network, a damaged save): a
+failed restore leaves the machine as it was.
+
 ## When two computers disagree
 
 If you change a machine on computer A without saving, and meanwhile save from computer B,
-there are two different versions. chainboot never picks one silently:
+there are two different versions. chainboot never picks one silently. It knows which save a
+computer is in step with by that save's address on chain, not by its number, and it looks at
+the chain once more just before a new save takes effect, so two computers that save at the
+same moment cannot both believe they are the newest:
 
 ```
 ! A newer save of this machine is on chain, but this copy also has changes that were not saved.
@@ -173,7 +185,7 @@ chainboot share web --with share_7Yk3... --note "the demo server"
 
 # the receiver
 chainboot shared                    # what arrived, and from which share address
-chainboot shared accept 1           # keep it (add --name <name> to store it under another name)
+chainboot shared accept 1           # keep it, by its number or by its id (add --name <name> to store it under another name)
 chainboot run web                   # it is brought to their computer like any saved machine
 ```
 

@@ -77,10 +77,10 @@ bytes, so:
 | Amount of (compressed) data | Transactions | Fee |
 |---|---|---|
 | 1 kB (a note, a pointer) | 1 | 0.000005 SOL |
-| 100 kB | 27 | 0.00014 SOL |
-| 1 MB | 261 | 0.0013 SOL |
-| 100 MB | 26,100 | 0.13 SOL |
-| 1 GB | 267,000 | 1.34 SOL |
+| 100 kB | 28 | 0.00014 SOL |
+| 1 MB | 263 | 0.0013 SOL |
+| 100 MB | 25,992 | 0.13 SOL |
+| 1 GB | 259,888 | 1.30 SOL |
 
 Real examples from devnet (rounded):
 
@@ -119,9 +119,11 @@ priorityFeeLamports })`, or per call.
 Everything above is about transactions: you pay once and the data is in the ledger. Solana
 has a second kind of storage, **accounts**. An account holds only a current value, every
 endpoint keeps it in memory, and one request reads it. It is not paid for but backed by a
-deposit ("rent") of about 7 SOL per megabyte, which comes back when the account is closed.
+deposit ("rent"), which comes back when the account is closed. The network sets the rate;
+on devnet it is about 5 SOL per megabyte at the time of writing (ask an endpoint:
+`getMinimumBalanceForRentExemption`).
 
-That makes accounts wrong for systems (Solinux would need 800 SOL) and right for the few
+That makes accounts wrong for systems (Solinux would need about 600 SOL) and right for the few
 small records that are read all the time: the pointers that say "this is my newest catalog"
 or "this is the newest save of this machine". chainboot can keep them in accounts as well:
 

@@ -165,7 +165,7 @@ export function cmdPriorityFee(a: Args): void {
   const n = /^\d+$/.test(want) ? Number(want) : NaN;
   try { setPriorityFee(c, n); } catch (e) { throw new UsageError((e as Error).message); }
   ok(`every transaction now carries a tip of ${n} lamports`);
-  if (n > 100_000) info(dim("That is a large tip: storing 1 MB (261 transactions) will cost " + ((261 * (5000 + n)) / 1e9).toFixed(4) + " SOL."));
+  if (n > 100_000) info(dim("That is a large tip: storing 1 MB (263 transactions) will cost " + ((263 * (5000 + n)) / 1e9).toFixed(4) + " SOL."));
 }
 
 export const NETWORK_HELP = `Usage:

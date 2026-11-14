@@ -66,7 +66,7 @@ export function listMachines(home: EngineHome): (MachineInfo & { running: boolea
 }
 
 /** Tools the engine calls. All are part of util-linux / coreutils on every mainstream distribution. */
-export const REQUIRED_TOOLS = ["unshare", "nsenter", "mount", "chroot", "flock", "hostname"];
+export const REQUIRED_TOOLS = ["unshare", "nsenter", "mount", "chroot", "flock"];
 
 export function missingTools(): string[] {
   return REQUIRED_TOOLS.filter((t) => spawnSync("sh", ["-c", `command -v ${t}`], { stdio: "ignore" }).status !== 0);
@@ -172,7 +172,9 @@ for f in resolv.conf hosts hostname; do
   if [ -L "$M/etc/$f" ] || [ ! -e "$M/etc/$f" ]; then rm -f "$M/etc/$f"; : > "$M/etc/$f"; fi
   mount --bind "$CB_DIR/etc/$f" "$M/etc/$f"
 done
-hostname "$CB_NAME"
+# (the "hostname" tool is not installed everywhere; root can also say it to the kernel directly.
+# Where neither works, the machine keeps this computer's name, which harms nothing.)
+hostname "$CB_NAME" 2>/dev/null || { echo "$CB_NAME" > /proc/sys/kernel/hostname; } 2>/dev/null || true
 # things every machine needs for itself and images therefore do not carry
 if [ -e "$M/etc/machine-id" ] && [ ! -L "$M/etc/machine-id" ] && [ ! -s "$M/etc/machine-id" ]; then
   (cat /proc/sys/kernel/random/uuid | tr -d - > "$M/etc/machine-id") 2>/dev/null || true
@@ -334,7 +336,9 @@ done
 mount --bind "$M/proc/sys" "$M/proc/sys"; mount -o remount,ro,bind "$M/proc/sys"
 [ -z "$CB_NETFLAG" ] || mount --bind /proc/sys/net "$M/proc/sys/net"
 if [ -e "$M/proc/sysrq-trigger" ]; then mount --bind "$M/proc/sysrq-trigger" "$M/proc/sysrq-trigger"; mount -o remount,ro,bind "$M/proc/sysrq-trigger"; fi
-hostname "$CB_NAME"
+# (the "hostname" tool is not installed everywhere; root can also say it to the kernel directly.
+# Where neither works, the machine keeps this computer's name, which harms nothing.)
+hostname "$CB_NAME" 2>/dev/null || { echo "$CB_NAME" > /proc/sys/kernel/hostname; } 2>/dev/null || true
 if [ -e "$M/etc/machine-id" ] && [ ! -L "$M/etc/machine-id" ] && [ ! -s "$M/etc/machine-id" ]; then
   (cat /proc/sys/kernel/random/uuid | tr -d - > "$M/etc/machine-id") 2>/dev/null || true
 fi

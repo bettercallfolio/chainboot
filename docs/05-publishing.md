@@ -42,7 +42,10 @@ send real SOL to it. See [Networks and costs](08-networks-and-costs.md) for how 
 ### 2. A root file system
 
 A root file system is "everything below `/`" of a Linux system, as a tar archive. The archive
-may be plain, gzip, xz or zstd. Here are four ways to get one.
+may be plain, gzip, xz or zstd. chainboot reads the whole archive before anything is sent
+and stops if it is not sound: an archive that was cut off (it must end the way tar archives
+end), an entry stored as a sparse file (make the archive without `--sparse`), or anything
+that would give an image no reader accepts. Here are four ways to get one.
 
 **From a distribution's download page.** Many distributions publish ready archives:
 
@@ -92,11 +95,12 @@ to upload     19.8 MB in 1 pack(s)
 transactions  about 5230
 cost          about 0.0262 SOL on devnet
 Publisher 7xQ… holds 1.0000 SOL
-Publish now? [y/N]
+Publish for everyone? It can never be erased from the ledger. [y/N]
 ```
 
 Add `--dry-run` to see these numbers without a keypair and without sending anything. The
-summary also states the visibility, and a public upload asks once more before it starts.
+summary also has a line that states the visibility, and the question before a private upload
+reads "Publish privately now?".
 
 Options:
 
@@ -109,9 +113,9 @@ Options:
 | `--description` | one line shown in `chainboot list` |
 | `--source-url` | where the archive came from, recorded so others can check |
 | `--reuse <image>` | do not store files again that this image already has on chain (repeatable) |
-| `--cmd "<command>"` | what `chainboot run` starts instead of a login shell |
+| `--cmd "<command>"` | what `chainboot run` starts instead of a login shell. The command is part of the image's identity (its digest): the same files with another command are another image |
 | `--public` | publish for everyone, unencrypted (without it the image is private) |
-| `--keypair` | with `--public`: the publisher key that pays |
+| `--keypair` | with `--public`: the publisher key that pays. It is always named, here or in the environment variable `CHAINBOOT_KEYPAIR`; chainboot never picks up a key from a usual place by itself |
 | `--dry-run`, `--yes` | only show the cost / do not ask |
 
 If the upload is interrupted, run the same command again. It continues where it stopped and
@@ -135,7 +139,9 @@ system that is byte-for-byte identical to a file in it is referenced instead of 
 A system built on top of Solinux minimal that adds 30 MB of software costs 30 MB, not 120 MB.
 
 The reused image can belong to any publisher. Readers check its packs by hash, so they do
-not have to trust that publisher.
+not have to trust that publisher; and before your upload starts, chainboot downloads the
+reused image and checks every file in it, so that nothing of yours is left out because that
+image merely claimed to have it.
 
 ## Images for lazy machines
 

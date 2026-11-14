@@ -33,7 +33,7 @@ What the installer does:
 1. It looks for Node.js 22.15 or newer. If you do not have it, it downloads the official
    Node.js build from nodejs.org, checks its SHA-256 against a value written into the
    installer, and keeps it in a private folder. Your system is not changed.
-2. It downloads chainboot (one program file of about 250 kB and a small web page) and checks
+2. It downloads chainboot (one program file of under 500 kB and a small web page) and checks
    its SHA-256.
 3. It creates the `chainboot` command in `~/.local/bin` (on Windows: in
    `%LOCALAPPDATA%\chainboot\bin`, added to your PATH).
@@ -41,9 +41,19 @@ What the installer does:
 Nothing needs administrator rights. Run the installer again to update. To remove chainboot:
 
 ```sh
-sh install.sh --uninstall            # keep machines and settings
-sh install.sh --uninstall --purge    # delete everything
+# Linux and macOS (the same script you installed with)
+curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh -s -- --uninstall            # keep machines and settings
+curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh -s -- --uninstall --purge    # delete everything
 ```
+
+```powershell
+# Windows
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.ps1))) -Uninstall -Purge
+```
+
+On Windows and macOS, remove the Linux environment and the machines in it first, if you want
+them gone: `chainboot engine reset`.
 
 If the installer says `~/.local/bin is not on your PATH`, add the line it prints to your
 shell profile and open a new terminal.
@@ -184,5 +194,18 @@ On Linux, `chainboot engine` shows whether machines run with or without administ
 | `~/.chainboot/images/` | unpacked systems |
 | `~/.chainboot/machines/` | your machines and their changes |
 | `~/.chainboot/vault/` | your login (encryption key and vault key); keep it private |
+
+Settings that chainboot takes from the environment:
+
+| Variable | What it does |
+|---|---|
+| `CHAINBOOT_HOME` | where chainboot keeps everything (default `~/.chainboot`) |
+| `CHAINBOOT_RPC` | RPC endpoints, separated by commas, used instead of the saved ones |
+| `CHAINBOOT_KEYPAIR` | the keypair file for commands that take `--keypair` |
+| `CHAINBOOT_AUTOSAVE_MINUTES` | minutes between automatic saves of a running machine (default 10) |
+| `CHAINBOOT_ENGINE` | on Windows and macOS: which Linux environment to use (`wsl`, `docker`, `podman`, `lima`) |
+| `NO_COLOR` | plain text without colours |
+
+`chainboot version` shows which version is installed.
 
 Next: [How it works](02-how-it-works.md), or go straight to [Saving to chain](04-saving.md).
