@@ -55,7 +55,7 @@ export async function resolveImage(store: ChainStore, c: Config, text: string, a
   const tag = image.tags[n.tag];
   if (!tag) throw new Error(`image "${n.name}" has no tag "${n.tag}". Available: ${Object.keys(image.tags).join(", ")}`);
   const ref = tag[arch];
-  if (!ref) throw new Error(`image "${n.name}:${n.tag}" is not published for ${arch}. Available: ${Object.keys(tag).join(", ")}`);
+  if (!ref) throw new Error(`image "${n.name}:${n.tag}" is not published for ${arch}. Available: ${Object.keys(tag).join(", ")}. A system for another processor type runs emulated (slower) where the computer can do that: add --arch ${Object.keys(tag)[0]}`);
   // an entry may name the account that stored the image (a shared image, an endorsed one, a list's)
   return { publisher: ref.publisher ?? publisher, name: n.name, tag: n.tag, ref, private: mine };
 }
@@ -271,7 +271,7 @@ export const PUBLISHER_HELP = `Usage:
   chainboot publisher add <name> <list>           Save a list of publishers under a short name
   chainboot publisher remove <name>
 
-  chainboot endorse <image> --keypair <file> [--as <name>[:<tag>]] [--arch <arch>]
+  chainboot endorse <image> --keypair <file> [--as <name>[:<tag>]] [--arch <arch>] [--description <text>]
 
 A saved name stands for a publisher in every command: "chainboot run alice/alpine".
 
@@ -330,7 +330,7 @@ export async function cmdEndorse(a: Args): Promise<void> {
   const as = parseImageName(flag(a, "as") ?? `${found.name}:${found.tag}`);
   if (as.publisher) throw new UsageError("--as takes a name and a tag, without a publisher: --as solinux:26.04");
   if (!(await confirm(`Add ${found.name}:${found.tag} (${arch}, version ${found.ref.version}, digest ${found.ref.digest.slice(0, 12)}…) to the catalog of ${payer.address} as ${as.name}:${as.tag}?`, a))) { info("cancelled"); return; }
-  await endorseImage(store, payer, { name: as.name, tags: [as.tag], arch, ref: found.ref, publisher: found.publisher });
+  await endorseImage(store, payer, { name: as.name, tags: [as.tag], arch, ref: found.ref, publisher: found.publisher, description: flag(a, "description") });
   ok(`${payer.address} now lists ${bold(as.name)}:${as.tag} (${arch}) with digest ${found.ref.digest.slice(0, 12)}…`);
   info(dim("Nothing was stored again: your catalog points at the image that is on chain."));
 }

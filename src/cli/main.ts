@@ -174,7 +174,7 @@ const COMMANDS: Record<string, Command> = {
   publish: { run: cmdPublish, help: PUBLISH_HELP, options: ["name", "version", "arch", "tag", "description", "source-url", "reuse", "cmd", "keypair", "dry-run", "yes", "private", "public", "lazy", "start-files"], booleans: ["dry-run", "yes", "private", "public", "lazy"] },
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
   publisher: { run: cmdPublisher, help: PUBLISHER_HELP, options: [] },
-  endorse: { run: cmdEndorse, help: PUBLISHER_HELP, options: ["keypair", "as", "arch", "yes"], booleans: ["yes"] },
+  endorse: { run: cmdEndorse, help: PUBLISHER_HELP, options: ["keypair", "as", "arch", "description", "yes"], booleans: ["yes"] },
   keygen: {
     help: "Usage:\n  chainboot keygen <file>    Create a new Solana keypair file (never overwrites)",
     options: [],
