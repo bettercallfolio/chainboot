@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { cmdGit, cmdGitRemote, GIT_HELP } from "./cmd-git.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -58,6 +59,11 @@ ${bold("Images")}
   unlist <image>                 Remove an image from your catalog
   publisher add|list|remove      Short names for publishers, and lists that several publishers keep together
   endorse <image> ...            Add an image that is already on chain to your catalog (for lists)
+
+${bold("Git")}
+  git create <name> [--public]   A repository on chain: sol://<owner>/<name> for git clone, push, pull
+  git issue | git pr ...         Issues and pull requests of a repository
+  git list | info | share        Your repositories, one in detail, let another wallet read a private one
 
 ${bold("Settings")}
   rpc add|list|remove|test       Manage RPC endpoints
@@ -176,6 +182,8 @@ const COMMANDS: Record<string, Command> = {
   unlist: { run: cmdUnlist, help: UNLIST_HELP, options: ["arch", "keypair", "yes"], booleans: ["yes"] },
   publisher: { run: cmdPublisher, help: PUBLISHER_HELP, options: [] },
   endorse: { run: cmdEndorse, help: PUBLISHER_HELP, options: ["keypair", "as", "arch", "description", "yes"], booleans: ["yes"] },
+  git: { run: cmdGit, help: GIT_HELP, options: ["public", "description", "keypair", "repo", "title", "body", "body-file", "from", "branch", "into", "with", "note", "yes"], booleans: ["public", "yes"] },
+  "git-remote": { run: cmdGitRemote, help: GIT_HELP, options: [] },
   keygen: {
     help: "Usage:\n  chainboot keygen <file>    Create a new Solana keypair file (never overwrites)",
     options: [],
@@ -193,7 +201,7 @@ const COMMANDS: Record<string, Command> = {
 };
 
 // Commands that never need Linux: they run on this computer even where machines live in an engine.
-const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine", "endorse", "publisher"]);
+const HOST_COMMANDS = new Set(["rpc", "network", "priority-fee", "keygen", "publish", "unlist", "list", "engine", "endorse", "publisher", "git", "git-remote"]);
 // (the "accounts" setting is read where pointers are written, so it is not one of these: on
 // Windows and macOS it is set inside the engine, where saves are made)
 
@@ -223,6 +231,12 @@ async function main(): Promise<void> {
   if ((privateHere || (keypairHere && name === "fund")) && !help) {
     const kind = engineKind();
     if (kind) { await ensureEngine(kind); pullVault(kind, loadConfig().cluster); }
+  }
+  // git runs here, where the files are; the login it may need lives in the engine: a copy is
+  // taken when the engine is there (a repository that needs none works without)
+  if ((name === "git" || name === "git-remote") && !help) {
+    const kind = knownEngine();
+    if (kind) { try { pullVault(kind, loadConfig().cluster); } catch { /* the engine is not running: public repositories still work */ } }
   }
   if (COMMANDS[name] && (!HOST_COMMANDS.has(name) || privateThere) && !keypairHere && !help) {
     const kind = engineKind();

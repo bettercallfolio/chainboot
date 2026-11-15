@@ -696,6 +696,27 @@ export class ChainStore {
   }
 
   /**
+   * Every pointer record under `tag`, newest first, whoever wrote it: the whole history, page
+   * after page (up to `max` records). For tags that anybody may write to and where the old
+   * records count as much as the new ones, such as a repository's issues.
+   */
+  async listAllPointers(tag: Uint8Array, opts: { max?: number; endpoints?: number } = {}): Promise<PointerRecord[]> {
+    const max = opts.max ?? 20_000;
+    const all: PointerRecord[] = [];
+    let before: string | undefined;
+    for (let n = 0; all.length < max; n++) {
+      const page = await this.#page(tag, POINTER_PAGE, opts.endpoints ?? 3, before, n === 0);
+      for (let at = 0; at < page.candidates.length; at += 16) {
+        const records = await Promise.all(page.candidates.slice(at, at + 16).map((c) => this.#record(c, tag, undefined, page.lists > 1)));
+        for (const r of records) if (r) all.push(r);
+      }
+      if (!page.more || !page.next) break;
+      before = page.next;
+    }
+    return all.slice(0, max);
+  }
+
+  /**
    * One page of the history of `tag`, merged from several endpoints: the signatures that are
    * candidates for pointer records, newest first, with how many endpoints named each.
    */
