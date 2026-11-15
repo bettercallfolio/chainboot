@@ -1,7 +1,7 @@
 // Lists: one catalog that several publishers keep together.
 //
 // A publisher's catalog is signed by one key. Whoever holds that key decides what
-// `chainboot run solinux` means for everybody who trusts it. A list spreads that over several
+// `chainboot run ubuntu` means for everybody who trusts it. A list spreads that over several
 // keys: it names its members and how many of them must agree,
 //
 //   list:2:<address of A>,<address of B>,<address of C>          "two of these three"

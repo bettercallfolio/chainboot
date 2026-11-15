@@ -3,16 +3,16 @@
 
 // ---- the terminal in the hero types a real session
 const SESSION = [
-  { cmd: "chainboot run solinux" },
-  { out: "Downloading solinux:latest  ████████████████  114 MB", cls: "o", wait: 500 },
-  { out: "✔ solinux:latest is ready (114 MB verified)", cls: "ok", wait: 350 },
-  { out: "✔ created machine solinux from solinux:latest", cls: "ok", wait: 350 },
+  { cmd: "chainboot run ubuntu" },
+  { out: "Downloading ubuntu:latest  ████████████████  114 MB", cls: "o", wait: 500 },
+  { out: "✔ ubuntu:latest is ready (114 MB verified)", cls: "ok", wait: 350 },
+  { out: "✔ created machine ubuntu from ubuntu:latest", cls: "ok", wait: 350 },
   { root: "apt install -y nginx", wait: 500 },
   { out: "Setting up nginx ...", cls: "o", wait: 600 },
   { root: "exit", wait: 500 },
   { out: "Changes are saved to Solana in the background.", cls: "o", wait: 900 },
   { cmd: "chainboot status" },
-  { out: "solinux   stopped   saved (#1)   autosave on", cls: "o", wait: 300 },
+  { out: "ubuntu   stopped   saved (#1)   autosave on", cls: "o", wait: 300 },
 ];
 
 const demo = document.getElementById("demo");
@@ -30,7 +30,7 @@ async function play() {
       continue;
     }
     const text = step.cmd ?? step.root;
-    demo.append(span(step.cmd !== undefined ? "p" : "r", step.cmd !== undefined ? "$" : "root@solinux:~#"), " ");
+    demo.append(span(step.cmd !== undefined ? "p" : "r", step.cmd !== undefined ? "$" : "root@ubuntu:~#"), " ");
     const typed = span("", "");
     demo.append(typed, cursor);
     if (still) typed.textContent = text;

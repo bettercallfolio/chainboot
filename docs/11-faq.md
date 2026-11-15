@@ -4,7 +4,7 @@
 
 **Is the operating system really on the blockchain?**
 Yes. Every byte of every file is inside Solana transactions. There is no link to a file
-server, no IPFS, no cloud bucket. You can check: `chainboot pull solinux` talks only to the
+server, no IPFS, no cloud bucket. You can check: `chainboot pull ubuntu` talks only to the
 RPC endpoints you configured.
 
 **Then what do I download when I install chainboot?**
@@ -31,14 +31,23 @@ ledger. Saves are encrypted, and so are the images you publish unless you publis
 `--public`: what is encrypted stays unreadable for everyone else, also after you stop
 pointing at it.
 
-**Is Solinux an official Ubuntu?**
-No. It is Canonical's official Ubuntu base archive, unchanged, plus for the larger edition
-packages installed from Ubuntu's own repositories. The packaging on chain is this project's
-and is not affiliated with Canonical.
+**Are the `ubuntu` and `arch` images official ones?**
+They are made only from the distributions' own files: Canonical's Ubuntu base archive,
+unchanged, plus for the larger edition packages from Ubuntu's own repositories; Arch Linux's
+bootstrap archive and packages from Arch's repositories, installed with `pacstrap`. Putting
+them on chain is this project's doing, which is not affiliated with Canonical or Arch Linux.
+
+**What is Solinux?**
+This project's own Linux distribution for people who build on Solana. It is not based on
+another distribution: every package is compiled from source
+([github.com/bettercallfolio/solinux](https://github.com/bettercallfolio/solinux)). It brings
+Rust, Agave, Anchor, Node.js, Firefox and a desktop that opens in your browser.
 
 **Can I run graphical programs?**
-A machine is a command-line system. Programs that offer a web interface work (the machine
-shares your network).
+A machine is a command-line system, and it shares your network: a program inside that
+offers a web page is reached from your browser. Solinux uses exactly that for a whole
+desktop: `chainboot run solinux --lazy` prints an address, and the desktop behind it shows
+graphical Linux applications (Firefox, an editor) in windows.
 
 **Does it work offline?**
 Machines you already have start without any network. Downloading, saving and restoring need
@@ -104,7 +113,7 @@ install the `uidmap` package once (and, on recent Ubuntu, allow user namespaces)
 
 **`systemctl` says "System has not been booted with systemd"**
 An ordinary machine starts with a shell only. Create one that boots
-(`chainboot run solinux --boot --name server`), or turn it on for an existing machine with
+(`chainboot run ubuntu --boot --name server`), or turn it on for an existing machine with
 `chainboot boot <machine> on` ([Machines](03-machines.md#machines-that-boot)).
 
 **Can I run it on a real computer, without chainboot?**

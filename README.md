@@ -7,16 +7,18 @@ computer, in your own terminal, at full native speed. There is no server in betw
 program reads the chain through the RPC endpoints you give it, checks every byte against its
 hash, and starts the system.
 
-The example system is **Solinux**: Ubuntu 26.04 LTS, stored on Solana. But chainboot is not
-about one system. Any Linux distribution, and in fact any file, can be published the same
-way, by anyone.
+The systems on chain today are **Ubuntu**, **Arch Linux**, **Alpine**, and **Solinux**:
+a Linux distribution built from source for people who build on Solana, with a desktop that
+opens in your browser ([its own repository](https://github.com/bettercallfolio/solinux)).
+But chainboot is not about one system. Any Linux distribution, and in fact any file, can be
+published the same way, by anyone.
 
 ```
-$ chainboot run solinux
-✔ solinux:latest is ready (114 MB verified)
-✔ created machine solinux from solinux:latest
-root@solinux:~# apt install nginx        # a normal Ubuntu, with the internet of your computer
-root@solinux:~# exit
+$ chainboot run ubuntu
+✔ ubuntu:latest is ready (114 MB verified)
+✔ created machine ubuntu from ubuntu:latest
+root@ubuntu:~# apt install nginx        # a normal Ubuntu, with the internet of your computer
+root@ubuntu:~# exit
 Changes are saved to Solana in the background.
 ```
 
@@ -85,8 +87,10 @@ chainboot rpc add https://your-endpoint.example/your-key
 
 ```sh
 chainboot list                 # what is on chain
-chainboot run solinux         # Ubuntu 26.04 LTS: SSH, sudo, git, editors, the standard tools
+chainboot run ubuntu           # Ubuntu 26.04 LTS: SSH, sudo, git, editors, the standard tools
+chainboot run arch             # Arch Linux: base, base-devel, pacman
 chainboot run alpine           # Alpine Linux, 3 MB
+chainboot run solinux --lazy   # Solinux: Rust, Agave, Anchor, Firefox, and a desktop in your browser
 ```
 
 Prefer buttons? `chainboot ui` opens a small page in your browser that does the same things.
@@ -102,20 +106,32 @@ From now on your changes are saved after every session. On another computer:
 
 ```sh
 chainboot login
-chainboot run solinux         # brings your machine back and opens it
+chainboot run ubuntu           # brings your machine back and opens it
 ```
 
 ## What is on chain right now (devnet)
 
 | Image | What it is | Download | On disk | Cost to publish |
 |---|---|---|---|---|
-| `solinux` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64, arm64) | 114 MB | 504 MB | 0.12 SOL |
-| `solinux-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
+| `solinux` | [Solinux](https://github.com/bettercallfolio/solinux) 0.1: built from source for Solana developers. Rust, Agave, Anchor, Node.js, Firefox, a desktop in your browser (amd64) | 669 MB | 2.83 GB | 0.88 SOL |
+| `ubuntu` | Ubuntu 26.04.1 LTS server system, 419 packages (amd64, arm64) | 114 MB | 504 MB | 0.12 SOL |
+| `ubuntu-minimal` | Ubuntu 26.04.1 LTS base system (amd64, arm64) | 22 MB | 90 MB | 0.028 SOL |
+| `arch` | Arch Linux 2026.11.01: base, base-devel and the everyday tools, 210 packages (amd64) | 326 MB | 1.31 GB | 0.43 SOL |
 | `alpine` | Alpine Linux 3.24 (amd64, arm64) | 3 MB | 8 MB | 0.004 SOL |
 
 Measured on a cloud machine with 14 RPC endpoints, from an empty cache to a running system:
-Alpine 3 s, Solinux minimal 4 s, Solinux 15 s (4 s as a lazy machine, `--lazy`). Every later
-start takes 0.2 s.
+Alpine 3 s, Ubuntu minimal 4 s, Ubuntu 15 s (4 s as a lazy machine, `--lazy`). Every later
+start takes 0.2 s. Solinux as a lazy machine: 29 to 51 s until its desktop answers (five runs),
+and Firefox opens 4 to 7 s after the first click.
+
+Solinux brings a desktop. A machine made from it prints an address; open it in your browser:
+
+```
+$ chainboot run solinux --lazy
+✔ created machine solinux from solinux:latest (lazy: files are fetched when they are first read)
+
+Desktop: http://127.0.0.1:7654/#token=…
+```
 
 ## What works today
 
@@ -123,15 +139,16 @@ start takes 0.2 s.
 |---|---|
 | Publish, list, download and verify images | Works. Tested on devnet. |
 | Run machines on Linux, with `sudo` or without administrator rights | Works. Tested (Ubuntu host, amd64; arm64 images through emulation). |
-| Machines that boot systemd (`--boot`), with their own network | Works. Tested with Solinux, both with `sudo` and without administrator rights. |
+| Machines that boot systemd (`--boot`), with their own network | Works. Tested with Ubuntu, both with `sudo` and without administrator rights. |
 | Save, restore, history, automatic saving, continue on another computer | Works. Tested on devnet. |
 | Private images (the default of `publish`; `run me/<image>`) | Works. Tested on devnet with two wallets. |
 | Sharing a saved machine or a private image with another wallet | Works. Tested on devnet with two wallets. |
 | Reader for browsers ([chainboot.dev/reader](https://chainboot.dev/reader/), `dist/reader/`): catalog, download, verify, look into files | Works. Tested in Chrome against devnet. |
 | Lists that several publishers keep together (`list:2:A,B,C`, `chainboot endorse`) | Works. Tested on devnet with three keys. |
 | Pointers in accounts (`chainboot accounts on`): one request finds the newest catalog or save | Works. Tested on devnet. |
-| Lazy machines (`chainboot run <image> --lazy`): start at once, fetch files when they are first read | Works. Tested with Solinux, with `sudo` and without administrator rights, also with `--boot`. |
-| Bootable disks (`chainboot disk`): a machine as a UEFI disk with its own kernel | Works. Solinux was built and booted in QEMU with UEFI firmware; **not yet tried on real hardware.** |
+| Lazy machines (`chainboot run <image> --lazy`): start at once, fetch files when they are first read | Works. Tested with Ubuntu, with `sudo` and without administrator rights, also with `--boot`. |
+| Bootable disks (`chainboot disk`): a machine as a UEFI disk with its own kernel | Works. Ubuntu was built and booted in QEMU with UEFI firmware; **not yet tried on real hardware.** |
+| Machines that serve a page to your browser (the Solinux desktop) | Works on Linux, directly and through the Docker engine. A whole session was tested in a real browser on a machine from the chain. **Not yet tried on a real Mac or Windows computer.** |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
 | macOS (through Docker, OrbStack, Podman or Lima) | The Docker path is tested on Linux. **Not yet tried on a real Mac.** |
 | Windows (through WSL 2) | Written, **not yet tried on a real Windows computer.** |
@@ -184,7 +201,8 @@ Website: https://chainboot.dev · Mail: hello@chainboot.dev
 
 MIT, see [LICENSE](LICENSE).
 
-Solinux is this project's name for its packaging of Ubuntu on Solana. It is built only from Canonical's Ubuntu
-26.04 LTS base archive and packages, and is not affiliated with or endorsed by Canonical. Ubuntu is a
-registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds.
-Alpine Linux, Solana and all other names belong to their owners.
+Solinux is this project's own Linux distribution. The `ubuntu` images are built only from Canonical's
+Ubuntu 26.04 LTS base archive and packages, and the `arch` image from Arch Linux's official bootstrap
+archive and packages ([how](images/arch/build.sh)). This project is not affiliated with or endorsed by
+Canonical or Arch Linux. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered
+trademark of Linus Torvalds. Arch Linux, Alpine Linux, Solana and all other names belong to their owners.

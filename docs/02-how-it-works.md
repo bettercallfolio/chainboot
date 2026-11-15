@@ -90,12 +90,12 @@ starts with, if the image sets one). It depends only on the files and that comma
 not on how they were packed. Anyone who packages the same system gets the same digest, and
 anyone can recompute it from an unpacked system.
 
-A second image can reuse the packs of the first. The Solinux server image refers to the
-pack of Solinux minimal and adds only what is new.
+A second image can reuse the packs of the first. The Ubuntu server image refers to the
+pack of Ubuntu minimal and adds only what is new.
 
 ### The catalog
 
-How does `chainboot run solinux` find the right signature? Every publisher has a
+How does `chainboot run ubuntu` find the right signature? Every publisher has a
 **catalog**: a small file on chain that lists their images, versions and processor
 architectures. A **pointer transaction** always names the newest catalog.
 
@@ -107,7 +107,7 @@ publisher's pointer  ->  catalog  ->  manifest  ->  packs
 Only the publisher can move their pointer, because readers ignore pointer transactions that
 were not signed by the publisher's key. Each pointer also carries a number that the
 publisher signed with it, and the highest number is the newest: an endpoint can therefore
-neither invent a pointer nor pass off an old one as the current one. The name `solinux`
+neither invent a pointer nor pass off an old one as the current one. The name `ubuntu`
 without a publisher means "from the official chainboot publisher". For anybody else you
 write `<their-address>/<image>`.
 
@@ -151,7 +151,7 @@ How the key is made, and why your wallet is asked only once, is explained in
 ```
  publish                                         run
  ───────                                         ───
- root file system                                chainboot run solinux
+ root file system                                chainboot run ubuntu
       │ pack + compress                               │ read pointer, catalog, manifest
       ▼                                               ▼
  packs + manifest ── transactions ──▶ Solana ──▶ fetch blocks, verify signatures and hashes

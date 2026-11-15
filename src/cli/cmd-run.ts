@@ -98,14 +98,14 @@ Downloads the image if needed (verified against the chain), creates a machine fr
 first time, and opens a shell in it. Running it again opens the same machine with all your
 changes. Several terminals can be inside one machine at once; it stops when the last one leaves.
 
-  chainboot run solinux                      Open a shell
-  chainboot run solinux -- apt-get update    Run one command and return
-  chainboot run solinux --name test          A second, separate machine from the same image
+  chainboot run ubuntu                      Open a shell
+  chainboot run ubuntu -- apt-get update    Run one command and return
+  chainboot run ubuntu --name test          A second, separate machine from the same image
   chainboot run me/mybox                     One of your private images (needs "chainboot login")
-  chainboot run solinux --no-autosave        Create the machine with automatic saving turned off
-  chainboot run solinux --fresh              Do not bring back a saved machine of the same name
-  chainboot run solinux --boot               A machine that boots like a server (see: chainboot boot --help)
-  chainboot run solinux --lazy               Start at once: files are fetched from the chain when they are first read
+  chainboot run ubuntu --no-autosave        Create the machine with automatic saving turned off
+  chainboot run ubuntu --fresh              Do not bring back a saved machine of the same name
+  chainboot run ubuntu --boot               A machine that boots like a server (see: chainboot boot --help)
+  chainboot run ubuntu --lazy               Start at once: files are fetched from the chain when they are first read
 
 Keeping a machine up (for services such as a web server):
   chainboot start <machine>     Start it and keep it running without an open terminal
@@ -121,7 +121,7 @@ Related:
 export async function cmdRun(a: Args): Promise<void> {
   requireLinux();
   const text = a._[0];
-  if (!text) throw new UsageError("say what to run: chainboot run solinux");
+  if (!text) throw new UsageError("say what to run: chainboot run ubuntu");
   const command = a._.slice(1);
   const home = engineHome();
   const wanted = parseImageName(text);
@@ -187,7 +187,7 @@ A machine that boots starts the image's own init system (systemd) as its first p
 way a server does. Services start by themselves, "systemctl" and "journalctl" work, timers
 run, and a package that brings a service has it running after "apt install".
 
-  chainboot run solinux --boot --name server
+  chainboot run ubuntu --boot --name server
   root@server:~# systemctl status
   root@server:~# apt install -y nginx && systemctl status nginx
 
@@ -201,7 +201,7 @@ What is different from a machine that does not boot:
     opened in the machine is opened on this computer as well when that is allowed (ports
     from 1024 up, if they are free). Otherwise the machine shares this computer's network.
 
-Needs an image with an init system (Solinux has systemd; solinux-minimal and alpine do not)
+Needs an image with an init system (Ubuntu has systemd; ubuntu-minimal and alpine do not)
 and a computer with cgroup v2 (every current distribution).`;
 
 export function cmdBoot(a: Args): void {
@@ -231,7 +231,7 @@ function listed(home: EngineHome, digest: string, sig: string): boolean {
 
 export function cmdMachines(): void {
   const list = listMachines(engineHome());
-  if (!list.length) { info("No machines yet. Create one with: chainboot run solinux"); return; }
+  if (!list.length) { info("No machines yet. Create one with: chainboot run ubuntu"); return; }
   out(table(list.map((m) => [bold(m.name), `${m.image.name}:${m.image.tag}`, m.image.arch, m.running ? green("running") : "stopped", m.boot ? "yes" : dim("-"), new Date(m.created * 1000).toISOString().slice(0, 10)]),
     ["machine", "image", "arch", "state", "boots", "created"]));
 }
@@ -283,9 +283,9 @@ export const EXPORT_HELP = `Usage:
 Writes a machine's whole file system (image plus your changes) as a tar archive. Use it to
 publish a system you built by hand:
 
-  chainboot run solinux-minimal --name mybox       # install and configure what you need
+  chainboot run ubuntu-minimal --name mybox       # install and configure what you need
   chainboot export mybox mybox.tar
-  chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal     # private: chainboot run me/mybox
+  chainboot publish mybox.tar --name mybox --version 1.0 --reuse ubuntu-minimal     # private: chainboot run me/mybox
   chainboot publish mybox.tar ... --public --keypair me.json                          # or for everyone`;
 
 export function cmdExport(a: Args): void {
@@ -307,7 +307,7 @@ export const DISK_HELP = `Usage:
 Writes a machine out as the disk of a real computer: with its own kernel, a boot loader and
 a partition table. The disk boots on a PC or in a virtual machine with UEFI firmware.
 
-  chainboot run solinux --name pc
+  chainboot run ubuntu --name pc
   root@pc:~# apt install -y linux-image-virtual systemd-boot-efi mtools dosfstools fdisk
   root@pc:~# passwd                              # somebody must be able to log in
   root@pc:~# exit
@@ -352,7 +352,7 @@ export function cmdDisk(a: Args): void {
 
 export function cmdImages(): void {
   const list = localImages(engineHome());
-  if (!list.length) { info("No images downloaded yet. Try: chainboot pull solinux"); return; }
+  if (!list.length) { info("No images downloaded yet. Try: chainboot pull ubuntu"); return; }
   out(table(list.map((i) => [bold(i.name), i.version, i.arch, fmtBytes(i.size), i.digest.slice(0, 12), i.usedBy.join(", ") || dim("-")]), ["image", "version", "arch", "on disk", "digest", "machines"]));
 }
 

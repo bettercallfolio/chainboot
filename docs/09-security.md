@@ -92,9 +92,9 @@ each as possibly hostile:
 
 ## The publisher key
 
-`chainboot run solinux` means "the image named solinux in the catalog of the official
+`chainboot run ubuntu` means "the image named ubuntu in the catalog of the official
 publisher address". That address is written into chainboot. `chainboot run <address>/<image>`
-names the publisher explicitly. Anyone can publish an image called `solinux` under their own
+names the publisher explicitly. Anyone can publish an image called `ubuntu` under their own
 address, but it will never be confused with another publisher's, because the address is part
 of the name.
 

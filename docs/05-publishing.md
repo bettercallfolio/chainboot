@@ -45,7 +45,7 @@ A root file system is "everything below `/`" of a Linux system, as a tar archive
 may be plain, gzip, xz or zstd. chainboot reads the whole archive before anything is sent
 and stops if it is not sound: an archive that was cut off (it must end the way tar archives
 end), an entry stored as a sparse file (make the archive without `--sparse`), or anything
-that would give an image no reader accepts. Here are four ways to get one.
+that would give an image no reader accepts. Here are some ways to get one.
 
 **From a distribution's download page.** Many distributions publish ready archives:
 
@@ -62,11 +62,22 @@ chainboot publish alpine-minirootfs-3.24.4-x86_64.tar.gz --name alpine --version
 **From a machine you set up by hand.** This is the easiest way to make something of your own:
 
 ```sh
-chainboot run solinux-minimal --name mybox --no-autosave
+chainboot run ubuntu-minimal --name mybox --no-autosave
 #   ... install and configure what you need, then exit ...
 chainboot export mybox mybox.tar
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux-minimal --public --keypair me.json
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse ubuntu-minimal --public --keypair me.json
 ```
+
+**From Arch Linux's `pacstrap`.** The `arch` image in the official catalog is made by
+[`images/arch/build.sh`](https://github.com/bettercallfolio/chainboot/blob/main/images/arch/build.sh):
+Arch's bootstrap archive (checked against its SHA-256 and signature), and with its own
+`pacstrap` a fresh system of `base`, `base-devel` and everyday tools. It shows one thing every
+image must mind: what belongs to one installation stays out. pacman's keyring holds a
+private key, so the image carries none, and each machine makes its own at its first start
+(`/etc/chainboot/start`, see [Machines](03-machines.md#keep-a-machine-running)).
+
+**From source, package by package.** [Solinux](https://github.com/bettercallfolio/solinux)
+is built that way: its repository holds the recipes and the build system.
 
 **From Debian's `debootstrap`:**
 
@@ -134,9 +145,9 @@ chainboot publish ubuntu-base-arm64.tar.gz --name mylinux --version 1.0 --arch a
 
 ## Reusing what is already on chain
 
-`--reuse solinux-minimal` tells chainboot to look at that image first. Every file of your
+`--reuse ubuntu-minimal` tells chainboot to look at that image first. Every file of your
 system that is byte-for-byte identical to a file in it is referenced instead of uploaded.
-A system built on top of Solinux minimal that adds 30 MB of software costs 30 MB, not 120 MB.
+A system built on top of Ubuntu minimal that adds 30 MB of software costs 30 MB, not 120 MB.
 
 The reused image can belong to any publisher. Readers check its packs by hash, so they do
 not have to trust that publisher; and before your upload starts, chainboot downloads the
@@ -154,8 +165,8 @@ together.
 chainboot publish rootfs.tar --name mydistro --version 1.0 --lazy
 ```
 
-The image gets a little larger, because each small pack is compressed on its own (Solinux
-minimal: 23.3 MB instead of 21.6 MB; Solinux: 117 MB instead of 113 MB). It is the same image, with the same digest, and
+The image gets a little larger, because each small pack is compressed on its own (Ubuntu
+minimal: 23.3 MB instead of 21.6 MB; Ubuntu: 117 MB instead of 113 MB). It is the same image, with the same digest, and
 everybody can still run it the ordinary way.
 
 Better still, tell chainboot which files a start of your system reads. They are then stored
@@ -193,7 +204,7 @@ Without `--public`, an image is published for you alone:
 chainboot login                                   # once: your wallet signs one message
 chainboot fund 0.05                               # your vault pays for the upload
 chainboot export mybox mybox.tar
-chainboot publish mybox.tar --name mybox --version 1.0 --reuse solinux
+chainboot publish mybox.tar --name mybox --version 1.0 --reuse ubuntu
 chainboot run me/mybox                            # on any computer where you are signed in
 chainboot list me                                 # your private images
 chainboot unlist me/mybox
@@ -212,7 +223,7 @@ What "private" means exactly:
 - **Only what is new is uploaded.** With `--reuse`, files that are identical to files of a
   public image (the Ubuntu base, for example) are referenced from that image. They are public
   anyway, and nothing on chain links your private image to them. A private system built on
-  Solinux costs only what you added.
+  Ubuntu costs only what you added.
 
 No `--keypair` is used: a private image is paid and signed by your vault, so the vault needs
 enough SOL (`chainboot fund`, `chainboot whoami`).
@@ -255,7 +266,7 @@ Using a list:
 ```sh
 chainboot publisher add team list:2:9xQe...,4Zb7...,Hk3P...   # save it under a short name
 chainboot list team                                           # what it contains, and who agreed
-chainboot run team/solinux
+chainboot run team/ubuntu
 ```
 
 Keeping a list, as one of its publishers:

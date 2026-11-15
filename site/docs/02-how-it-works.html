@@ -82,12 +82,12 @@
 <p>An <strong>image</strong> is a complete root file system: every program, library and configuration file of a Linux system. chainboot stores an image as two kinds of objects:</p>
 <ul><li><strong>Packs.</strong> The contents of all files, glued together and compressed into one stream. Solid compression of similar files is very effective: Ubuntu's 90 MB become 21.6 MB with xz. Identical files are stored once.</li><li><strong>A manifest.</strong> A list with one line per file, directory and link: its path, owner, permissions, time, hash, and where its content sits inside the packs.</li></ul>
 <p>The manifest has a <strong>digest</strong>: a hash over all those lines (and over the command the system starts with, if the image sets one). It depends only on the files and that command, not on how they were packed. Anyone who packages the same system gets the same digest, and anyone can recompute it from an unpacked system.</p>
-<p>A second image can reuse the packs of the first. The Solinux server image refers to the pack of Solinux minimal and adds only what is new.</p>
+<p>A second image can reuse the packs of the first. The Ubuntu server image refers to the pack of Ubuntu minimal and adds only what is new.</p>
 <h3 id="the-catalog"><a class="anchor" href="#the-catalog" aria-hidden="true" tabindex="-1">#</a>The catalog</h3>
-<p>How does <code>chainboot run solinux</code> find the right signature? Every publisher has a <strong>catalog</strong>: a small file on chain that lists their images, versions and processor architectures. A <strong>pointer transaction</strong> always names the newest catalog.</p>
+<p>How does <code>chainboot run ubuntu</code> find the right signature? Every publisher has a <strong>catalog</strong>: a small file on chain that lists their images, versions and processor architectures. A <strong>pointer transaction</strong> always names the newest catalog.</p>
 <div class="code-wrap"><pre><code>publisher's pointer  -&gt;  catalog  -&gt;  manifest  -&gt;  packs
      (signed)            (signed)     (signed)      (hash from the manifest)</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
-<p>Only the publisher can move their pointer, because readers ignore pointer transactions that were not signed by the publisher's key. Each pointer also carries a number that the publisher signed with it, and the highest number is the newest: an endpoint can therefore neither invent a pointer nor pass off an old one as the current one. The name <code>solinux</code> without a publisher means &quot;from the official chainboot publisher&quot;. For anybody else you write <code>&lt;their-address&gt;/&lt;image&gt;</code>.</p>
+<p>Only the publisher can move their pointer, because readers ignore pointer transactions that were not signed by the publisher's key. Each pointer also carries a number that the publisher signed with it, and the highest number is the newest: an endpoint can therefore neither invent a pointer nor pass off an old one as the current one. The name <code>ubuntu</code> without a publisher means &quot;from the official chainboot publisher&quot;. For anybody else you write <code>&lt;their-address&gt;/&lt;image&gt;</code>.</p>
 <h2 id="part-3-running-it"><a class="anchor" href="#part-3-running-it" aria-hidden="true" tabindex="-1">#</a>Part 3: running it</h2>
 <h3 id="machines"><a class="anchor" href="#machines" aria-hidden="true" tabindex="-1">#</a>Machines</h3>
 <p>Downloading gives you an image. Running needs more: a place for your changes. chainboot uses a feature of the Linux kernel called <strong>overlayfs</strong>:</p>
@@ -104,7 +104,7 @@
 <h2 id="the-whole-picture"><a class="anchor" href="#the-whole-picture" aria-hidden="true" tabindex="-1">#</a>The whole picture</h2>
 <div class="code-wrap"><pre><code> publish                                         run
  ───────                                         ───
- root file system                                chainboot run solinux
+ root file system                                chainboot run ubuntu
       │ pack + compress                               │ read pointer, catalog, manifest
       ▼                                               ▼
  packs + manifest ── transactions ──▶ Solana ──▶ fetch blocks, verify signatures and hashes

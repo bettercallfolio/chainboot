@@ -1,0 +1,12 @@
+#!/bin/sh
+# chainboot runs this every time a machine made from this image starts.
+#
+# pacman checks every package against keys in a keyring that belongs to one installation and
+# holds a private key of its own. An image must not hand the same private key to everybody,
+# so the image has no keyring: the machine makes its own here, the first time it starts.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin HOME=/root
+if [ ! -d /etc/pacman.d/gnupg ]; then
+  : > /run/pacman-keyring-in-progress
+  { pacman-key --init && pacman-key --populate archlinux; } > /var/log/pacman-keyring.log 2>&1
+  rm -f /run/pacman-keyring-in-progress
+fi

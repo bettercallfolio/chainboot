@@ -185,7 +185,7 @@ function renderCatalog() {
           img.tags.length > 1 && el("label", { class: "opt" }, "version", el("select", { onchange: (e) => { c.tag = e.target.value; c.lazy = c.tag === "lazy"; redraw("catalog"); } },
             ...img.tags.map((t) => el("option", { value: t.tag, text: t.tag + (t.version && t.version !== t.tag ? " (" + t.version + ")" : ""), selected: t.tag === c.tag })))),
           el("label", { class: "opt" }, "machine name", field(c, "name", { placeholder: img.name, "aria-label": "Machine name" }, sync)),
-          check(c, "boot", "Boot like a server", "The system's own init (systemd) starts its services, and the machine stays up until you stop it. For systems that have one, such as solinux."),
+          check(c, "boot", "Boot like a server", "The system's own init (systemd) starts its services, and the machine stays up until you stop it. For systems that have one, such as ubuntu."),
           check(c, "lazy", "Start at once (lazy)", "Nothing is downloaded first: each file is fetched from the chain when it is first read. Best with a version published for it (often the tag \"lazy\")."),
           catalog.private && el("div", { class: "opt" }, "share with", el("div", { class: "pair" },
             field(c, "shareWith", { placeholder: "share_… address of the receiver", "aria-label": "Share address of the receiver" }),

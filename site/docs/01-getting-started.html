@@ -36,7 +36,7 @@
     <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
     <ol id="side-list">
         <li><a href="index.html"><span class="num">00</span>Overview</a></li>
-        <li class="here"><a href="01-getting-started.html" aria-current="page"><span class="num">01</span>Getting started</a><ul><li><a href="#what-you-need">What you need</a></li><li><a href="#install">Install</a></li><li><a href="#add-an-rpc-endpoint">Add an RPC endpoint</a></li><li><a href="#run-your-first-system">Run your first system</a></li><li><a href="#prefer-a-window">Prefer a window?</a></li><li><a href="#platform-notes">Platform notes</a></li><li><a href="#where-things-are">Where things are</a></li></ul></li>
+        <li class="here"><a href="01-getting-started.html" aria-current="page"><span class="num">01</span>Getting started</a><ul><li><a href="#what-you-need">What you need</a></li><li><a href="#install">Install</a></li><li><a href="#add-an-rpc-endpoint">Add an RPC endpoint</a></li><li><a href="#run-your-first-system">Run your first system</a></li><li><a href="#a-whole-desktop-solinux">A whole desktop: Solinux</a></li><li><a href="#prefer-a-window">Prefer a window?</a></li><li><a href="#platform-notes">Platform notes</a></li><li><a href="#where-things-are">Where things are</a></li></ul></li>
         <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
         <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
         <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
@@ -90,19 +90,29 @@ chainboot rpc remove 2    <span class="c"># remove number 2 of the list</span></
 <p>The endpoints are stored in <code>~/.chainboot/config.json</code>, readable only by you. Instead of saving them you can set the environment variable <code>CHAINBOOT_RPC</code> to a comma-separated list.</p>
 <h2 id="run-your-first-system"><a class="anchor" href="#run-your-first-system" aria-hidden="true" tabindex="-1">#</a>Run your first system</h2>
 <div class="code-wrap"><pre><code>chainboot list</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
-<div class="code-wrap"><pre><code>image             tag      arch   download  on disk  description
-alpine            latest   amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
-solinux          latest   amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system: SSH, sudo, git, editors and the standard tools
-solinux-minimal  latest   amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS, minimal base system</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>image           tag     arch   download  on disk  description
+alpine          latest  amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
+arch            latest  amd64  326 MB    1.31 GB  Arch Linux: base, base-devel and the everyday tools, with pacman ready
+solinux         latest  amd64  669 MB    2.83 GB  Solinux 0.1: a Linux system built from source for Solana developers, with a desktop in your browser
+ubuntu          latest  amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system with SSH, sudo, git, editors and the standard tools
+ubuntu-minimal  latest  amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS base system</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>This list is itself read from the chain. Now run one:</p>
-<div class="code-wrap"><pre><code>chainboot run solinux</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>chainboot run ubuntu</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>What happens:</p>
-<ol><li>chainboot finds the newest <code>solinux</code> in the publisher's catalog on chain.</li><li>It downloads the system and checks every file against its SHA-256.</li><li>It unpacks the system once and creates a <strong>machine</strong>: the system plus a place for everything you will change.</li><li>It opens a shell inside the machine. On some Linux computers this step asks for your password (<code>sudo</code>), because mounting a file system is normally something only the administrator may do. <code>chainboot engine</code> shows which way your computer uses, and <code>chainboot engine rootless</code> sets it up to work without the password.</li></ol>
+<ol><li>chainboot finds the newest <code>ubuntu</code> in the publisher's catalog on chain.</li><li>It downloads the system and checks every file against its SHA-256.</li><li>It unpacks the system once and creates a <strong>machine</strong>: the system plus a place for everything you will change.</li><li>It opens a shell inside the machine. On some Linux computers this step asks for your password (<code>sudo</code>), because mounting a file system is normally something only the administrator may do. <code>chainboot engine</code> shows which way your computer uses, and <code>chainboot engine rootless</code> sets it up to work without the password.</li></ol>
 <p>You are now root in a real Ubuntu. <code>apt update</code>, <code>apt install</code>, edit files, use the network. Type <code>exit</code> to leave. Run the same command again and you are back in the same machine, with everything you did, in a fraction of a second.</p>
-<div class="code-wrap"><pre><code>chainboot run solinux -- apt-get update     <span class="c"># run one command and return</span>
-chainboot run solinux --name test           <span class="c"># a second, separate machine from the same image</span>
+<div class="code-wrap"><pre><code>chainboot run ubuntu -- apt-get update     <span class="c"># run one command and return</span>
+chainboot run ubuntu --name test           <span class="c"># a second, separate machine from the same image</span>
 chainboot machines                           <span class="c"># list your machines</span>
 chainboot rm test                            <span class="c"># delete one</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="a-whole-desktop-solinux"><a class="anchor" href="#a-whole-desktop-solinux" aria-hidden="true" tabindex="-1">#</a>A whole desktop: Solinux</h2>
+<p>Solinux is this project's own Linux distribution for people who build on Solana: every package compiled from source, with Rust, Agave (the Solana tools and validator), Anchor, Node.js and Firefox, and a desktop that opens in your browser.</p>
+<div class="code-wrap"><pre><code>chainboot run solinux --lazy</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>✔ created machine solinux from solinux:latest (lazy: files are fetched when they are first read)
+
+Desktop: http://127.0.0.1:7654/#token=…</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Open the address. The desktop has a terminal, a file manager, a local validator, an explorer, your keys, your programs (create, build, deploy), a web browser, and Software, which installs more packages from a repository that is itself on chain (<code>pkg install &lt;name&gt;</code> in a terminal).</p>
+<p><code>--lazy</code> matters here: the system is 2.8 GB, and a lazy machine fetches a file when a program first reads it instead of downloading everything first. Solinux is published for amd64. On a computer with another processor, <code>chainboot run solinux --lazy --arch amd64</code> runs it emulated where the computer can do that, which is slower. How Solinux is built: <a href="https://github.com/bettercallfolio/solinux" rel="noopener">github.com/bettercallfolio/solinux</a>.</p>
 <h2 id="prefer-a-window"><a class="anchor" href="#prefer-a-window" aria-hidden="true" tabindex="-1">#</a>Prefer a window?</h2>
 <div class="code-wrap"><pre><code>chainboot ui</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>A page opens in your browser. It is served by chainboot on your own computer (<code>127.0.0.1</code>) and can only be reached from it. What the page does, section by section:</p>

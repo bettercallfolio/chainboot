@@ -122,7 +122,7 @@ function pickMachine(a: Args): string {
   if (a._[0]) return a._[0];
   const all = listMachines(home);
   if (all.length === 1) return all[0]!.name;
-  if (!all.length) throw new Error("there are no machines yet. Create one with: chainboot run solinux");
+  if (!all.length) throw new Error("there are no machines yet. Create one with: chainboot run ubuntu");
   throw new UsageError(`say which machine: ${all.map((m) => m.name).join(", ")}`);
 }
 

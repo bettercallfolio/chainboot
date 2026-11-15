@@ -285,13 +285,13 @@ must agree, so no single key can add an image or replace one.
 
   chainboot publisher add team list:2:9xQe...,4Zb7...,Hk3P...
   chainboot list team                             what the list contains, and who agreed
-  chainboot run team/solinux
+  chainboot run team/ubuntu
 
 A publisher agrees to an image by publishing it, or by endorsing one that is already on
 chain. Endorsing stores nothing again; it adds one entry to the endorser's catalog:
 
-  chainboot endorse 9xQe.../solinux:26.04 --keypair me.json
-  chainboot endorse team/solinux --keypair me.json           (an image the list already has)`;
+  chainboot endorse 9xQe.../ubuntu:26.04 --keypair me.json
+  chainboot endorse team/ubuntu --keypair me.json           (an image the list already has)`;
 
 export function cmdPublisher(a: Args): void {
   const c = loadConfig();
@@ -328,7 +328,7 @@ export async function cmdEndorse(a: Args): Promise<void> {
   const found = await resolveImage(store, c, what, arch);
   if (found.private) throw new Error("a private image cannot be endorsed: endorsing makes an image part of your public catalog");
   const as = parseImageName(flag(a, "as") ?? `${found.name}:${found.tag}`);
-  if (as.publisher) throw new UsageError("--as takes a name and a tag, without a publisher: --as solinux:26.04");
+  if (as.publisher) throw new UsageError("--as takes a name and a tag, without a publisher: --as ubuntu:26.04");
   if (!(await confirm(`Add ${found.name}:${found.tag} (${arch}, version ${found.ref.version}, digest ${found.ref.digest.slice(0, 12)}…) to the catalog of ${payer.address} as ${as.name}:${as.tag}?`, a))) { info("cancelled"); return; }
   await endorseImage(store, payer, { name: as.name, tags: [as.tag], arch, ref: found.ref, publisher: found.publisher, description: flag(a, "description") });
   ok(`${payer.address} now lists ${bold(as.name)}:${as.tag} (${arch}) with digest ${found.ref.digest.slice(0, 12)}…`);
@@ -339,7 +339,7 @@ export const PULL_HELP = `Usage:
   chainboot pull <image> [--arch <arch>]    Download an image and verify it (resumes if interrupted)`;
 
 export async function cmdPull(a: Args): Promise<void> {
-  if (!a._[0]) throw new UsageError("say which image: chainboot pull solinux");
+  if (!a._[0]) throw new UsageError("say which image: chainboot pull ubuntu");
   const c = loadConfig();
   const store = await openStore(c, note);
   const found = await resolveImage(store, c, a._[0], flag(a, "arch") ?? hostArch());

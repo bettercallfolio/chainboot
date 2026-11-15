@@ -1,7 +1,7 @@
 {
   "name": "chainboot",
-  "version": "0.1.0",
-  "description": "Store, share and boot whole operating systems from a blockchain. Example: Solinux, Ubuntu 26.04 LTS on Solana.",
+  "version": "0.2.0",
+  "description": "Store, share and boot whole operating systems from a blockchain. On chain today: Solinux, Ubuntu, Arch Linux and Alpine, on Solana.",
   "license": "MIT",
   "type": "module",
   "engines": {

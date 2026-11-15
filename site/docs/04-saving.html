@@ -78,16 +78,16 @@ chainboot whoami                             <span class="c"># wallet, vault add
 <p>0.05 SOL pays for about 39 MB of saved data (after compression). A typical session that installs a few packages costs well under 0.001 SOL.</p>
 <h2 id="automatic-saving"><a class="anchor" href="#automatic-saving" aria-hidden="true" tabindex="-1">#</a>Automatic saving</h2>
 <p>Once you are signed in, nothing more is needed. When a session ends, chainboot checks in the background what changed and saves it. A machine that stays up for a long time is also saved every 10 minutes while it runs (a save with nothing new sends nothing and costs nothing).</p>
-<div class="code-wrap"><pre><code>root@solinux:~# exit
+<div class="code-wrap"><pre><code>root@ubuntu:~# exit
 Changes are saved to Solana in the background. Check with: chainboot status</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <div class="code-wrap"><pre><code>chainboot status</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <div class="code-wrap"><pre><code>machine   state    saved to chain  autosave  last save
-solinux  stopped  saved (#12)     on        2026-11-13 21:26 UTC</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+ubuntu  stopped  saved (#12)     on        2026-11-13 21:26 UTC</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>Rules of automatic saving:</p>
 <ul><li>Only content that is not on chain yet is uploaded. Files that an earlier save already stored, or that are identical to files of the image, are referenced, not repeated.</li><li>A save that would cost more than <strong>0.05 SOL</strong> is not made automatically. <code>chainboot status</code> then says &quot;waiting for you&quot;, and <code>chainboot save &lt;machine&gt;</code> shows the cost and asks.</li><li>If the vault does not hold enough SOL, nothing is sent and <code>status</code> tells you.</li><li>Turn it off or on per machine: <code>chainboot autosave &lt;machine&gt; off</code>.</li></ul>
 <p>Save by hand at any time:</p>
-<div class="code-wrap"><pre><code>chainboot save solinux
-chainboot save solinux --note &quot;before the upgrade&quot;      <span class="c"># the note is shown by &quot;chainboot history&quot;</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>chainboot save ubuntu
+chainboot save ubuntu --note &quot;before the upgrade&quot;      <span class="c"># the note is shown by &quot;chainboot history&quot;</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>A save that is interrupted (a closed terminal, a lost connection) continues when you save again: what already reached the chain is found there, also transactions that were on their way at that moment, and is not sent or paid for a second time.</p>
 <h2 id="what-is-saved-and-what-is-not"><a class="anchor" href="#what-is-saved-and-what-is-not" aria-hidden="true" tabindex="-1">#</a>What is saved, and what is not</h2>
 <p>Saved: everything that differs from the image. Installed and removed packages, your files, configuration, users, deletions.</p>
@@ -97,20 +97,20 @@ chainboot save solinux --note &quot;before the upgrade&quot;      <span class="c
 <h2 id="continue-on-another-computer"><a class="anchor" href="#continue-on-another-computer" aria-hidden="true" tabindex="-1">#</a>Continue on another computer</h2>
 <div class="code-wrap"><pre><code>chainboot rpc add &lt;endpoint&gt;
 chainboot login
-chainboot run solinux</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
-<p>chainboot notices that you have a saved machine named <code>solinux</code>, downloads the image and your latest save, and opens it. To see everything you have saved:</p>
+chainboot run ubuntu</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>chainboot notices that you have a saved machine named <code>ubuntu</code>, downloads the image and your latest save, and opens it. To see everything you have saved:</p>
 <div class="code-wrap"><pre><code>chainboot restore                         <span class="c"># list saved machines</span>
-chainboot restore solinux                <span class="c"># bring one back without opening it</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+chainboot restore ubuntu                <span class="c"># bring one back without opening it</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p>When you go back to the first computer and run the machine there, chainboot sees that the chain holds a newer save and updates the machine before opening it.</p>
 <h2 id="going-back-in-time"><a class="anchor" href="#going-back-in-time" aria-hidden="true" tabindex="-1">#</a>Going back in time</h2>
 <p>Every save is kept. List them and return to any one:</p>
-<div class="code-wrap"><pre><code>chainboot history solinux
-chainboot restore solinux --snapshot 7</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<div class="code-wrap"><pre><code>chainboot history ubuntu
+chainboot restore ubuntu --snapshot 7</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <p><code>history</code> lists the newest save and the 200 before it; older ones are still there, and <code>--snapshot</code> reaches them too. While a machine is being restored, what it held before is set aside, and comes back if the restore does not go through (no network, a damaged save): a failed restore leaves the machine as it was.</p>
 <h2 id="when-two-computers-disagree"><a class="anchor" href="#when-two-computers-disagree" aria-hidden="true" tabindex="-1">#</a>When two computers disagree</h2>
 <p>If you change a machine on computer A without saving, and meanwhile save from computer B, there are two different versions. chainboot never picks one silently. It knows which save a computer is in step with by that save's address on chain, not by its number, and it looks at the chain once more just before a new save takes effect, so two computers that save at the same moment cannot both believe they are the newest:</p>
 <div class="code-wrap"><pre><code>! A newer save of this machine is on chain, but this copy also has changes that were not saved.
-  Take the newer one with &quot;chainboot restore solinux&quot;, or keep this copy with &quot;chainboot save solinux --force&quot;.</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+  Take the newer one with &quot;chainboot restore ubuntu&quot;, or keep this copy with &quot;chainboot save ubuntu --force&quot;.</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
 <h2 id="sharing-a-machine-with-someone-else"><a class="anchor" href="#sharing-a-machine-with-someone-else" aria-hidden="true" tabindex="-1">#</a>Sharing a machine with someone else</h2>
 <p>You can give another wallet the newest save of a machine. Nothing is uploaded again: the other person receives the keys of exactly that save, in a message only they can read. It costs you one transaction.</p>
 <p>The receiver first tells you their <strong>share address</strong>, which <code>chainboot whoami</code> shows:</p>

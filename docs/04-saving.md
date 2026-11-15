@@ -62,7 +62,7 @@ background what changed and saves it. A machine that stays up for a long time is
 every 10 minutes while it runs (a save with nothing new sends nothing and costs nothing).
 
 ```
-root@solinux:~# exit
+root@ubuntu:~# exit
 Changes are saved to Solana in the background. Check with: chainboot status
 ```
 
@@ -72,7 +72,7 @@ chainboot status
 
 ```
 machine   state    saved to chain  autosave  last save
-solinux  stopped  saved (#12)     on        2026-11-13 21:26 UTC
+ubuntu  stopped  saved (#12)     on        2026-11-13 21:26 UTC
 ```
 
 Rules of automatic saving:
@@ -87,8 +87,8 @@ Rules of automatic saving:
 Save by hand at any time:
 
 ```sh
-chainboot save solinux
-chainboot save solinux --note "before the upgrade"      # the note is shown by "chainboot history"
+chainboot save ubuntu
+chainboot save ubuntu --note "before the upgrade"      # the note is shown by "chainboot history"
 ```
 
 A save that is interrupted (a closed terminal, a lost connection) continues when you save
@@ -120,15 +120,15 @@ where chainboot runs. Without either, they are left out and everything else work
 ```sh
 chainboot rpc add <endpoint>
 chainboot login
-chainboot run solinux
+chainboot run ubuntu
 ```
 
-chainboot notices that you have a saved machine named `solinux`, downloads the image and
+chainboot notices that you have a saved machine named `ubuntu`, downloads the image and
 your latest save, and opens it. To see everything you have saved:
 
 ```sh
 chainboot restore                         # list saved machines
-chainboot restore solinux                # bring one back without opening it
+chainboot restore ubuntu                # bring one back without opening it
 ```
 
 When you go back to the first computer and run the machine there, chainboot sees that the
@@ -139,8 +139,8 @@ chain holds a newer save and updates the machine before opening it.
 Every save is kept. List them and return to any one:
 
 ```sh
-chainboot history solinux
-chainboot restore solinux --snapshot 7
+chainboot history ubuntu
+chainboot restore ubuntu --snapshot 7
 ```
 
 `history` lists the newest save and the 200 before it; older ones are still there, and
@@ -158,7 +158,7 @@ same moment cannot both believe they are the newest:
 
 ```
 ! A newer save of this machine is on chain, but this copy also has changes that were not saved.
-  Take the newer one with "chainboot restore solinux", or keep this copy with "chainboot save solinux --force".
+  Take the newer one with "chainboot restore ubuntu", or keep this copy with "chainboot save ubuntu --force".
 ```
 
 ## Sharing a machine with someone else

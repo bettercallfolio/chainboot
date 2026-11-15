@@ -9,7 +9,7 @@ import { MEMO_PROGRAM, NOOP_PROGRAM, type Carrier } from "../solana/tx.ts";
 import { b58encode } from "../util/base58.ts";
 import { ChainStore } from "../store/store.ts";
 
-/** Publisher of the example images (Solinux). Unprefixed image names resolve to this key. */
+/** Publisher of the official images (Solinux, Ubuntu, Arch Linux, Alpine). Unprefixed image names resolve to this key. */
 export const OFFICIAL_PUBLISHER: Record<string, string | null | undefined> = {
   devnet: "HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu",
   testnet: null,

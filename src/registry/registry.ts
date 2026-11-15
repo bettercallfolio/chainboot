@@ -213,7 +213,7 @@ export interface ImageName { publisher?: string; name: string; tag: string }
 /** Parses "[publisher/]name[:tag]". The publisher is an alias or a base58 address. */
 export function parseImageName(text: string): ImageName {
   const m = /^(?:([A-Za-z0-9._-]+)\/)?([a-z0-9][a-z0-9._-]*)(?::([A-Za-z0-9._-]+))?$/.exec(text.trim());
-  if (!m) throw new Error(`"${text}" is not an image name. Examples: solinux, solinux:26.04, <publisher-address>/alpine:3.22`);
+  if (!m) throw new Error(`"${text}" is not an image name. Examples: ubuntu, ubuntu:26.04, <publisher-address>/alpine:3.22`);
   return { publisher: m[1], name: m[2]!, tag: m[3] ?? "latest" };
 }
 

@@ -107,21 +107,23 @@ chainboot list
 ```
 
 ```
-image             tag      arch   download  on disk  description
-alpine            latest   amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
-solinux          latest   amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system: SSH, sudo, git, editors and the standard tools
-solinux-minimal  latest   amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS, minimal base system
+image           tag     arch   download  on disk  description
+alpine          latest  amd64  2.89 MB   8.43 MB  Alpine Linux 3.24, minimal root file system
+arch            latest  amd64  326 MB    1.31 GB  Arch Linux: base, base-devel and the everyday tools, with pacman ready
+solinux         latest  amd64  669 MB    2.83 GB  Solinux 0.1: a Linux system built from source for Solana developers, with a desktop in your browser
+ubuntu          latest  amd64  114 MB    504 MB   Ubuntu 26.04.1 LTS server system with SSH, sudo, git, editors and the standard tools
+ubuntu-minimal  latest  amd64  21.8 MB   90.2 MB  Ubuntu 26.04.1 LTS base system
 ```
 
 This list is itself read from the chain. Now run one:
 
 ```sh
-chainboot run solinux
+chainboot run ubuntu
 ```
 
 What happens:
 
-1. chainboot finds the newest `solinux` in the publisher's catalog on chain.
+1. chainboot finds the newest `ubuntu` in the publisher's catalog on chain.
 2. It downloads the system and checks every file against its SHA-256.
 3. It unpacks the system once and creates a **machine**: the system plus a place for
    everything you will change.
@@ -135,11 +137,37 @@ Type `exit` to leave. Run the same command again and you are back in the same ma
 everything you did, in a fraction of a second.
 
 ```sh
-chainboot run solinux -- apt-get update     # run one command and return
-chainboot run solinux --name test           # a second, separate machine from the same image
+chainboot run ubuntu -- apt-get update     # run one command and return
+chainboot run ubuntu --name test           # a second, separate machine from the same image
 chainboot machines                           # list your machines
 chainboot rm test                            # delete one
 ```
+
+## A whole desktop: Solinux
+
+Solinux is this project's own Linux distribution for people who build on Solana: every
+package compiled from source, with Rust, Agave (the Solana tools and validator), Anchor,
+Node.js and Firefox, and a desktop that opens in your browser.
+
+```sh
+chainboot run solinux --lazy
+```
+
+```
+✔ created machine solinux from solinux:latest (lazy: files are fetched when they are first read)
+
+Desktop: http://127.0.0.1:7654/#token=…
+```
+
+Open the address. The desktop has a terminal, a file manager, a local validator, an explorer,
+your keys, your programs (create, build, deploy), a web browser, and Software, which installs
+more packages from a repository that is itself on chain (`pkg install <name>` in a terminal).
+
+`--lazy` matters here: the system is 2.8 GB, and a lazy machine fetches a file when a program
+first reads it instead of downloading everything first. Solinux is published for amd64. On a
+computer with another processor, `chainboot run solinux --lazy --arch amd64` runs it emulated
+where the computer can do that, which is slower. How Solinux is built:
+[github.com/bettercallfolio/solinux](https://github.com/bettercallfolio/solinux).
 
 ## Prefer a window?
 

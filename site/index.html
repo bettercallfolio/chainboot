@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>chainboot: operating systems from the chain</title>
-<meta name="description" content="chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer at native speed. No server in between. Example: Solinux, Ubuntu 26.04 LTS on Solana.">
+<meta name="description" content="chainboot stores whole Linux systems on the Solana ledger and runs them on your own computer at native speed. No server in between. On chain today: Solinux, Ubuntu, Arch Linux and Alpine.">
 <meta property="og:title" content="chainboot: operating systems from the chain">
 <meta property="og:description" content="Store, share and boot whole operating systems from a blockchain. Verified, fast, private by default, and yours.">
 <meta property="og:type" content="website">
@@ -50,7 +50,7 @@
     </div>
   </div>
 
-  <div class="term" role="img" aria-label="Terminal: chainboot run solinux downloads Ubuntu from Solana, verifies it and opens a root shell. On exit, changes are saved to Solana in the background.">
+  <div class="term" role="img" aria-label="Terminal: chainboot run ubuntu downloads Ubuntu from Solana, verifies it and opens a root shell. On exit, changes are saved to Solana in the background.">
     <div class="term-bar"><i></i><i></i><i></i><span>your terminal</span></div>
     <pre id="demo" class="term-body" aria-hidden="true"></pre>
   </div>
@@ -120,7 +120,7 @@
     <article><h3><span class="mark">[>]</span> Fast</h3><p>Programs run on your own processor. Work is spread over all your endpoints, with batching, hedging and learned rate limits.</p></article>
     <article><h3><span class="mark">[*]</span> Yours</h3><p>Your machines are saved to chain, encrypted with a key that only your wallet can make. No account, no company.</p></article>
     <article><h3><span class="mark">[#]</span> Private by default</h3><p>What you publish is encrypted for your wallet alone. Sharing with everyone takes an explicit <code>--public</code>.</p></article>
-    <article><h3><span class="mark">[+]</span> Universal</h3><p>Ubuntu is the example, not the limit. Any Linux distribution, on amd64 or arm64, can be published by anyone.</p></article>
+    <article><h3><span class="mark">[+]</span> Universal</h3><p>The systems here are examples, not the limit. Any Linux distribution, on amd64 or arm64, can be published by anyone.</p></article>
     <article><h3><span class="mark">[/]</span> A toolkit</h3><p>Built on a TypeScript SDK with no dependencies: files on chain, pointers, an RPC pool, wallet-derived encryption.</p></article>
   </div>
 </section>
@@ -131,7 +131,7 @@
   <div class="grid">
     <article><h3><span class="mark">[~]</span> No administrator rights</h3><p>Machines run in a user namespace: no <code>sudo</code>, no password. Where a computer does not allow that, they run through <code>sudo</code>.</p></article>
     <article><h3><span class="mark">[@]</span> Boots like a server</h3><p>With <code>--boot</code> the system's own systemd starts: services, timers, logs, and a network of its own for the machine.</p></article>
-    <article><h3><span class="mark">[z]</span> Starts before the download</h3><p>A lazy machine fetches each file from the chain when it is first read. Solinux opens in about 4 seconds instead of 15.</p></article>
+    <article><h3><span class="mark">[z]</span> Starts before the download</h3><p>A lazy machine fetches each file from the chain when it is first read. Ubuntu opens in about 4 seconds instead of 15.</p></article>
     <article><h3><span class="mark">[&amp;]</span> Shared between wallets</h3><p>Give one other wallet a saved machine or a private image. Nothing is uploaded again: they receive the keys of exactly that.</p></article>
     <article><h3><span class="mark">[=]</span> Catalogs kept together</h3><p><code>list:2:A,B,C</code>: a system counts when two of three publishers have the very same one. No single key can change it.</p></article>
     <article><h3><span class="mark">[1]</span> Found with one request</h3><p>The pointer to your newest catalog or save can also live in an account: one request reads it, and nobody else can write there.</p></article>
@@ -146,11 +146,23 @@
   <h2>On chain right now.</h2>
   <div class="table" role="table" aria-label="Systems stored on Solana devnet">
     <div class="tr th" role="row"><span role="columnheader">image</span><span role="columnheader">what it is</span><span role="columnheader">arch</span><span role="columnheader">download</span><span role="columnheader">cost to publish</span></div>
-    <div class="tr" role="row"><span role="cell"><b>solinux</b></span><span role="cell">Ubuntu 26.04.1 LTS server system, 419 packages: SSH, sudo, git, editors</span><span role="cell">amd64, arm64</span><span role="cell">114 MB</span><span role="cell">0.12 SOL</span></div>
-    <div class="tr" role="row"><span role="cell"><b>solinux-minimal</b></span><span role="cell">Ubuntu 26.04.1 LTS base system</span><span role="cell">amd64, arm64</span><span role="cell">22 MB</span><span role="cell">0.028 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>solinux</b></span><span role="cell">Solinux 0.1: built from source for Solana developers. Rust, Agave, Anchor, Firefox, a desktop in your browser</span><span role="cell">amd64</span><span role="cell">669 MB</span><span role="cell">0.88 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>ubuntu</b></span><span role="cell">Ubuntu 26.04.1 LTS server system, 419 packages: SSH, sudo, git, editors</span><span role="cell">amd64, arm64</span><span role="cell">114 MB</span><span role="cell">0.12 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>ubuntu-minimal</b></span><span role="cell">Ubuntu 26.04.1 LTS base system</span><span role="cell">amd64, arm64</span><span role="cell">22 MB</span><span role="cell">0.028 SOL</span></div>
+    <div class="tr" role="row"><span role="cell"><b>arch</b></span><span role="cell">Arch Linux 2026.11.01: base, base-devel and the everyday tools</span><span role="cell">amd64</span><span role="cell">326 MB</span><span role="cell">0.43 SOL</span></div>
     <div class="tr" role="row"><span role="cell"><b>alpine</b></span><span role="cell">Alpine Linux 3.24</span><span role="cell">amd64, arm64</span><span role="cell">3 MB</span><span role="cell">0.004 SOL</span></div>
   </div>
-  <p class="note">Measured on Solana devnet, on a cloud computer with 14 endpoints. From an empty cache to a running system: Alpine 3 s, Solinux minimal 4 s, Solinux 15 s (4 s as a lazy machine). Every later start: 0.2 s.</p>
+  <p class="note">Measured on Solana devnet, on a cloud computer with 14 endpoints. From an empty cache to a running system: Alpine 3 s, Ubuntu minimal 4 s, Ubuntu 15 s (4 s as a lazy machine). Every later start: 0.2 s.</p>
+
+  <div class="solinux">
+    <div>
+      <p class="label"># chainboot run solinux --lazy</p>
+      <h3>Solinux: a system of its own, from the chain to your browser.</h3>
+      <p>Solinux is not based on another distribution. Every package is compiled from source: the kernel, the compiler, Rust, Agave, Anchor, Firefox. It opens a desktop in a browser tab, with a terminal, a local validator, an explorer, and your programs from the first line to deployed. 2.8 GB on Solana; as a lazy machine its desktop answers in under a minute.</p>
+      <p><a href="https://github.com/bettercallfolio/solinux">How it is built</a></p>
+    </div>
+    <img src="solinux.png" width="1600" height="960" loading="lazy" alt="The Solinux desktop in a browser: the Programs application has built a Solana program with cargo build-sbf.">
+  </div>
 </section>
 
 <section class="wrap" id="save">
@@ -170,11 +182,11 @@
       <div class="term-bar"><i></i><i></i><i></i><span>another computer</span></div>
 <pre class="term-body"><span class="p">$</span> chainboot login
 <span class="o">Signed in as 7xQp…r5uu on devnet.</span>
-<span class="p">$</span> chainboot run solinux
-<span class="o">You have a saved machine named solinux on chain.</span>
+<span class="p">$</span> chainboot run ubuntu
+<span class="o">You have a saved machine named ubuntu on chain.</span>
 <span class="o">Bringing it back instead of starting from scratch.</span>
-<span class="ok">✔</span> <span class="o">restored "solinux" from save #12: 141 entries</span>
-<span class="r">root@solinux:~#</span> <span class="cursor inline"></span></pre>
+<span class="ok">✔</span> <span class="o">restored "ubuntu" from save #12: 141 entries</span>
+<span class="r">root@ubuntu:~#</span> <span class="cursor inline"></span></pre>
     </div>
   </div>
 </section>
@@ -186,12 +198,12 @@
     <div class="term">
       <div class="term-bar"><i></i><i></i><i></i><span>publish</span></div>
 <pre class="term-body"><span class="c"># set up a machine the way you like it</span>
-<span class="p">$</span> chainboot run solinux-minimal --name mybox
+<span class="p">$</span> chainboot run ubuntu-minimal --name mybox
 <span class="p">$</span> chainboot export mybox mybox.tar
 
 <span class="c"># for yourself (the default): encrypted</span>
 <span class="p">$</span> chainboot publish mybox.tar --name mybox \
-    --version 1.0 --reuse solinux-minimal
+    --version 1.0 --reuse ubuntu-minimal
 <span class="p">$</span> chainboot run me/mybox
 
 <span class="c"># for everyone: say so</span>
@@ -251,7 +263,8 @@
     <div class="cmd"><span class="p">$</span><code id="cmd">curl -fsSL https://raw.githubusercontent.com/bettercallfolio/chainboot/main/install.sh | sh</code><button class="btn small" id="copy" type="button">copy</button></div>
     <ol class="next">
       <li><code>chainboot rpc add &lt;your endpoint&gt;</code><span>free from Helius, QuickNode, Alchemy, Triton, Ankr</span></li>
-      <li><code>chainboot run solinux</code><span>Ubuntu 26.04 LTS, straight from Solana</span></li>
+      <li><code>chainboot run ubuntu</code><span>Ubuntu 26.04 LTS, straight from Solana</span></li>
+      <li><code>chainboot run solinux --lazy</code><span>a desktop for Solana developers, in your browser</span></li>
       <li><code>chainboot ui</code><span>or point and click, in your browser</span></li>
     </ol>
     <p class="note"><a href="docs/01-getting-started.html">Getting started</a> has the details. Linux runs machines directly. Windows uses WSL 2. macOS uses OrbStack, Docker Desktop, Podman or Lima. The installer checks every download against its SHA-256.</p>
@@ -291,7 +304,7 @@
 
 <section class="wrap thanks" id="thanks">
   <p class="label"># thank you</p>
-  <p>chainboot stands on the work of the engineers who built Solana and made 4096-byte transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu, Debian and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard, Node.js and TypeScript. <a href="docs/12-thanks.html">The full list.</a></p>
+  <p>chainboot stands on the work of the engineers who built Solana and made 4096-byte transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu, Debian, Arch Linux and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard, Node.js and TypeScript. <a href="docs/12-thanks.html">The full list.</a></p>
 </section>
 
 </main>
@@ -309,7 +322,7 @@
       <a href="https://github.com/bettercallfolio/chainboot" rel="noopener">github</a>
     </nav>
   </div>
-  <p class="wrap legal">Solinux is this project's packaging of Ubuntu on Solana and is not affiliated with or endorsed by Canonical. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds. Solana and all other names belong to their owners.</p>
+  <p class="wrap legal">Solinux is this project's own distribution. The ubuntu and arch images are built from Canonical's and Arch Linux's own archives; this project is not affiliated with or endorsed by either. Ubuntu is a registered trademark of Canonical Ltd. Linux is a registered trademark of Linus Torvalds. Solana and all other names belong to their owners.</p>
 </footer>
 
 <script src="app.js"></script>

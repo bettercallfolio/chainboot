@@ -61,7 +61,7 @@ The formats above that layer ([The on-chain format](07-format.md)) would stay as
 
 ## What is where today
 
-- **Devnet:** the official catalog with Solinux and Alpine. This is where chainboot was
+- **Devnet:** the official catalog with Solinux, Ubuntu, Arch Linux and Alpine. This is where chainboot was
   built and measured.
 - **Mainnet:** no official catalog yet, and chainboot has not been exercised there. The
   4096-byte transaction format chainboot writes has been active on mainnet since September
@@ -87,8 +87,8 @@ Real examples from devnet (rounded):
 | What | Stored size | Transactions | Fee |
 |---|---|---|---|
 | Alpine Linux 3.24 | 2.9 MB | 760 | 0.0038 SOL |
-| Solinux minimal (Ubuntu base) | 21.6 MB | 5,683 | 0.028 SOL |
-| Solinux (adds 91 MB to minimal) | 91 MB | 23,946 | 0.12 SOL |
+| Ubuntu minimal (Ubuntu base) | 21.6 MB | 5,683 | 0.028 SOL |
+| Ubuntu (adds 91 MB to minimal) | 91 MB | 23,946 | 0.12 SOL |
 | A save after installing two small packages | 0.5 MB | 135 | 0.0007 SOL |
 | A save after editing a few files | under 4 kB | 9 | 0.000045 SOL |
 
@@ -123,7 +123,7 @@ deposit ("rent"), which comes back when the account is closed. The network sets 
 on devnet it is about 5 SOL per megabyte at the time of writing (ask an endpoint:
 `getMinimumBalanceForRentExemption`).
 
-That makes accounts wrong for systems (Solinux would need about 600 SOL) and right for the few
+That makes accounts wrong for systems (Ubuntu would need about 600 SOL) and right for the few
 small records that are read all the time: the pointers that say "this is my newest catalog"
 or "this is the newest save of this machine". chainboot can keep them in accounts as well:
 
@@ -141,7 +141,7 @@ for this; it uses the SPL Record program, which is on devnet and mainnet.
 
 ## How fast is it
 
-Downloading depends mostly on your RPC endpoints. Measured with Solinux minimal (21.6 MB):
+Downloading depends mostly on your RPC endpoints. Measured with Ubuntu minimal (21.6 MB):
 
 | Endpoints | Time to download |
 |---|---|
@@ -156,8 +156,8 @@ The public endpoints are meant for light use and limit requests strictly. A free
 any provider is the single biggest speed-up.
 
 A [lazy machine](03-machines.md#lazy-machines-start-before-the-download-is-done) does not
-wait for the download at all: the full Solinux (114 MB on chain, 504 MB of files) answers
-its first command about 4 seconds after `chainboot run solinux:lazy --lazy` on a computer that
+wait for the download at all: the full Ubuntu (114 MB on chain, 504 MB of files) answers
+its first command about 4 seconds after `chainboot run ubuntu:lazy --lazy` on a computer that
 has nothing yet, against about 15 seconds the ordinary way.
 
 Finding the newest pointer (the first step of every `list`, `run` and `restore`) takes one
@@ -165,7 +165,7 @@ request when its owner keeps it in an account, instead of a history lookup and a
 request: on devnet about 0.3 seconds instead of 0.6.
 
 Uploading runs at several hundred transactions per second with a handful of endpoints:
-Solinux minimal takes about 20 seconds, plus 40 seconds to compress it.
+Ubuntu minimal takes about 20 seconds, plus 40 seconds to compress it.
 
 ## How long does data stay
 

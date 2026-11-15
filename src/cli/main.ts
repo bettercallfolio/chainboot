@@ -26,7 +26,8 @@ ${bold("Start here")}
   chainboot ui                   Open the point-and-click interface in your browser
   chainboot rpc add <url>        Add an RPC endpoint (you can add many)
   chainboot list                 Show the systems you can run
-  chainboot run solinux         Download, verify and start Solinux (Ubuntu 26.04 LTS)
+  chainboot run ubuntu           Download, verify and start Ubuntu 26.04 LTS
+  chainboot run solinux --lazy   Solinux: built for Solana developers, with a desktop in your browser
 
 ${bold("Machines")}
   run <image> [-- command]       Open a shell (or run a command) in a machine

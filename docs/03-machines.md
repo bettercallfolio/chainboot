@@ -5,9 +5,9 @@ A **machine** is an image plus everything you changed in it. This page covers da
 ## Create and open
 
 ```sh
-chainboot run solinux                  # first time: download, create, open. Later: just open.
-chainboot run solinux -- uname -a      # run one command instead of a shell
-chainboot run solinux --name web       # another machine from the same image
+chainboot run ubuntu                  # first time: download, create, open. Later: just open.
+chainboot run ubuntu -- uname -a      # run one command instead of a shell
+chainboot run ubuntu --name web       # another machine from the same image
 chainboot run web                       # open a machine by its name
 ```
 
@@ -110,7 +110,7 @@ work. A machine that **boots** starts the image's own init system, systemd, as i
 process, the way a server does:
 
 ```sh
-chainboot run solinux --boot --name server
+chainboot run ubuntu --boot --name server
 root@server:~# systemctl status                 # a whole system is up
 root@server:~# apt install -y nginx             # the service starts by itself
 root@server:~# systemctl status nginx
@@ -142,7 +142,7 @@ What is different from an ordinary machine:
   network it cannot reconfigure it. Its firewall service, for example, starts but changes
   nothing outside.
 
-What it needs: an image with an init system (Solinux has systemd; `solinux-minimal` and
+What it needs: an image with an init system (Ubuntu has systemd; `ubuntu-minimal` and
 `alpine` do not), cgroup v2 (every current distribution), and, without administrator rights,
 a systemd user session, which a normal login gives you. Saving, restoring and exporting work
 the same; a restore stops the machine first.
@@ -154,7 +154,7 @@ machine skips both. It gets only the list of the image's files, starts at once, 
 a file's content from the chain when a program first opens it:
 
 ```sh
-chainboot run solinux:lazy --lazy --name quick
+chainboot run ubuntu:lazy --lazy --name quick
 ```
 
 How it works: beside the machine runs a small server process that shows the image as a file
@@ -168,9 +168,9 @@ first command inside the machine (devnet, a dozen endpoints):
 
 | | ordinary | lazy |
 |---|---|---|
-| Solinux (504 MB of files) | 15 s | 4 s |
-| Solinux minimal (90 MB of files) | 4 s | 2.4 s |
-| disk used after a shell, git, python and `apt-get update` (Solinux) | 665 MB | 76 MB |
+| Ubuntu (504 MB of files) | 15 s | 4 s |
+| Ubuntu minimal (90 MB of files) | 4 s | 2.4 s |
+| disk used after a shell, git, python and `apt-get update` (Ubuntu) | 665 MB | 76 MB |
 
 On a computer that has the image already, an ordinary machine starts in 0.2 s and a lazy one
 in under a second; lazy pays off on the first start, and for systems much larger than what
@@ -180,7 +180,7 @@ you use of them.
   is stored in a few large packs, and reading one file means fetching the pack it is in.
   Images published with `--lazy` are stored in many small packs, with the files that a start
   needs first; those are fetched ahead while the machine comes up. The official images have
-  such a variant under the tag `lazy` (`solinux:lazy`, `solinux-minimal:lazy`; amd64).
+  such a variant under the tag `lazy` (`ubuntu:lazy`, `ubuntu-minimal:lazy`; amd64).
 - **The first use of a program can pause** for a moment while its files arrive. After that
   it is as fast as in any machine, and nothing is fetched twice.
 - **It needs the network while files are still missing.** A machine that has read everything
@@ -201,7 +201,7 @@ machine, needs a disk with a kernel of its own, a boot loader and a partition ta
 `chainboot disk` writes a machine out as such a disk:
 
 ```sh
-chainboot run solinux --name pc
+chainboot run ubuntu --name pc
 root@pc:~# apt install -y linux-image-virtual systemd-boot-efi mtools dosfstools fdisk
 root@pc:~# passwd                     # somebody must be able to log in on the new computer
 root@pc:~# exit
@@ -230,7 +230,7 @@ Good to know:
 - **It is a copy of the machine as it is now.** The disk gets its own machine ID and its own
   SSH host keys, its own `/etc/fstab`, and takes its network settings by DHCP. Nothing links
   it back to the chain or to the machine.
-- **Size.** By default the disk is as small as the system allows (about 2.3 GB for Solinux
+- **Size.** By default the disk is as small as the system allows (about 2.3 GB for Ubuntu
   with a kernel). `--size 8G` makes it larger; on the new computer the root partition can be
   grown to fill a bigger disk (`growpart` and `resize2fs`).
 - **Which kernel.** `linux-image-virtual` is small and right for virtual machines.
@@ -289,7 +289,7 @@ On Linux you can also run an image built for a different processor if QEMU user 
 installed (`sudo apt install qemu-user-static binfmt-support` on Debian and Ubuntu):
 
 ```sh
-chainboot run solinux-minimal --arch arm64 --name armbox
+chainboot run ubuntu-minimal --arch arm64 --name armbox
 ```
 
 This is emulation, so it is much slower. It is useful for building and testing.
@@ -315,7 +315,7 @@ When a machine is set up the way you like it, you can make it an image and publi
 
 ```sh
 chainboot export web web.tar
-chainboot publish web.tar --name web --version 1.0 --reuse solinux --public --keypair me.json
+chainboot publish web.tar --name web --version 1.0 --reuse ubuntu --public --keypair me.json
 ```
 
 `export` writes the machine's complete file system as a tar archive. It leaves out what
