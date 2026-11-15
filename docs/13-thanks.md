@@ -26,6 +26,10 @@ running a validator is only possible because of you.
 - **Canonical and the Ubuntu community** for Ubuntu and for publishing a clean base archive
   that anyone may build on. **The Debian project**, on whose shoulders Ubuntu stands.
 - **The Alpine Linux developers**, for a complete Linux system in three megabytes.
+- **The Arch Linux developers and packagers**, for a distribution that is always current and
+  for `pacstrap`, which builds a system from nothing but their repositories.
+- **The authors of Linux From Scratch and Beyond Linux From Scratch.** Solinux, this
+  project's own distribution, is built from source along the way they have documented.
 - **Linus Torvalds and the thousands of Linux kernel developers.** Namespaces and overlayfs
   are the reason a machine can start in a fifth of a second.
 - **The util-linux maintainers** for `unshare`, `nsenter`, `mount` and `flock`.
@@ -42,6 +46,8 @@ running a validator is only possible because of you.
 
 - **The Node.js project**, whose built-in crypto and compression allowed a tool with no
   dependencies. **The TypeScript and esbuild teams.**
+- **Linus Torvalds, Junio C Hamano and the git developers.** git lets a small helper program
+  stand in for a server; that is all it took to make a ledger a git remote.
 - **The Wallet Standard authors** and the wallet teams (Phantom, Solflare, Backpack and
   others) for a common way to talk to wallets.
 - **Microsoft's WSL team, Docker, OrbStack, Podman and Lima**, who make a Linux kernel

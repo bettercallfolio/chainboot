@@ -208,8 +208,8 @@ hosting it needs no build step.
 
 chainboot stands on the work of many people: the engineers who built Solana and made large
 transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu,
-Debian and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard,
-Node.js and TypeScript. The full list is in [docs/13-thanks.md](docs/13-thanks.md).
+Debian, Arch Linux and Alpine communities, the Linux kernel and git developers, and the
+authors of xz, Zstandard, Node.js and TypeScript. The full list is in [docs/13-thanks.md](docs/13-thanks.md).
 
 ## Contact
 

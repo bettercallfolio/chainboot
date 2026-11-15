@@ -222,6 +222,7 @@ On Linux, `chainboot engine` shows whether machines run with or without administ
 | `~/.chainboot/images/` | unpacked systems |
 | `~/.chainboot/machines/` | your machines and their changes |
 | `~/.chainboot/vault/` | your login (encryption key and vault key); keep it private |
+| `~/.chainboot/git-keys.json` | keys of private git repositories that others shared with you; keep it private |
 
 Settings that chainboot takes from the environment:
 
@@ -232,6 +233,8 @@ Settings that chainboot takes from the environment:
 | `CHAINBOOT_KEYPAIR` | the keypair file for commands that take `--keypair` |
 | `CHAINBOOT_AUTOSAVE_MINUTES` | minutes between automatic saves of a running machine (default 10) |
 | `CHAINBOOT_ENGINE` | on Windows and macOS: which Linux environment to use (`wsl`, `docker`, `podman`, `lima`) |
+| `CHAINBOOT_SHARE_RPC` | `1` or `0`: whether a machine learns your RPC endpoints ([Machines](03-machines.md)) |
+| `CHAINBOOT_DEBUG` | `1` shows where an error comes from |
 | `NO_COLOR` | plain text without colours |
 
 `chainboot version` shows which version is installed.

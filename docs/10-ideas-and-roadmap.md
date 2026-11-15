@@ -22,7 +22,8 @@ Four building blocks, each usable alone through the [SDK](06-sdk.md):
 
 - A package repository on chain: `apt`, `npm` or `pip` packages whose bytes are verifiable
   by anyone and available as long as the ledger is. A package manager plugin could install
-  straight from signatures.
+  straight from signatures. ([Solinux](https://github.com/bettercallfolio/solinux) does this
+  for its own packages: `pkg install` reads a repository that is stored with chainboot.)
 - Release archives for open-source projects, with the publisher's key as the only authority.
   "Is this the binary the author published?" becomes a question with a mathematical answer.
 - Firmware and update channels for devices: the device knows one public key and one tag, and
