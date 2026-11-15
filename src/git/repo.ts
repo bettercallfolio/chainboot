@@ -123,7 +123,7 @@ export async function readRepo(store: ChainStore, owner: string, name: string, k
   return { owner, index, seq: record.seq };
 }
 
-export interface WriteOptions { journalDir?: string; commitment?: Commitment; onProgress?: (p: PutProgress) => void }
+export interface WriteOptions { journalDir?: string; commitment?: Commitment; onProgress?: (p: PutProgress) => void; /** fine tuning of the sender, for tests */ pollMs?: number }
 
 /** Stores an index and moves the repository's pointer to it. `key` for a private repository. */
 export async function writeRepo(store: ChainStore, signer: Keypair, index: RepoIndex, key?: Uint8Array, opts: WriteOptions = {}): Promise<void> {
@@ -131,7 +131,7 @@ export async function writeRepo(store: ChainStore, signer: Keypair, index: RepoI
   if (index.private && !key) throw new Error("a private repository cannot be written without its key");
   const plain = Buffer.from(JSON.stringify({ ...index, updated: Math.floor(Date.now() / 1000) }), "utf8");
   const data = index.private ? seal(key!, plain, "git-index") : plain;
-  const ref = await store.put(signer, data, { journalDir: opts.journalDir, commitment: opts.commitment });
+  const ref = await store.put(signer, data, { journalDir: opts.journalDir, commitment: opts.commitment, pollMs: opts.pollMs });
   const pointer: Pointer = { v: 1, i: { sig: ref.sig, size: ref.size, sha256: ref.sha256 }, ...(index.private && { p: 1 as const }) };
   await store.putPointer(signer, repoTag(signer.publicKey, index.name), Buffer.from(JSON.stringify(pointer), "utf8"), { commitment: opts.commitment });
 }
@@ -139,7 +139,7 @@ export async function writeRepo(store: ChainStore, signer: Keypair, index: RepoI
 /** Stores one pack file. */
 export async function putPack(store: ChainStore, signer: Keypair, pack: Uint8Array, objects: number, key?: Uint8Array, opts: WriteOptions = {}): Promise<PackEntry> {
   const data = key ? seal(key, pack, "git-pack") : Buffer.from(pack);
-  const ref = await store.put(signer, data, { journalDir: opts.journalDir, commitment: opts.commitment, onProgress: opts.onProgress });
+  const ref = await store.put(signer, data, { journalDir: opts.journalDir, commitment: opts.commitment, onProgress: opts.onProgress, pollMs: opts.pollMs });
   return { sig: ref.sig, size: ref.size, sha256: ref.sha256, bytes: pack.length, objects, time: Math.floor(Date.now() / 1000) };
 }
 
