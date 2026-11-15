@@ -16,27 +16,40 @@ const REPO = "https://github.com/bettercallfolio/chainboot";
 // leaves the reader out of the site. It was on while the repository was private.
 const PRELAUNCH = false;
 
-// The reader for browsers (web/reader + the bundled src/browser/reader.ts) becomes site/reader.
-// In pre-release mode it is not part of the site at all.
-async function buildReader(out = path.join(root, "site", "reader")) {
+// The pages for browsers (web/reader, web/git + the bundled scripts from src/browser) become
+// site/reader and site/git. In pre-release mode they are not part of the site at all.
+// The pages that read the chain in a browser: [directory under web/ and site/, entry point, name of the script].
+const PAGES = [["reader", "src/browser/reader.ts", "chainboot-reader.js"], ["git", "src/browser/git.ts", "chainboot-git.js"]];
+
+async function buildPage([dir, entry, script], out = path.join(root, "site", dir)) {
   if (PRELAUNCH) return false;
   const { build } = await import("esbuild");
   fs.mkdirSync(out, { recursive: true });
-  await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, "src/browser/reader.ts")], outfile: path.join(out, "chainboot-reader.js") });
-  for (const f of fs.readdirSync(path.join(root, "web/reader"))) fs.copyFileSync(path.join(root, "web/reader", f), path.join(out, f));
+  await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, entry)], outfile: path.join(out, script) });
+  for (const f of fs.readdirSync(path.join(root, "web", dir))) fs.copyFileSync(path.join(root, "web", dir, f), path.join(out, f));
   return true;
 }
+async function buildReader() {
+  let any = false;
+  for (const page of PAGES) any = (await buildPage(page)) || any;
+  return any;
+}
 
-/** The files of site/reader that differ from what the sources give now (for --check). */
+/** The files of site/reader and site/git that differ from what the sources give now (for --check). */
 async function staleReader() {
   const os = await import("node:os");
-  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "chainboot-reader-"));
-  try {
-    if (!(await buildReader(fresh))) return fs.existsSync(path.join(root, "site", "reader")) ? ["site/reader (not part of the site in pre-release mode)"] : [];
-    const live = path.join(root, "site", "reader");
-    const names = new Set([...fs.readdirSync(fresh), ...(fs.existsSync(live) ? fs.readdirSync(live) : [])]);
-    return [...names].filter((n) => !fs.existsSync(path.join(live, n)) || !fs.existsSync(path.join(fresh, n)) || !fs.readFileSync(path.join(live, n)).equals(fs.readFileSync(path.join(fresh, n)))).map((n) => `reader/${n}`);
-  } finally { fs.rmSync(fresh, { recursive: true, force: true }); }
+  const stale = [];
+  for (const page of PAGES) {
+    const dir = page[0];
+    const fresh = fs.mkdtempSync(path.join(os.tmpdir(), `chainboot-${dir}-`));
+    try {
+      const live = path.join(root, "site", dir);
+      if (!(await buildPage(page, fresh))) { if (fs.existsSync(live)) stale.push(`site/${dir} (not part of the site in pre-release mode)`); continue; }
+      const names = new Set([...fs.readdirSync(fresh), ...(fs.existsSync(live) ? fs.readdirSync(live) : [])]);
+      stale.push(...[...names].filter((n) => !fs.existsSync(path.join(live, n)) || !fs.existsSync(path.join(fresh, n)) || !fs.readFileSync(path.join(live, n)).equals(fs.readFileSync(path.join(fresh, n)))).map((n) => `${dir}/${n}`));
+    } finally { fs.rmSync(fresh, { recursive: true, force: true }); }
+  }
+  return stale;
 }
 
 const GITHUB_MARK = '<svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
@@ -158,7 +171,8 @@ const SUMMARY = {
   "09-security": "What you trust, what you do not have to, and where the limits are.",
   "10-ideas-and-roadmap": "What else can be built with these parts, and what comes next.",
   "11-faq": "Common questions and what to do when something goes wrong.",
-  "12-thanks": "The people and projects chainboot stands on.",
+  "12-git": "Repositories on chain for plain git: private and public, issues, pull requests, a page for browsers.",
+  "13-thanks": "The people and projects chainboot stands on.",
 };
 
 const files = fs.readdirSync(docsDir).filter((f) => /^\d\d-.*\.md$/.test(f)).sort();
@@ -241,7 +255,7 @@ docs.forEach((d, i) => {
 });
 pages.set("index.html", page({
   title: "Documentation", description: "Guides for chainboot: getting started, how it works, saving, publishing, the SDK, the on-chain format, security.", current: "index",
-  body: `<p class="label"># docs</p>\n<h1>Documentation</h1>\n<p>Twelve short guides, written in plain language. Start with the first two; the rest can be read in any order.</p>\n<ol class="doc-list">\n${docs.map((d) => `<li><a href="${d.name}.html"><span class="num">${d.number}</span><span><b>${esc(d.title)}</b><span>${esc(SUMMARY[d.name] ?? "")}</span></span></a></li>`).join("\n")}\n</ol>`,
+  body: `<p class="label"># docs</p>\n<h1>Documentation</h1>\n<p>Thirteen short guides, written in plain language. Start with the first two; the rest can be read in any order.</p>\n<ol class="doc-list">\n${docs.map((d) => `<li><a href="${d.name}.html"><span class="num">${d.number}</span><span><b>${esc(d.title)}</b><span>${esc(SUMMARY[d.name] ?? "")}</span></span></a></li>`).join("\n")}\n</ol>`,
 }));
 
 if (process.argv.includes("--check")) {
@@ -253,11 +267,11 @@ if (process.argv.includes("--check")) {
     console.error(`the site is out of date (${[...stale, ...extra, ...reader].join(", ")}). Run: npm run site`);
     process.exit(1);
   }
-  console.log(`site/docs is up to date (${pages.size} pages)${PRELAUNCH ? "" : ", and so is site/reader"}`);
+  console.log(`site/docs is up to date (${pages.size} pages)${PRELAUNCH ? "" : ", and so are site/reader and site/git"}`);
 } else {
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
   for (const [name, html] of pages) fs.writeFileSync(path.join(outDir, name), html);
   console.log(`wrote ${pages.size} pages to site/docs`);
-  if (await buildReader()) console.log("wrote the reader to site/reader");
+  if (await buildReader()) console.log("wrote the reader and the git page to site/reader and site/git");
 }

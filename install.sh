@@ -76,7 +76,7 @@ done
 [ "$PURGE" = 0 ] || [ "$UNINSTALL" = 1 ] || die "--purge goes with --uninstall (it deletes your machines, settings and logins)"
 
 if [ "$UNINSTALL" = 1 ]; then
-  rm -f "$BIN_DIR/chainboot"
+  rm -f "$BIN_DIR/chainboot" "$BIN_DIR/git-remote-sol"
   rm -rf "$APP_DIR" "$RUNTIME_DIR"
   ok "removed the chainboot program"
   if [ "$PURGE" = 1 ]; then
@@ -183,6 +183,12 @@ echo "chainboot: Node.js was not found any more. Run the chainboot installer aga
 exit 127
 EOF
 chmod 755 "$BIN_DIR/chainboot"
+# git looks for a program of this name when it meets a sol:// address (git clone sol://owner/name)
+cat > "$BIN_DIR/git-remote-sol" <<EOF
+#!/bin/sh
+exec "$BIN_DIR/chainboot" git-remote "\$@"
+EOF
+chmod 755 "$BIN_DIR/git-remote-sol"
 ok "installed chainboot $VERSION"
 
 # ---- what is still needed

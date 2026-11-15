@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Git on chain · chainboot docs</title>
+<meta name="description" content="Repositories on chain for plain git: private and public, issues, pull requests, a page for browsers.">
+<meta name="theme-color" content="#121416">
+<link rel="canonical" href="https://chainboot.dev/docs/12-git.html">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body class="docs-page">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap bar">
+    <a class="logo" href="../index.html" aria-label="chainboot, home">chainboot<span class="cursor" aria-hidden="true"></span></a>
+    <nav aria-label="Site">
+      <a href="../index.html#how">how it works</a>
+      <a href="../index.html#systems">systems</a>
+      <a href="../index.html#save">save</a>
+      <a href="../index.html#publish">publish</a>
+      <a href="../index.html#sdk">sdk</a>
+      <a href="../reader/">reader</a>
+      <a href="index.html" aria-current="page">docs</a>
+    </nav>
+    <div class="bar-end">
+      <a class="btn small" href="https://github.com/bettercallfolio/chainboot" rel="noopener" aria-label="chainboot on GitHub"><svg class="gh" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span>GitHub</span></a>
+      <a class="btn primary small" href="../index.html#install">install</a>
+    </div>
+  </div>
+</header>
+<div class="wrap docs">
+  <aside class="side" aria-label="Documentation">
+    <button class="btn small side-toggle" type="button" aria-expanded="false" aria-controls="side-list">All guides</button>
+    <ol id="side-list">
+        <li><a href="index.html"><span class="num">00</span>Overview</a></li>
+        <li><a href="01-getting-started.html"><span class="num">01</span>Getting started</a></li>
+        <li><a href="02-how-it-works.html"><span class="num">02</span>How it works</a></li>
+        <li><a href="03-machines.html"><span class="num">03</span>Machines</a></li>
+        <li><a href="04-saving.html"><span class="num">04</span>Saving to chain</a></li>
+        <li><a href="05-publishing.html"><span class="num">05</span>Publishing your own system</a></li>
+        <li><a href="06-sdk.html"><span class="num">06</span>The SDK</a></li>
+        <li><a href="07-format.html"><span class="num">07</span>The on-chain format</a></li>
+        <li><a href="08-networks-and-costs.html"><span class="num">08</span>Networks and costs</a></li>
+        <li><a href="09-security.html"><span class="num">09</span>Security</a></li>
+        <li><a href="10-ideas-and-roadmap.html"><span class="num">10</span>Ideas and roadmap</a></li>
+        <li><a href="11-faq.html"><span class="num">11</span>Questions and problems</a></li>
+        <li class="here"><a href="12-git.html" aria-current="page"><span class="num">12</span>Git on chain</a><ul><li><a href="#how-it-works">How it works</a></li><li><a href="#a-private-repository">A private repository</a></li><li><a href="#a-public-repository">A public repository</a></li><li><a href="#everyday-git">Everyday git</a></li><li><a href="#working-together-forks-pull-requests-issues">Working together: forks, pull requests, issues</a></li><li><a href="#in-a-browser">In a browser</a></li><li><a href="#what-it-costs">What it costs</a></li><li><a href="#limits-honestly">Limits, honestly</a></li></ul></li>
+        <li><a href="13-thanks.html"><span class="num">13</span>Thank you</a></li>
+    </ol>
+  </aside>
+  <main id="main" class="prose">
+<p class="label"># docs / 12</p>
+<h1>Git on chain</h1>
+<p>A git repository can live on the chain, the same way a system does. You keep using git: <code>git clone</code>, <code>git push</code>, <code>git pull</code>. The remote is not a server; it is the ledger.</p>
+<div class="code-wrap"><pre><code>git remote add origin sol://me/notes
+git push -u origin main</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>This guide covers repositories, private and public ones, issues and pull requests, and the page that shows a repository in a browser.</p>
+<h2 id="how-it-works"><a class="anchor" href="#how-it-works" aria-hidden="true" tabindex="-1">#</a>How it works</h2>
+<p>chainboot brings a small program, <code>git-remote-sol</code>. git starts it whenever it meets an address that begins with <code>sol://</code>. Nothing else about git changes.</p>
+<ul><li><strong>A push</strong> makes one git pack file of the commits and files the chain does not have yet, and stores it the way chainboot stores everything: in transactions, checked by hash.</li><li><strong>The list of branches</strong> is a small record that says which commit each branch and tag points at, and which packs make up the repository. Each push stores a new one.</li><li><strong>A pointer</strong> under an address made from the owner's key and the repository's name says which list is the newest. Only the owner's key can move it. That is what makes <code>main</code> the owner's <code>main</code>: nobody else can push to it, and no endpoint can pass off another list.</li><li><strong>A clone or a fetch</strong> reads the pointer, then the list, then the packs it does not have.</li></ul>
+<p>A repository's address is <code>sol://&lt;owner&gt;/&lt;name&gt;</code>. The owner is an address, a name you saved with <code>chainboot publisher add</code>, or <code>me</code> for the wallet you are signed in with.</p>
+<h2 id="a-private-repository"><a class="anchor" href="#a-private-repository" aria-hidden="true" tabindex="-1">#</a>A private repository</h2>
+<p>Private is the default, as everywhere in chainboot. Sign in once, give your vault a little SOL, and push:</p>
+<div class="code-wrap"><pre><code>chainboot login
+chainboot fund 0.05
+
+cd my-project
+git remote add origin sol://me/my-project
+git push -u origin main          <span class="c"># the first push creates it</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The packs and the list of branches are encrypted with a key that comes from your wallet's key and the repository's name. On another computer: <code>chainboot login</code>, then <code>git clone sol://me/my-project</code>.</p>
+<p>To let somebody else read it, send them its key. They tell you their share address (<code>chainboot whoami</code> shows it):</p>
+<div class="code-wrap"><pre><code>chainboot git share my-project --with share_7y31WZ…</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>They run <code>chainboot git shared</code>, keep it with <code>chainboot git shared accept 1</code>, and clone it with the address that command prints. They can read what you push later, too. This cannot be taken back: the ledger keeps the data, and they keep the key.</p>
+<h2 id="a-public-repository"><a class="anchor" href="#a-public-repository" aria-hidden="true" tabindex="-1">#</a>A public repository</h2>
+<p>A repository that everybody can read is created on purpose:</p>
+<div class="code-wrap"><pre><code>chainboot git create my-project --public --description &quot;What it is&quot;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Its owner is the wallet you are signed in with. Or a keypair file, for a project that is not tied to one person's wallet:</p>
+<div class="code-wrap"><pre><code>chainboot git create my-project --public --keypair project.json
+git config chainboot.keypair /path/to/project.json     <span class="c"># in your clone: the key that pushes</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Then <code>git remote add origin sol://&lt;address&gt;/my-project</code> and push. Anybody clones it with <code>git clone sol://&lt;address&gt;/my-project</code>; they need chainboot installed and an RPC endpoint, nothing else.</p>
+<p><strong>Think before you push to a public repository.</strong> Data on a ledger cannot be erased. A password that was committed stays readable for ever, also after the branch is deleted or pushed over with <code>git push --force</code>.</p>
+<h2 id="everyday-git"><a class="anchor" href="#everyday-git" aria-hidden="true" tabindex="-1">#</a>Everyday git</h2>
+<p>Everything that goes through a remote works as you know it:</p>
+<div class="code-wrap"><pre><code>git push                         <span class="c"># refused when the chain has commits you do not have: git pull first</span>
+git push --force origin topic    <span class="c"># replaces the branch (the old commits stay on the ledger)</span>
+git push origin --delete topic
+git push origin v1.0             <span class="c"># tags</span>
+git pull, git fetch, git clone
+chainboot git info               <span class="c"># branches, size on chain, last push</span>
+chainboot git list               <span class="c"># your repositories</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<h2 id="working-together-forks-pull-requests-issues"><a class="anchor" href="#working-together-forks-pull-requests-issues" aria-hidden="true" tabindex="-1">#</a>Working together: forks, pull requests, issues</h2>
+<p>Only the owner's key moves a repository's branches. Everybody else works the way open source works: in a repository of their own, and by asking.</p>
+<div class="code-wrap"><pre><code>git clone sol://&lt;their-address&gt;/project &amp;&amp; cd project
+chainboot git create project --public            <span class="c"># your own copy on chain</span>
+git remote rename origin upstream
+git remote add origin sol://me/project
+git switch -c fix-typo
+<span class="c"># ... commit ...</span>
+git push -u origin fix-typo
+chainboot git pr new --title &quot;Fix a typo in the README&quot; --body &quot;Found while reading.&quot;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>The owner sees it, looks at it, and merges it:</p>
+<div class="code-wrap"><pre><code>chainboot git pr list
+chainboot git pr show 4
+chainboot git pr fetch 4         <span class="c"># the commits, as the local branch pr-4</span>
+chainboot git pr merge 4         <span class="c"># merges into its branch, pushes, marks it merged</span></code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>Issues work the same way:</p>
+<div class="code-wrap"><pre><code>chainboot git issue new --title &quot;It does not build on ARM&quot; --body-file report.txt
+chainboot git issue list
+chainboot git issue show 3
+chainboot git issue comment 3 --body &quot;Which compiler version?&quot;
+chainboot git issue close 3</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>These commands use the repository of the directory you are in (the remote <code>upstream</code>, or <code>origin</code>). Anywhere else, name it: <code>--repo sol://&lt;owner&gt;/&lt;name&gt;</code>.</p>
+<p>What happens on chain: every repository has an address that anybody may write to. An issue, a pull request, a comment or a change of state is one small transaction there, signed by whoever wrote it. The ledger keeps them in the order they arrived, so the first one is #1 for everybody. A change of state counts only when it comes from the repository's owner or from the author of the issue; &quot;merged&quot; only from the owner. Nobody can delete what somebody else wrote, the owner included, and anybody can write: a program that shows the records decides what to show.</p>
+<h2 id="in-a-browser"><a class="anchor" href="#in-a-browser" aria-hidden="true" tabindex="-1">#</a>In a browser</h2>
+<p><a href="https://chainboot.dev/git/" rel="noopener">chainboot.dev/git</a> shows a public repository: files, the README, history, what a commit changed, issues and pull requests. It reads the chain itself, in your browser, through the RPC endpoints you give it, and checks what it reads. A link to a repository looks like this:</p>
+<div class="code-wrap"><pre><code>https://chainboot.dev/git/#r=&lt;owner's address&gt;/&lt;name&gt;</code></pre><button class="copy" type="button" aria-label="Copy this block">copy</button></div>
+<p>With a wallet in the browser you can open an issue, comment, and close what is yours. The wallet signs one small transaction; the page sends it. One transaction holds about a thousand characters; longer texts are written with <code>chainboot git issue new --body-file</code>.</p>
+<p>The page is a few static files (<code>dist/git/</code> after a build), so anybody can host it, or open it from their own disk.</p>
+<h2 id="what-it-costs"><a class="anchor" href="#what-it-costs" aria-hidden="true" tabindex="-1">#</a>What it costs</h2>
+<p>A push pays for the pack it stores: about 0.0013 SOL per megabyte, plus a fraction of a cent for the list of branches and the pointer. git compresses well, so source code is cheap: a project with a megabyte of history costs about 0.0013 SOL to put on chain, and later pushes only pay for what is new. An issue or a comment is one transaction (0.000005 SOL).</p>
+<h2 id="limits-honestly"><a class="anchor" href="#limits-honestly" aria-hidden="true" tabindex="-1">#</a>Limits, honestly</h2>
+<ul><li><strong>Nothing can be deleted.</strong> See above.</li><li><strong>Large files are expensive and slow</strong>, as they are in git itself. There is no LFS.</li><li><strong>One writer per repository.</strong> Shared write access for a team (several keys that may move the same branches) is not there yet. Teams use pull requests.</li><li><strong>Every push adds a pack.</strong> After hundreds of pushes a clone fetches hundreds of small packs. Repacking a repository on chain is not there yet.</li><li><strong>Anybody can open issues</strong>, so anybody can write nonsense under a repository. The page and the command show everything.</li><li><strong>The browser page reads public repositories only</strong>, and has been tried with a simulated wallet, not yet with a real one.</li><li>git on Windows starts <code>git-remote-sol</code> through Git for Windows' own shell. This is written but not yet tried on a real Windows computer.</li></ul>
+<nav class="pager" aria-label="More guides"><a class="pager-prev" href="11-faq.html"><span>previous</span>Questions and problems</a><a class="pager-next" href="13-thanks.html"><span>next</span>Thank you</a></nav>
+<p class="source" data-public><a href="https://github.com/bettercallfolio/chainboot/blob/main/docs/12-git.md" rel="noopener">Edit this page on GitHub</a></p>
+  </main>
+</div>
+<footer>
+  <div class="wrap foot">
+    <div><span class="logo">chainboot</span><span class="dim">MIT license</span></div>
+    <nav aria-label="Links"><a href="../index.html">home</a><a href="index.html">docs</a><a href="mailto:hello@chainboot.dev">hello@chainboot.dev</a><a href="https://github.com/bettercallfolio/chainboot" data-public>github</a></nav>
+  </div>
+</footer>
+<script src="../docs.js"></script>
+</body>
+</html>

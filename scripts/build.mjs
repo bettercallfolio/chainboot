@@ -24,6 +24,9 @@ fs.writeFileSync(path.join(dist, "VERSION"), pkg.version + "\n");
 // the reader for browsers: one script without dependencies, and the page that uses it
 await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, "src/browser/reader.ts")], outfile: path.join(dist, "reader/chainboot-reader.js") });
 for (const f of fs.readdirSync(path.join(root, "web/reader"))) fs.copyFileSync(path.join(root, "web/reader", f), path.join(dist, "reader", f));
+// the same for git repositories: browse one, read and write its issues
+await build({ bundle: true, platform: "browser", format: "esm", target: "es2022", legalComments: "none", minify: true, entryPoints: [path.join(root, "src/browser/git.ts")], outfile: path.join(dist, "git/chainboot-git.js") });
+for (const f of fs.readdirSync(path.join(root, "web/git"))) fs.copyFileSync(path.join(root, "web/git", f), path.join(dist, "git", f));
 
 // type declarations for SDK users
 execFileSync(process.execPath, [path.join(root, "node_modules/typescript/bin/tsc"), "-p", path.join(root, "tsconfig.build.json")], { stdio: "inherit" });

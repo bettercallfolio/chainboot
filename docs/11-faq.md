@@ -154,4 +154,4 @@ Run the command with the environment variable `CHAINBOOT_DEBUG=1` to see where t
 comes from, and open an issue with that output or write to hello@chainboot.dev. Never paste
 your endpoint URLs or key files.
 
-Next: [Thank you](12-thanks.md).
+Next: [Git on chain](12-git.md).

@@ -228,7 +228,7 @@ export interface FileEntry { path: string; type: "d" | "f" | "l" | "h" | "c" | "
 export interface Progress { done: number; total: number; bytes: number; size: number }
 
 /** A pointer record: what its writer put there, and the sequence number they signed with it (0 for records written before there was one). */
-export interface PointerRecord { payload: Uint8Array; signature: string; slot: number; blockTime: number | null; seq: bigint; account?: string }
+export interface PointerRecord { payload: Uint8Array; signature: string; slot: number; blockTime: number | null; seq: bigint; account?: string; /** the key that wrote it (given where records of anybody are listed) */ payer?: Uint8Array }
 interface Candidate { signature: string; slot: number; votes: number; mentions: number; order: number }
 
 export class TrustError extends Error {
@@ -543,6 +543,27 @@ export class Reader {
     return inTransactions;
   }
 
+  /**
+   * Every pointer record under `tag`, newest first, whoever wrote it (each says who: `payer`).
+   * For tags that anybody may write to, such as a repository's issues: what a record says is
+   * for the reader to judge.
+   */
+  async pointers(tag: Uint8Array, opts: { max?: number; signal?: AbortSignal } = {}): Promise<PointerRecord[]> {
+    const max = opts.max ?? 5000;
+    const all: PointerRecord[] = [];
+    let before: string | undefined;
+    while (all.length < max) {
+      const page = await this.#page(tag, POINTER_PAGE, before, opts.signal);
+      for (let at = 0; at < page.candidates.length; at += 8) {
+        const records = await Promise.all(page.candidates.slice(at, at + 8).map((c) => this.#record(c, tag, undefined, page.lists > 1, opts.signal)));
+        for (const r of records) if (r) all.push(r);
+      }
+      if (!page.next) break;
+      before = page.next;
+    }
+    return all.slice(0, max);
+  }
+
   /** One page of the history of `tag`, merged from up to three endpoints: candidates for pointer records, newest first. */
   async #page(tag: Uint8Array, limit: number, before: string | undefined, signal?: AbortSignal): Promise<{ candidates: Candidate[]; lists: number; next: string | undefined }> {
     type Listed = { signature: string; err: unknown; slot?: number };
@@ -582,16 +603,16 @@ export class Reader {
   }
 
   /** The pointer record a listed transaction holds, or null when it is none. */
-  async #record(c: Candidate, tag: Uint8Array, signers: Uint8Array[], several: boolean, signal?: AbortSignal): Promise<PointerRecord | null> {
+  async #record(c: Candidate, tag: Uint8Array, signers: Uint8Array[] | undefined, several: boolean, signal?: AbortSignal): Promise<PointerRecord | null> {
     try {
       const { tx, slot, blockTime } = await this.#tx(b58decode(c.signature, SIG), signers, true, signal);
       // the transaction must name the tag itself: an endpoint could list a pointer from somewhere else under it
       if (!tx.keys.some((k) => equal(k, tag))) return null;
       const data = tx.data;
       if (!data || data[1] !== KIND_POINTER) return null;
-      if (data[2] === 1) return { payload: data.slice(3), signature: c.signature, slot, blockTime, seq: 0n };
+      if (data[2] === 1) return { payload: data.slice(3), signature: c.signature, slot, blockTime, seq: 0n, payer: tx.payer };
       if (data[2] !== POINTER_VERSION || data.length < POINTER_HEAD) return null;
-      return { payload: data.slice(POINTER_HEAD), signature: c.signature, slot, blockTime, seq: new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(3, true) };
+      return { payload: data.slice(POINTER_HEAD), signature: c.signature, slot, blockTime, seq: new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(3, true), payer: tx.payer };
     } catch (e) {
       if (signal?.aborted) throw e;
       if (e instanceof TrustError) return null; // somebody else wrote under this tag

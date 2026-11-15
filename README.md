@@ -109,6 +109,21 @@ chainboot login
 chainboot run ubuntu           # brings your machine back and opens it
 ```
 
+## Git, with the chain as the remote
+
+```sh
+git remote add origin sol://me/notes       # "me": the wallet you are signed in with
+git push -u origin main                    # the first push creates it, private and encrypted
+git clone sol://HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu/chainboot              # this project's own source, from Solana
+chainboot git pr new --title "Fix the typo"
+```
+
+chainboot brings a helper that git starts for every `sol://` address, so `git clone`,
+`git push` and `git pull` work as always. Issues and pull requests are small transactions
+signed by their authors. A page shows a repository in the browser:
+[chainboot.dev/git](https://chainboot.dev/git/#r=HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu/chainboot). See
+[Git on chain](docs/12-git.md).
+
 ## What is on chain right now (devnet)
 
 | Image | What it is | Download | On disk | Cost to publish |
@@ -147,6 +162,8 @@ Desktop: http://127.0.0.1:7654/#token=…
 | Lists that several publishers keep together (`list:2:A,B,C`, `chainboot endorse`) | Works. Tested on devnet with three keys. |
 | Pointers in accounts (`chainboot accounts on`): one request finds the newest catalog or save | Works. Tested on devnet. |
 | Lazy machines (`chainboot run <image> --lazy`): start at once, fetch files when they are first read | Works. Tested with Ubuntu, with `sudo` and without administrator rights, also with `--boot`. |
+| Git repositories (`sol://owner/name`): clone, push, fetch, private and public, shared with another wallet | Works. Tested on devnet with git 2.53 and two wallets. |
+| Issues and pull requests on chain (`chainboot git issue`, `chainboot git pr`), the page for browsers | Works. Tested on devnet; writing from the page tested with a simulated wallet, **not yet with a real browser wallet.** |
 | Bootable disks (`chainboot disk`): a machine as a UEFI disk with its own kernel | Works. Ubuntu was built and booted in QEMU with UEFI firmware; **not yet tried on real hardware.** |
 | Machines that serve a page to your browser (the Solinux desktop) | Works on Linux, directly and through the Docker engine. A whole session was tested in a real browser on a machine from the chain. **Not yet tried on a real Mac or Windows computer.** |
 | Web interface, wallet sign-in | Works. Tested with a simulated wallet; **not yet tried with a real browser wallet.** |
@@ -178,7 +195,8 @@ Known limits, so nothing surprises you:
 9. [Security](docs/09-security.md): what you trust and what you do not have to
 10. [Ideas and roadmap](docs/10-ideas-and-roadmap.md): what else this can become
 11. [Questions and problems](docs/11-faq.md)
-12. [Thank you](docs/12-thanks.md)
+12. [Git on chain](docs/12-git.md): repositories for plain git, issues, pull requests
+13. [Thank you](docs/13-thanks.md)
 
 ## Website
 
@@ -191,7 +209,7 @@ hosting it needs no build step.
 chainboot stands on the work of many people: the engineers who built Solana and made large
 transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu,
 Debian and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard,
-Node.js and TypeScript. The full list is in [docs/12-thanks.md](docs/12-thanks.md).
+Node.js and TypeScript. The full list is in [docs/13-thanks.md](docs/13-thanks.md).
 
 ## Contact
 

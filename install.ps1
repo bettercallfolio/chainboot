@@ -131,6 +131,9 @@ try {
   $oem = [Text.Encoding]::ASCII
   try { $oem = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage) } catch { }
   [IO.File]::WriteAllText((Join-Path $BinDir "chainboot.cmd"), $cmd + "`r`n", $oem)
+  # git looks for a program of this name when it meets a sol:// address. Git for Windows starts
+  # it with its own shell, so it is a shell script (no ending, Unix line ends).
+  [IO.File]::WriteAllText((Join-Path $BinDir "git-remote-sol"), "#!/bin/sh`nexec `"`$(dirname `"`$0`")/chainboot.cmd`" git-remote `"`$@`"`n", [Text.Encoding]::ASCII)
   if (-not (PathHas $BinDir)) {
     [Environment]::SetEnvironmentVariable("Path", (([Environment]::GetEnvironmentVariable("Path", "User")).TrimEnd(";") + ";" + $BinDir).TrimStart(";"), "User")
     $env:Path = "$env:Path;$BinDir"

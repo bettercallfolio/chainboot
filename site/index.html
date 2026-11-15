@@ -25,6 +25,7 @@
       <a href="#systems">systems</a>
       <a href="#save">save</a>
       <a href="#publish">publish</a>
+      <a href="#git">git</a>
       <a href="#sdk">sdk</a>
       <a href="reader/">reader</a>
       <a href="docs/index.html">docs</a>
@@ -222,6 +223,38 @@
   </div>
 </section>
 
+<section class="wrap" id="git">
+  <p class="label"># git push, to the chain</p>
+  <h2>Your repository. No server.</h2>
+  <div class="cols even">
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>git</span></div>
+<pre class="term-body"><span class="c"># plain git; the remote is the ledger</span>
+<span class="p">$</span> git remote add origin sol://me/notes
+<span class="p">$</span> git push -u origin main
+<span class="o">chainboot: storing 42 objects (18.3 kB) on chain</span>
+<span class="ok"> * [new branch]</span><span class="o">      main -> main</span>
+
+<span class="c"># anybody, anywhere</span>
+<span class="p">$</span> git clone sol://&lt;address&gt;/chainboot
+
+<span class="c"># issues and pull requests are transactions</span>
+<span class="p">$</span> chainboot git pr new --title "Fix the typo"
+<span class="ok">✔</span> <span class="o">opened #4</span></pre>
+    </div>
+    <div>
+      <p class="lead small">chainboot brings a helper that git starts for every <code>sol://</code> address. A push stores one pack of what is new; a pointer that only the owner's key can move says where each branch is.</p>
+      <ul class="ticks">
+        <li><b>Private by default.</b> The first push of a signed-in wallet makes an encrypted repository. Share its key with another wallet when you want to.</li>
+        <li><b>Issues and pull requests on chain.</b> Each one is a small transaction signed by its author, numbered by the order the ledger gives them.</li>
+        <li><b>Browse it without git.</b> <a href="git/#r=HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu/chainboot">This project's own source</a> and <a href="git/#r=HM4msDau4mPX9P2qinBPTGKiU1TZW5e86jTukeufr5uu/solinux">Solinux's</a>, read from Solana in your browser.</li>
+        <li><b>Nothing to host, nothing to take down.</b> And nothing to delete: think before you push to a public repository.</li>
+      </ul>
+      <p><a href="docs/12-git.html">The git guide</a></p>
+    </div>
+  </div>
+</section>
+
 <section class="wrap" id="sdk">
   <p class="label"># the sdk</p>
   <h2>Four building blocks. No dependencies.</h2>
@@ -304,7 +337,7 @@
 
 <section class="wrap thanks" id="thanks">
   <p class="label"># thank you</p>
-  <p>chainboot stands on the work of the engineers who built Solana and made 4096-byte transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu, Debian, Arch Linux and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard, Node.js and TypeScript. <a href="docs/12-thanks.html">The full list.</a></p>
+  <p>chainboot stands on the work of the engineers who built Solana and made 4096-byte transactions possible, the RPC providers who serve the ledger, Canonical and the Ubuntu, Debian, Arch Linux and Alpine communities, the Linux kernel developers, and the authors of xz, Zstandard, Node.js and TypeScript. <a href="docs/13-thanks.html">The full list.</a></p>
 </section>
 
 </main>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chainboot git: repositories on Solana</title>
+<meta name="description" content="Browse a git repository that is stored on Solana: files, history, issues and pull requests. This page reads the chain itself; no server of ours is involved.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23121416'/%3E%3Crect x='4' y='3' width='8' height='10' fill='%2386c7a4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="git.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="logo" href="../">chainboot<span class="cursor"></span></a>
+    <span class="dim">git</span>
+    <span class="grow"></span>
+    <button id="wallet" class="btn small" type="button">Connect wallet</button>
+  </div>
+</header>
+<main class="wrap">
+  <section class="panel" id="open-panel" aria-labelledby="h-open">
+    <h1 id="h-open">A git repository, read from Solana</h1>
+    <p class="lead">This page finds a repository on the chain, fetches its packs and checks them: the list of branches by its owner's signature, everything else by SHA-256. It talks only to the RPC endpoints named below.</p>
+    <div class="grid">
+      <label for="repo">Repository <span class="dim">(owner's address / name)</span></label>
+      <input id="repo" type="text" spellcheck="false" autocomplete="off" placeholder="&lt;address&gt;/&lt;name&gt;">
+      <label for="endpoints">RPC endpoints <span class="dim">(one per line)</span></label>
+      <textarea id="endpoints" rows="2" spellcheck="false" autocomplete="off"></textarea>
+    </div>
+    <div class="row">
+      <button id="open" class="btn primary" type="button">Open</button>
+      <span id="status" class="dim" role="status" aria-live="polite"></span>
+    </div>
+    <p class="hint">The public devnet endpoint is free and slow. An endpoint of your own (many providers have a free plan) is much faster; they are kept in this browser only.</p>
+  </section>
+
+  <section id="repo-view" hidden>
+    <div class="repo-head">
+      <div>
+        <h1 id="repo-name"></h1>
+        <p id="repo-description" class="dim"></p>
+      </div>
+      <div class="clone">
+        <code id="clone"></code>
+        <button id="copy" class="btn small" type="button">Copy</button>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Sections">
+      <a id="tab-files" href="#">Files</a>
+      <a id="tab-commits" href="#">Commits</a>
+      <a id="tab-talk" href="#">Issues and pull requests</a>
+      <span class="grow"></span>
+      <label class="ref" for="ref">branch</label>
+      <select id="ref" aria-label="Branch or tag"></select>
+    </nav>
+    <div id="view"></div>
+  </section>
+
+  <p class="foot dim">Everything shown here was written by the repository's owner and by other people: names, texts and files are untrusted and are shown as text only. Writing an issue or a comment sends one small transaction from your own wallet, on the network of the endpoints above.</p>
+</main>
+<script type="module" src="page.js"></script>
+</body>
+</html>
