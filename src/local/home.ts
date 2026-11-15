@@ -91,18 +91,29 @@ export function saveConfig(c: Config): void {
 export const MACHINE_CONFIG = "/run/chainboot/config.json";
 
 /**
+ * Endpoints that come with a system: a distribution may name some (public ones), so that
+ * chainboot works there before its user has added their own. They are used last.
+ */
+export const SYSTEM_CONFIG = "/etc/chainboot/config.json";
+
+/**
  * RPC URLs for the active network: CHAINBOOT_RPC (comma or space separated) wins over the
- * config file; in a machine that has none of its own, the endpoints it was started with.
+ * config file; where that names none, the endpoints a machine was started with, and last
+ * the ones the system brings.
  */
 export function rpcUrls(c: Config): string[] {
   const env = process.env.CHAINBOOT_RPC?.split(/[\s,]+/).filter(Boolean);
   if (env?.length) return env;
   const own = c.rpcs[c.cluster] ?? [];
   if (own.length) return own;
-  try {
-    const given = (JSON.parse(fs.readFileSync(MACHINE_CONFIG, "utf8")) as { rpcs?: Record<string, unknown> }).rpcs?.[c.cluster];
-    return Array.isArray(given) ? given.filter((u): u is string => typeof u === "string") : [];
-  } catch { return []; }
+  for (const file of [MACHINE_CONFIG, SYSTEM_CONFIG]) {
+    try {
+      const given = (JSON.parse(fs.readFileSync(file, "utf8")) as { rpcs?: Record<string, unknown> }).rpcs?.[c.cluster];
+      const urls = Array.isArray(given) ? given.filter((u): u is string => typeof u === "string") : [];
+      if (urls.length) return urls;
+    } catch { /* no such file */ }
+  }
+  return [];
 }
 
 export const NO_RPC_HELP = `No RPC endpoint is configured yet.

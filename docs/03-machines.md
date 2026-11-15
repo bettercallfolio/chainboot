@@ -87,7 +87,10 @@ through: inside a container `CHAINBOOT_PORTS` lists the ones that are (for examp
   An endpoint address can carry a paid key, so only machines from the official catalog, from
   your own private images and from publishers you saved a name for
   (`chainboot publisher add <name> <address>`) get it. `CHAINBOOT_SHARE_RPC=1` gives it to
-  any machine you start, `CHAINBOOT_SHARE_RPC=0` to none.
+  any machine you start, `CHAINBOOT_SHARE_RPC=0` to none. (A system can also bring endpoints
+  of its own in `/etc/chainboot/config.json`, in the same form as `~/.chainboot/config.json`;
+  chainboot inside it uses them when nothing better is known. Solinux names the network's
+  public endpoint there.)
 - **Its own SSH host keys and machine ID**, created at first start (images do not carry them).
 
 What a machine is **not**:
