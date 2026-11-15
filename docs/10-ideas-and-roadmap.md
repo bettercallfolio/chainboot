@@ -111,6 +111,9 @@ and on Linux. The list below is in rough order of importance.
 
 - Lazy machines that keep fetching in the background until the image is complete, and
   lazy variants of the official images for ARM64.
+- Solinux for ARM64 (it is built for amd64 only today).
+- Git on chain: repositories that several keys may push to, repacking a repository that
+  has many small packs, texts longer than one transaction written from the browser page.
 
 **Later**
 

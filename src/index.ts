@@ -40,3 +40,9 @@ export {
 export { shareImage, shareMachine, listShares, acceptImage, acceptMachine, cleanShareRecord, myShareAddress, type ShareRecord, type Received } from "./share/share.ts";
 export { scanMachine, type ScanResult, type Change } from "./state/scan.ts";
 export { saveSnapshot, readHead, readSnapshot, snapshotBySeq, checkSnapshot, readIndex, loadPacks, applySnapshot, type Snapshot, type Head } from "./state/snapshot.ts";
+
+// Git repositories on chain: the index and packs of a repository, issues and pull requests,
+// and a reader for git's pack files that needs no git
+export { readRepo, writeRepo, putPack, getPack, listRepos, noteRepo, repoKey, emptyIndex, checkRepoName, PrivateRepoError, type Repo, type RepoIndex, type PackEntry } from "./git/repo.ts";
+export { postTalk, readTalk, cleanRecord, type Item, type TalkRecord } from "./git/talk.ts";
+export { Objects, inflateAt, diffLines, asText, type Commit, type TreeEntry, type Change as FileChange, type DiffLine } from "./git/pack.ts";
